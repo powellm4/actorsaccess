@@ -27,7 +27,7 @@ def project_matches(project: dict) -> tuple[bool, str]:
     """Check if a project should be considered.
 
     Args:
-        project: Dict with key project_type.
+        project: Dict with keys project_type, project_name.
 
     Returns:
         (True, "") if the project passes, or
@@ -36,6 +36,11 @@ def project_matches(project: dict) -> tuple[bool, str]:
     ptype = project.get("project_type", "").lower()
     if ptype in _SKIP_PROJECT_TYPES:
         return False, f"project type: {project['project_type']}"
+
+    name = project.get("project_name", "")
+    if _BG_PATTERN.search(name):
+        return False, "background project"
+
     return True, ""
 
 
