@@ -1,0 +1,27 @@
+credentials:
+  username: "your_username"
+  password: "your_password"
+
+filters:
+  region: "Los Angeles"
+  gender: "male"
+  age_range: [25, 35]
+  union_status: "any"
+  paying_only: true
+  exclude_reality_tv: true
+
+submission:
+  headshot_index: 0
+  include_media: true
+  include_size_card: true
+  default_note: ""
+
+schedule:
+  interval_hours: 4
+
+browser:
+  headless: true
+
+logging:
+  level: "INFO"
+  file: "logs/auto_apply.log"
