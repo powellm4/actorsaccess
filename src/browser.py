@@ -233,10 +233,15 @@ class ActorsAccessBrowser:
                 if "breakdown=" in href:
                     breakdown_id = href.split("breakdown=")[1].split("&")[0]
 
+                # Get project type from the row (e.g., "Student Film", "Theater", "TV")
+                type_cell = row.query_selector("td.bd_type")
+                project_type = type_cell.inner_text().strip() if type_cell else ""
+
                 projects.append(
                     {
                         "breakdown_id": breakdown_id,
                         "project_name": project_name,
+                        "project_type": project_type,
                         "url": href,
                         "already_submitted": already_submitted,
                     }

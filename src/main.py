@@ -10,7 +10,7 @@ import schedule
 from src.config import load_config, ConfigError
 from src.database import Database
 from src.browser import ActorsAccessBrowser
-from src.filters import role_matches
+from src.filters import role_matches, project_matches
 
 logger = logging.getLogger("actorsaccess")
 
@@ -105,6 +105,15 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                 # Skip projects we've already submitted to
                 if project["already_submitted"]:
                     logger.debug(f"Skipping already-submitted project: {project['project_name']}")
+                    continue
+
+                # Skip excluded project types (e.g., theater)
+                proj_ok, proj_reason = project_matches(project)
+                if not proj_ok:
+                    if dry_run:
+                        print(f"\n[SKIP PROJECT - {proj_reason}] {project['project_name']}")
+                    else:
+                        logger.info(f"Skipping project: {project['project_name']} ({proj_reason})")
                     continue
 
                 # Navigate into the project to see individual roles
