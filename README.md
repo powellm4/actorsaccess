@@ -153,19 +153,74 @@ actorsaccess/
   tests/               # pytest tests
 ```
 
-## Running as a background process on Windows
+## Automation (Windows Task Scheduler)
 
-To keep it running 24/7 without a terminal window:
+The app is deployed as a Windows Scheduled Task that runs every 4 hours.
+
+### Current deployment
+
+| Item | Location |
+|------|----------|
+| **Project directory** | `C:\Users\fourp\OneDrive\Documents\dev\actorsaccess` |
+| **Scheduled task name** | `ActorsAccessAutoApply` |
+| **Runner script** | `run.bat` (sets env vars, runs `python -m src.main --once`) |
+| **Schedule** | Every 4 hours starting at 8:00 AM |
+| **Log file** | `logs/auto_apply.log` |
+| **Submissions database** | `data/applied.db` |
+| **Credentials** | Stored in `config.yaml` (git-ignored sensitive fields) and `run.bat` (API key) |
+
+### Managing the scheduled task
+
+```powershell
+# View task status
+Get-ScheduledTaskInfo -TaskName "ActorsAccessAutoApply"
+
+# Run it manually right now
+Start-ScheduledTask -TaskName "ActorsAccessAutoApply"
+
+# Disable temporarily
+Disable-ScheduledTask -TaskName "ActorsAccessAutoApply"
+
+# Re-enable
+Enable-ScheduledTask -TaskName "ActorsAccessAutoApply"
+
+# Delete
+Unregister-ScheduledTask -TaskName "ActorsAccessAutoApply"
+```
+
+### Reviewing automation results
 
 ```bash
-# Option 1: Use pythonw (no console window)
-pythonw -m src.main
+# View recent submissions with AI reasoning
+sqlite3 data/applied.db "SELECT applied_at, project_name, role_name, ai_reason, candidates_considered FROM applied_roles ORDER BY applied_at DESC LIMIT 20"
 
-# Option 2: Use Windows Task Scheduler
-# Create a task that runs: python -m src.main --once
-# Set it to repeat every 4 hours
-# Set "Start in" to the project directory
+# View run history
+sqlite3 data/applied.db "SELECT * FROM run_history ORDER BY started_at DESC LIMIT 10"
+
+# Tail the log
+tail -f logs/auto_apply.log
 ```
+
+### Database schema
+
+**applied_roles** — every role submitted for:
+| Column | Description |
+|--------|-------------|
+| `role_id` | Unique breakdown_id + role_id |
+| `project_name` | Project title |
+| `role_name` | Role name |
+| `role_description` | Full role description text |
+| `ai_reason` | Why the AI picked this role (or "only matching role") |
+| `candidates_considered` | How many roles were in the running |
+| `applied_at` | Timestamp |
+
+**run_history** — each automation run:
+| Column | Description |
+|--------|-------------|
+| `started_at` / `completed_at` | Run timestamps |
+| `roles_found` / `roles_applied` / `roles_skipped` | Counts |
+| `status` | `success` or `error` |
+| `error_message` | Error details if failed |
 
 ## Running tests
 
