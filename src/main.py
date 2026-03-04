@@ -85,13 +85,17 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
         # Process breakdowns page by page
         total_pages = browser.get_total_pages()
         max_pages = cfg.get("max_pages", 5)  # Don't crawl all 46 pages by default
+        max_subs = cfg.get("max_submissions")
         pages_to_process = min(total_pages, max_pages)
         logger.info(f"Processing {pages_to_process} of {total_pages} pages")
 
         if dry_run:
             print("\n=== DRY RUN — no submissions will be made ===\n")
 
+        hit_limit = False
         for page_num in range(1, pages_to_process + 1):
+            if hit_limit:
+                break
             if page_num > 1:
                 # Navigate back to breakdowns list and go to next page
                 browser.navigate_to_breakdowns(filters.get("region", ""))
@@ -147,8 +151,14 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                 if not candidates:
                     continue
 
+                # Check submission cap
+                if max_subs and roles_applied >= max_subs:
+                    logger.info(f"Reached max submissions ({max_subs}), stopping")
+                    hit_limit = True
+                    break
+
                 # Pick the best role (AI selection if multiple candidates)
-                best = select_best_role(candidates, project["project_name"])
+                best, ai_reason = select_best_role(candidates, project["project_name"])
                 unique_id = f"{project['breakdown_id']}_{best['role_id']}"
 
                 # In dry run, show what was picked and what was passed over
@@ -159,6 +169,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                                 _print_role_decision("SUBMIT (AI pick)", project["project_name"], role)
                             else:
                                 _print_role_decision("SKIP", project["project_name"], role, "not best fit")
+                        print(f"  AI reason: {ai_reason}")
                     else:
                         _print_role_decision("SUBMIT", project["project_name"], best)
                     roles_applied += 1
@@ -169,7 +180,10 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                 )
                 if success:
                     db.record_application(
-                        unique_id, project["project_name"], best["role_name"]
+                        unique_id, project["project_name"], best["role_name"],
+                        role_description=best.get("description", ""),
+                        ai_reason=ai_reason,
+                        candidates_considered=len(candidates),
                     )
                     roles_applied += 1
                 else:
@@ -209,6 +223,10 @@ def main():
         "--max-pages", type=int, default=None,
         help="Max pages of breakdowns to process (default: 5)",
     )
+    parser.add_argument(
+        "--max-submissions", type=int, default=None,
+        help="Max number of roles to submit for per run",
+    )
     args = parser.parse_args()
 
     try:
@@ -222,6 +240,9 @@ def main():
 
     if args.max_pages is not None:
         cfg["max_pages"] = args.max_pages
+
+    if args.max_submissions is not None:
+        cfg["max_submissions"] = args.max_submissions
 
     setup_logging(cfg["logging"])
 

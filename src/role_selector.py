@@ -22,7 +22,7 @@ ACTOR_PROFILE = """
 """
 
 
-def select_best_role(roles: list[dict], project_name: str) -> dict:
+def select_best_role(roles: list[dict], project_name: str) -> tuple[dict, str]:
     """Pick the best role from a list of matching roles.
 
     If only one role, returns it directly (no API call).
@@ -34,15 +34,15 @@ def select_best_role(roles: list[dict], project_name: str) -> dict:
         project_name: Name of the project (for context).
 
     Returns:
-        The single best role dict.
+        Tuple of (best role dict, AI reasoning string).
     """
     if len(roles) == 1:
-        return roles[0]
+        return roles[0], "only matching role"
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         logger.warning("No ANTHROPIC_API_KEY set — defaulting to first role")
-        return roles[0]
+        return roles[0], "no API key, defaulted to first"
 
     try:
         import anthropic
@@ -89,7 +89,7 @@ Best physical and type match for leading man."""
         num_match = re.search(r'\d+', lines[0])
         if not num_match:
             logger.warning(f"AI returned no number: {text[:100]}")
-            return roles[0]
+            return roles[0], "AI returned invalid response, defaulted to first"
         choice = int(num_match.group()) - 1
         reason = lines[1].strip() if len(lines) > 1 else ""
 
@@ -98,11 +98,11 @@ Best physical and type match for leading man."""
             logger.info(
                 f"AI selected role: {selected['role_name']} — {reason}"
             )
-            return selected
+            return selected, reason
 
         logger.warning(f"AI returned invalid choice {choice + 1}, defaulting to first")
-        return roles[0]
+        return roles[0], "AI returned invalid choice, defaulted to first"
 
     except Exception as e:
         logger.warning(f"AI role selection failed ({e}), defaulting to first role")
-        return roles[0]
+        return roles[0], f"AI failed ({e}), defaulted to first"

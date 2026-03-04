@@ -15,6 +15,9 @@ class Database:
                 role_id TEXT UNIQUE,
                 project_name TEXT,
                 role_name TEXT,
+                role_description TEXT,
+                ai_reason TEXT,
+                candidates_considered INTEGER DEFAULT 1,
                 applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS run_history (
@@ -28,6 +31,19 @@ class Database:
                 error_message TEXT
             );
         """)
+        # Add columns if upgrading from older schema
+        try:
+            self.conn.execute("ALTER TABLE applied_roles ADD COLUMN role_description TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            self.conn.execute("ALTER TABLE applied_roles ADD COLUMN ai_reason TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            self.conn.execute("ALTER TABLE applied_roles ADD COLUMN candidates_considered INTEGER DEFAULT 1")
+        except sqlite3.OperationalError:
+            pass
         self.conn.commit()
 
     def is_applied(self, role_id: str) -> bool:
@@ -36,11 +52,15 @@ class Database:
         )
         return cursor.fetchone() is not None
 
-    def record_application(self, role_id: str, project_name: str, role_name: str):
+    def record_application(
+        self, role_id: str, project_name: str, role_name: str,
+        role_description: str = "", ai_reason: str = "", candidates_considered: int = 1,
+    ):
         self.conn.execute(
-            """INSERT OR IGNORE INTO applied_roles (role_id, project_name, role_name)
-               VALUES (?, ?, ?)""",
-            (role_id, project_name, role_name),
+            """INSERT OR IGNORE INTO applied_roles
+               (role_id, project_name, role_name, role_description, ai_reason, candidates_considered)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (role_id, project_name, role_name, role_description, ai_reason, candidates_considered),
         )
         self.conn.commit()
 
