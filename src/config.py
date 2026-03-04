@@ -35,13 +35,18 @@ def load_config(path: str) -> dict:
     with open(path, "r") as f:
         cfg = yaml.safe_load(f) or {}
 
-    # Validate required fields
+    # Credentials: env vars take priority over config file
     if "credentials" not in cfg:
-        raise ConfigError("Missing required section: credentials")
-    if "username" not in cfg["credentials"]:
-        raise ConfigError("Missing required field: credentials.username")
-    if "password" not in cfg["credentials"]:
-        raise ConfigError("Missing required field: credentials.password")
+        cfg["credentials"] = {}
+    if os.environ.get("AA_USERNAME"):
+        cfg["credentials"]["username"] = os.environ["AA_USERNAME"]
+    if os.environ.get("AA_PASSWORD"):
+        cfg["credentials"]["password"] = os.environ["AA_PASSWORD"]
+
+    if not cfg["credentials"].get("username"):
+        raise ConfigError("Missing credentials.username (set in config.yaml or AA_USERNAME env var)")
+    if not cfg["credentials"].get("password"):
+        raise ConfigError("Missing credentials.password (set in config.yaml or AA_PASSWORD env var)")
 
     # Apply defaults for optional sections
     for section, defaults in DEFAULTS.items():

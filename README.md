@@ -31,57 +31,37 @@ pip install -r requirements.txt
 # 4. Install Playwright's Chromium browser
 playwright install chromium
 
-# 5. Create config from the example
-cp config.example.yaml config.yaml
+# 5. Set your Actors Access credentials as environment variables
+#    (credentials are NOT stored in the repo)
+
+# On Windows (permanent):
+setx AA_USERNAME "your_actorsaccess_username"
+setx AA_PASSWORD "your_password"
+# Then restart your terminal for setx to take effect
+
+# On macOS/Linux, add to ~/.bashrc or ~/.zshrc:
+export AA_USERNAME="your_actorsaccess_username"
+export AA_PASSWORD="your_password"
 ```
 
-### Configure `config.yaml`
+**Note:** The username is your Actors Access username, NOT your email.
 
-Edit `config.yaml` and fill in:
+### Config settings
 
-```yaml
-credentials:
-  username: "your_actorsaccess_username"  # NOT your email — your AA username
-  password: "your_password"
+All other settings are in `config.yaml` (committed to the repo). Edit as needed:
 
-filters:
-  region: "Los Angeles"        # See REGIONS list in src/browser.py for options
-  gender: "male"
-  age_range: [25, 35]
-  union_status: "nonunion_fit" # Options: all, union, non-union, fit_for_me, union_fit, nonunion_fit
-  paying_only: false
-  exclude_reality_tv: true
-
-submission:
-  headshot_index: 0            # Which headshot to use (0 = first)
-  include_media: true          # Include demo reel/media
-  include_size_card: true      # Include size card
-  default_note: ""             # Optional note to casting directors
-
-max_pages: 2                   # Pages of breakdowns to process per run (~25 projects/page)
-
-schedule:
-  interval_hours: 4            # How often to run (when using scheduler mode)
-
-browser:
-  headless: true               # true = no visible browser window
-
-logging:
-  level: "INFO"
-  file: "logs/auto_apply.log"
-```
-
-**`union_status` options explained:**
-| Value | Dropdown selection |
-|-------|-------------------|
-| `all` | All breakdowns |
-| `union` | Union breakdowns |
-| `non-union` | Non-union breakdowns |
-| `fit_for_me` | Breakdowns fit for me |
-| `union_fit` | Union breakdowns fit for me |
-| `nonunion_fit` | Non-union breakdowns fit for me |
-
-**Region options:** Los Angeles, New York, Chicago, San Francisco / NorCal, Central Atlantic, Midwest, New England, North Central, Northwest, Pacific, Rocky Mountains, South Central, Southeast, Vancouver, Toronto
+| Setting | Description |
+|---------|-------------|
+| `filters.region` | Region to search. Options: Los Angeles, New York, Chicago, San Francisco / NorCal, Central Atlantic, Midwest, New England, North Central, Northwest, Pacific, Rocky Mountains, South Central, Southeast, Vancouver, Toronto |
+| `filters.union_status` | `all`, `union`, `non-union`, `fit_for_me`, `union_fit`, `nonunion_fit` |
+| `filters.paying_only` | Only show paying roles |
+| `filters.exclude_reality_tv` | Skip reality TV listings |
+| `submission.headshot_index` | Which headshot to use (0 = first) |
+| `submission.include_media` | Attach demo reel/media |
+| `submission.include_size_card` | Attach size card |
+| `max_pages` | Pages of breakdowns per run (~25 projects/page) |
+| `schedule.interval_hours` | How often to repeat (scheduler mode) |
+| `browser.headless` | `true` = no visible browser window |
 
 ## Usage
 

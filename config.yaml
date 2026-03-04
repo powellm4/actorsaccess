@@ -1,0 +1,26 @@
+credentials:
+  username: ""  # Set via AA_USERNAME env var
+  password: ""  # Set via AA_PASSWORD env var
+
+filters:
+  region: "Los Angeles"
+  gender: "male"
+  age_range: [19, 29]
+  union_status: "nonunion_fit"
+  paying_only: false
+  exclude_reality_tv: true
+
+submission:
+  headshot_index: 0
+  include_media: true
+  include_size_card: true
+  default_note: ""
+
+max_pages: 5
+
+browser:
+  headless: true
+
+logging:
+  level: "INFO"
+  file: "logs/auto_apply.log"
