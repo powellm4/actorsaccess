@@ -1,6 +1,6 @@
 # ActorsAccess Auto-Apply
 
-Automated tool that logs into [Actors Access](https://actorsaccess.com), scrapes casting breakdowns, and submits for roles that match the user's profile. Uses Playwright for browser automation.
+Automated tool that logs into [Actors Access](https://actorsaccess.com), scrapes casting breakdowns, filters roles by fit, uses AI to pick the best role per project, and submits. Uses Playwright for browser automation and Claude Haiku for intelligent role selection.
 
 ## Setup Instructions
 
@@ -31,20 +31,30 @@ pip install -r requirements.txt
 # 4. Install Playwright's Chromium browser
 playwright install chromium
 
-# 5. Set your Actors Access credentials as environment variables
-#    (credentials are NOT stored in the repo)
+# 5. Set environment variables
+#    (credentials and API key are NOT stored in the repo)
 
 # On Windows (permanent):
 setx AA_USERNAME "your_actorsaccess_username"
 setx AA_PASSWORD "your_password"
+setx ANTHROPIC_API_KEY "sk-ant-..."
 # Then restart your terminal for setx to take effect
 
 # On macOS/Linux, add to ~/.bashrc or ~/.zshrc:
 export AA_USERNAME="your_actorsaccess_username"
 export AA_PASSWORD="your_password"
+export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
 **Note:** The username is your Actors Access username, NOT your email.
+
+### Environment variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `AA_USERNAME` | Yes | Actors Access username |
+| `AA_PASSWORD` | Yes | Actors Access password |
+| `ANTHROPIC_API_KEY` | No | Anthropic API key for AI role selection. Without it, defaults to first matching role per project. Get one at [console.anthropic.com](https://console.anthropic.com) |
 
 ### Config settings
 
@@ -85,7 +95,7 @@ python -m src.main --once
 python -m src.main --once --dry-run
 ```
 
-Prints `[SUBMIT]` or `[SKIP - reason]` for each role without actually submitting.
+Prints `[SUBMIT]`, `[SUBMIT (AI pick)]`, or `[SKIP - reason]` for each role without actually submitting.
 
 ### With visible browser (for debugging)
 
@@ -101,30 +111,46 @@ python -m src.main --once --max-pages 1
 
 ## How it works
 
-1. Logs into Actors Access with your credentials
-2. Navigates to the Breakdowns page and applies your configured filters
-3. Scrapes project listings page by page
-4. For each project, scrapes individual roles
-5. Skips roles the site does NOT highlight as "fit for me" (yellow background = match, white = skip)
-6. Skips roles already submitted (tracked in `data/applied.db`)
-7. For matching roles: opens the submission modal, selects headshot, attaches size card/media, and submits
-8. Logs everything to `logs/auto_apply.log`
+1. **Login** — Logs into Actors Access with credentials from env vars
+2. **Navigate** — Goes to the Breakdowns page, selects region, applies filters (union status, etc.)
+3. **Scrape projects** — Collects project listings page by page (~25 per page)
+4. **Filter projects** — Skips theater/musical projects entirely
+5. **Scrape roles** — For each remaining project, navigates in and scrapes individual roles
+6. **Filter roles** — Three-layer filtering:
+   - **Fit for me** — Skips roles the site doesn't highlight as a demographic match (the site uses your profile's age, gender, ethnicity to highlight fitting roles in yellow)
+   - **Background filter** — Skips roles with "BACKGROUND", "BG", or "Extra" in the name or description
+   - **Already applied** — Skips roles tracked in the local SQLite database
+7. **AI role selection** — If multiple roles pass filters on the same project, sends descriptions to Claude Haiku to pick the single best fit based on actor profile (only 1 submission per project). Falls back to first role if no API key is set.
+8. **Submit** — Opens the submission modal, selects headshot, attaches size card/media, and submits
+9. **Record** — Logs the submission to SQLite so it won't resubmit, and logs to `logs/auto_apply.log`
+
+### Actor profile (used by AI role selection)
+
+The AI selects roles optimized for:
+- Appears 25 years old, male, white, 6'0", 185 lbs, athletic build
+- Type: Leading man, comedic/charming
+- Strengths: Charisma-driven roles, protagonists, romantic leads, comedy, wit
+- Best fit: Confident, driven, likable, or funny characters
+
+To change the actor profile, edit `ACTOR_PROFILE` in `src/role_selector.py`.
 
 ## File structure
 
 ```
 actorsaccess/
   src/
-    main.py       # Entry point, CLI args, scheduler
-    browser.py    # Playwright browser automation (login, scrape, submit)
-    config.py     # Config loading and defaults
-    database.py   # SQLite tracking of applied roles
-    filters.py    # Role filtering (fit-for-me check)
-  config.yaml         # Your config (git-ignored)
-  config.example.yaml # Template config
-  data/applied.db     # SQLite DB tracking submissions (git-ignored)
-  logs/               # Log files (git-ignored)
-  tests/              # pytest tests
+    main.py            # Entry point, CLI args, scheduler, main loop
+    browser.py         # Playwright browser automation (login, scrape, submit)
+    config.py          # Config loading and defaults
+    database.py        # SQLite tracking of applied roles
+    filters.py         # Role/project filtering (fit-for-me, background, theater)
+    role_selector.py   # AI-powered best role selection via Claude Haiku
+  config.yaml          # Settings (committed — no credentials)
+  config.example.yaml  # Template config
+  requirements.txt     # Python dependencies
+  data/applied.db      # SQLite DB tracking submissions (git-ignored)
+  logs/                # Log files (git-ignored)
+  tests/               # pytest tests
 ```
 
 ## Running as a background process on Windows
