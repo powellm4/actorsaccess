@@ -31,7 +31,17 @@ def setup_logging(log_config: dict):
 
 
 def run_once(cfg: dict, db: Database):
-    """Execute a single scrape-and-apply run."""
+    """Execute a single scrape-and-apply run.
+
+    Flow:
+    1. Login
+    2. Navigate to breakdowns, apply filters
+    3. For each page of results:
+       - Scrape project listings
+       - Skip projects already fully submitted
+       - For each new project: navigate to it, scrape roles, submit for each
+    4. Record everything in the database
+    """
     run_id = db.start_run()
     roles_found = 0
     roles_applied = 0
@@ -56,28 +66,58 @@ def run_once(cfg: dict, db: Database):
 
         browser.apply_filters(filters)
 
-        # Scrape roles
-        roles = browser.scrape_roles()
-        roles_found = len(roles)
-        logger.info(f"Found {roles_found} roles matching filters")
+        # Process breakdowns page by page
+        total_pages = browser.get_total_pages()
+        max_pages = cfg.get("max_pages", 5)  # Don't crawl all 46 pages by default
+        pages_to_process = min(total_pages, max_pages)
+        logger.info(f"Processing {pages_to_process} of {total_pages} pages")
 
-        # Apply for each new role
-        for role in roles:
-            if db.is_applied(role["role_id"]):
-                roles_skipped += 1
-                continue
+        for page_num in range(1, pages_to_process + 1):
+            if page_num > 1:
+                # Navigate back to breakdowns list and go to next page
+                browser.navigate_to_breakdowns(filters.get("region", ""))
+                browser.apply_filters(filters)
+                if not browser.go_to_page(page_num):
+                    break
 
-            success = browser.submit_for_role(role, cfg["submission"])
-            if success:
-                db.record_application(role["role_id"], role["project_name"], role["role_name"])
-                roles_applied += 1
-            else:
-                logger.warning(f"Skipping failed submission: {role['role_name']}")
+            # Scrape project listings on this page
+            projects = browser.scrape_projects()
+
+            for project in projects:
+                # Skip projects we've already submitted to
+                if project["already_submitted"]:
+                    logger.debug(f"Skipping already-submitted project: {project['project_name']}")
+                    continue
+
+                # Navigate into the project to see individual roles
+                roles = browser.scrape_roles_on_project(project["url"])
+                roles_found += len(roles)
+
+                for role in roles:
+                    # Use breakdown_id + role_id as unique key
+                    unique_id = f"{project['breakdown_id']}_{role['role_id']}"
+
+                    if db.is_applied(unique_id):
+                        roles_skipped += 1
+                        continue
+
+                    success = browser.submit_for_role(
+                        role, project["project_name"], cfg["submission"]
+                    )
+                    if success:
+                        db.record_application(
+                            unique_id, project["project_name"], role["role_name"]
+                        )
+                        roles_applied += 1
+                    else:
+                        logger.warning(
+                            f"Skipping failed submission: {role['role_name']}"
+                        )
 
         db.complete_run(run_id, roles_found, roles_applied, roles_skipped)
         logger.info(
             f"Run complete: {roles_applied} applied, {roles_skipped} skipped, "
-            f"{roles_found} total"
+            f"{roles_found} total roles found"
         )
 
     except Exception as e:
@@ -93,6 +133,10 @@ def main():
     parser.add_argument("--config", default="config.yaml", help="Path to config file")
     parser.add_argument("--once", action="store_true", help="Run once and exit")
     parser.add_argument("--headed", action="store_true", help="Run with visible browser")
+    parser.add_argument(
+        "--max-pages", type=int, default=None,
+        help="Max pages of breakdowns to process (default: 5)",
+    )
     args = parser.parse_args()
 
     try:
@@ -103,6 +147,9 @@ def main():
 
     if args.headed:
         cfg["browser"]["headless"] = False
+
+    if args.max_pages is not None:
+        cfg["max_pages"] = args.max_pages
 
     setup_logging(cfg["logging"])
 

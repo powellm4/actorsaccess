@@ -7,6 +7,36 @@ from playwright.sync_api import sync_playwright, Page, Browser, BrowserContext
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://actorsaccess.com"
+BREAKDOWNS_URL = "https://actorsaccess.com/projects/"
+
+# Region name -> value mapping for the region dropdown
+REGIONS = {
+    "Los Angeles": "5",
+    "New York": "32",
+    "Chicago": "4",
+    "San Francisco / NorCal": "25",
+    "Central Atlantic": "12",
+    "Midwest": "19",
+    "New England": "20",
+    "North Central": "21",
+    "Northwest": "11",
+    "Pacific": "8",
+    "Rocky Mountains": "10",
+    "South Central": "7",
+    "Southeast": "9",
+    "Vancouver": "27",
+    "Toronto": "26",
+}
+
+# Filter dropdown value mapping
+FILTER_OPTIONS = {
+    "all": "all breakdowns",
+    "union": "union breakdowns",
+    "non-union": "nonunion breakdowns",
+    "fit_for_me": "breakdowns fit for me",
+    "union_fit": "union breakdowns fit for me",
+    "nonunion_fit": "nonunion breakdowns fit for me",
+}
 
 
 def _random_delay(min_sec: float = 2.0, max_sec: float = 8.0):
@@ -45,27 +75,37 @@ class ActorsAccessBrowser:
     def login(self, username: str, password: str) -> bool:
         """Log into Actors Access. Returns True on success, False on failure."""
         try:
-            logger.info("Navigating to Actors Access login page")
+            logger.info("Navigating to Actors Access")
             self.page.goto(BASE_URL)
             _random_delay(1, 3)
 
-            # PLACEHOLDER SELECTORS — update after manual site inspection
-            self.page.fill('input[name="username"], input[id="username"], input[type="text"]', username)
+            # The login form is hidden — click the "Login" link to reveal it
+            self.page.click('a:has-text("Login")')
+            _random_delay(1, 2)
+
+            # Fill login form (uses username, NOT email)
+            self.page.fill('input[name="username"]', username)
             _random_delay(0.5, 1.5)
-            self.page.fill('input[name="password"], input[id="password"], input[type="password"]', password)
+            self.page.fill('input[name="password"]', password)
             _random_delay(0.5, 1.5)
 
-            # Click login button — PLACEHOLDER SELECTOR
-            self.page.click('button[type="submit"], input[type="submit"], .login-button, #login-btn')
-            _random_delay(2, 4)
+            # Click the LOGIN button
+            self.page.click('button[type="submit"]')
+            _random_delay(3, 5)
 
-            # Verify login succeeded — PLACEHOLDER SELECTOR
-            if self.page.url != BASE_URL or self.page.query_selector('.logout, .my-account, .dashboard'):
+            # Verify login succeeded — look for "Sign out" link on the page
+            body_text = self.page.inner_text("body")
+            if "Sign out" in body_text or "BREAKDOWNS" in body_text:
                 logger.info("Login successful")
                 return True
-            else:
-                logger.error("Login may have failed — no post-login indicator found")
+
+            # Check for error dialog
+            if "Incorrect Username or Password" in body_text:
+                logger.error("Login failed: incorrect username or password")
                 return False
+
+            logger.error("Login may have failed — no post-login indicator found")
+            return False
 
         except Exception as e:
             logger.error(f"Login failed: {e}")
@@ -75,13 +115,19 @@ class ActorsAccessBrowser:
         """Navigate to the Breakdowns page and select a region."""
         logger.info(f"Navigating to breakdowns for region: {region}")
         try:
-            # Click Breakdowns menu — PLACEHOLDER SELECTOR
-            self.page.click('a:has-text("Breakdowns"), [href*="projects"]')
-            _random_delay(1, 3)
+            self.page.goto(BREAKDOWNS_URL)
+            _random_delay(2, 4)
 
-            # Select region if specified — PLACEHOLDER SELECTOR
+            # Select region using the dropdown (form auto-submits on change)
             if region:
-                self.page.click(f'a:has-text("{region}"), option:has-text("{region}")')
+                region_value = REGIONS.get(region, "5")
+                self.page.select_option(
+                    'form#changeRegion select[name="region"]',
+                    value=region_value,
+                )
+                _random_delay(1, 2)
+                # The region form auto-submits via onchange
+                self.page.wait_for_load_state("networkidle")
                 _random_delay(2, 4)
 
             logger.info("Breakdowns page loaded")
@@ -91,38 +137,39 @@ class ActorsAccessBrowser:
             return False
 
     def apply_filters(self, filters: dict) -> bool:
-        """Apply search filters on the breakdowns page."""
-        logger.info(f"Applying filters: {filters}")
+        """Apply search filters on the breakdowns page.
+
+        Available filters on the site:
+        - filter dropdown: All/Union/Non-Union/Fit For Me variants
+        - checkboxes: background_role, paying_role, kids_only, exclude_realitytv, exclude_real_people
+        - search_by/search_for: text search
+        """
+        logger.info(f"Applying filters")
         try:
-            # All selectors below are PLACEHOLDERS — update after manual inspection
-
-            gender = filters.get("gender", "any")
-            if gender != "any":
-                self.page.select_option('select[name="gender"]', label=gender)
-                _random_delay(0.5, 1)
-
-            age_range = filters.get("age_range")
-            if age_range:
-                self.page.fill('input[name="age_min"]', str(age_range[0]))
-                self.page.fill('input[name="age_max"]', str(age_range[1]))
-                _random_delay(0.5, 1)
-
+            # Set the filter dropdown (union status / fit for me)
             union = filters.get("union_status", "any")
-            if union != "any":
-                self.page.select_option('select[name="union"]', label=union)
-                _random_delay(0.5, 1)
+            filter_value = FILTER_OPTIONS.get(union, "all breakdowns")
+            self.page.select_option('select[name="filter"]', value=filter_value)
+            _random_delay(0.5, 1)
 
+            # Paying roles only checkbox
             if filters.get("paying_only"):
-                self.page.check('input[name="paying_only"], input#paying_only')
-                _random_delay(0.3, 0.8)
+                checkbox = self.page.query_selector('input#paying_role')
+                if checkbox and not checkbox.is_checked():
+                    checkbox.check()
+                    _random_delay(0.3, 0.8)
 
+            # Exclude reality TV checkbox
             if filters.get("exclude_reality_tv"):
-                self.page.check('input[name="exclude_reality"], input#exclude_reality')
-                _random_delay(0.3, 0.8)
+                checkbox = self.page.query_selector('input#exclude_realitytv')
+                if checkbox and not checkbox.is_checked():
+                    checkbox.check()
+                    _random_delay(0.3, 0.8)
 
-            # Click search/apply button — PLACEHOLDER SELECTOR
-            self.page.click('button:has-text("Search"), input[value="Search"]')
+            # Click the Search button (it's an input[type="button"] with onclick)
+            self.page.click('input[value="Search"]')
             _random_delay(2, 5)
+            self.page.wait_for_load_state("networkidle")
 
             logger.info("Filters applied")
             return True
@@ -130,99 +177,199 @@ class ActorsAccessBrowser:
             logger.error(f"Failed to apply filters: {e}")
             return False
 
-    def scrape_roles(self) -> list[dict]:
-        """Scrape all visible roles from the current breakdowns page.
+    def get_total_pages(self) -> int:
+        """Get the total number of pages of breakdowns."""
+        try:
+            page_select = self.page.query_selector('select[name="page"]')
+            if page_select:
+                options = page_select.query_selector_all("option")
+                return len(options)
+        except Exception:
+            pass
+        return 1
 
-        Returns a list of dicts with keys: role_id, project_name, role_name, element.
-        The 'element' key holds a Playwright ElementHandle for clicking into the role.
+    def go_to_page(self, page_num: int) -> bool:
+        """Navigate to a specific page of breakdowns."""
+        try:
+            self.page.select_option('select[name="page"]', value=str(page_num))
+            _random_delay(1, 2)
+            self.page.wait_for_load_state("networkidle")
+            _random_delay(2, 4)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to go to page {page_num}: {e}")
+            return False
+
+    def scrape_projects(self) -> list[dict]:
+        """Scrape all project listings from the current breakdowns page.
+
+        Returns a list of dicts with keys: breakdown_id, project_name, url, already_submitted.
+        """
+        projects = []
+        try:
+            # Projects are in table.bd_list, each row is tr.element
+            rows = self.page.query_selector_all("table.bd_list tr.element")
+
+            for row in rows:
+                # Check if already submitted (has checkmark image)
+                submitted_cell = row.query_selector("td.submitted")
+                already_submitted = False
+                if submitted_cell:
+                    check_img = submitted_cell.query_selector(
+                        'img[alt="Submitted On Project"]'
+                    )
+                    already_submitted = check_img is not None
+
+                # Get project title and link
+                title_cell = row.query_selector("td.bd_title a")
+                if not title_cell:
+                    continue
+
+                project_name = title_cell.inner_text().strip()
+                href = title_cell.get_attribute("href") or ""
+
+                # Extract breakdown ID from URL like /projects/?view=breakdowns&breakdown=885850&region=5
+                breakdown_id = ""
+                if "breakdown=" in href:
+                    breakdown_id = href.split("breakdown=")[1].split("&")[0]
+
+                projects.append(
+                    {
+                        "breakdown_id": breakdown_id,
+                        "project_name": project_name,
+                        "url": href,
+                        "already_submitted": already_submitted,
+                    }
+                )
+
+            logger.info(
+                f"Found {len(projects)} projects on page "
+                f"({sum(1 for p in projects if p['already_submitted'])} already submitted)"
+            )
+        except Exception as e:
+            logger.error(f"Failed to scrape projects: {e}")
+
+        return projects
+
+    def scrape_roles_on_project(self, project_url: str) -> list[dict]:
+        """Navigate to a project page and scrape individual roles.
+
+        Returns a list of dicts with keys: role_id, role_name, onclick_args.
         """
         roles = []
         try:
-            # PLACEHOLDER SELECTORS — must be updated after inspecting site HTML
-            project_elements = self.page.query_selector_all('.project-listing, .breakdown-item, tr.project')
+            # Navigate to the project breakdown page
+            if not project_url.startswith("http"):
+                project_url = BASE_URL + project_url
+            self.page.goto(project_url)
+            _random_delay(2, 4)
 
-            for project_el in project_elements:
-                project_name = project_el.query_selector('.project-title, .title, td.title')
-                if not project_name:
-                    continue
-                project_name_text = project_name.inner_text().strip()
+            # Roles are links with class 'breakdown-open-add-role'
+            # onclick="selectPhoto(5273126,885850,this);"
+            role_links = self.page.query_selector_all("a.breakdown-open-add-role")
 
-                # Each project may have multiple roles
-                role_elements = project_el.query_selector_all('.role, .character, tr.role')
-                for role_el in role_elements:
-                    role_name_el = role_el.query_selector('.role-name, .character-name, td.role')
-                    if not role_name_el:
-                        continue
+            for link in role_links:
+                role_name = link.inner_text().strip()
+                name_attr = link.get_attribute("name") or ""
+                # name is like "role_5273126" — extract the ID
+                role_id = name_attr.replace("role_", "") if name_attr else ""
 
-                    role_name_text = role_name_el.inner_text().strip()
-                    # Generate a unique-ish ID from project + role name
-                    role_id = f"{project_name_text}::{role_name_text}".lower().replace(" ", "_")
-
-                    roles.append({
+                roles.append(
+                    {
                         "role_id": role_id,
-                        "project_name": project_name_text,
-                        "role_name": role_name_text,
-                        "element": role_el,
-                    })
+                        "role_name": role_name,
+                        "element": link,
+                    }
+                )
 
-            logger.info(f"Found {len(roles)} roles on page")
+            logger.info(f"Found {len(roles)} roles on project page")
         except Exception as e:
             logger.error(f"Failed to scrape roles: {e}")
 
         return roles
 
-    def submit_for_role(self, role: dict, submission_config: dict) -> bool:
-        """Click into a role and submit application.
+    def submit_for_role(self, role: dict, project_name: str, submission_config: dict) -> bool:
+        """Click a role link to open the submission modal and submit.
 
-        Args:
-            role: Dict from scrape_roles() with role_id, project_name, role_name, element
-            submission_config: Dict with headshot_index, include_media, include_size_card, default_note
-
-        Returns True on successful submission, False on failure.
+        The submission modal contains an iframe with:
+        - Step 1: Photo selection (radio buttons input[name="photo_to_use"])
+        - Step 2: Media (hidden input, no action needed if no media)
+        - Step 3: Size card checkbox (input#include_sc_checkbox_id)
+        - Step 4: Note textarea (textarea#roleSubmissionNotes)
+        - Submit button: a#add_to_cart with onclick="submitForm();"
         """
         try:
-            logger.info(f"Submitting for: {role['project_name']} — {role['role_name']}")
+            logger.info(f"Submitting for: {project_name} — {role['role_name']}")
 
-            # Click the role to open submission dialog — PLACEHOLDER
+            # Click the role link to open the submission modal
             role["element"].click()
             _random_delay(2, 4)
 
-            # Select headshot by index — PLACEHOLDER SELECTOR
+            # Wait for the modal iframe to load
+            iframe_el = self.page.wait_for_selector("#roleSubmissionIframe", timeout=10000)
+            if not iframe_el:
+                logger.error("Submission iframe not found")
+                return False
+
+            frame = iframe_el.content_frame()
+            if not frame:
+                logger.error("Could not access iframe content")
+                return False
+
+            _random_delay(1, 3)
+
+            # Step 1: Select headshot (radio button by index)
             headshot_index = submission_config.get("headshot_index", 0)
-            headshots = self.page.query_selector_all('.headshot-option, .photo-select img')
-            if headshots and headshot_index < len(headshots):
-                headshots[headshot_index].click()
+            photo_radios = frame.query_selector_all('input[name="photo_to_use"]')
+            if photo_radios and headshot_index < len(photo_radios):
+                photo_radios[headshot_index].check()
+                _random_delay(0.5, 1)
+            elif photo_radios:
+                # Default to first photo
+                photo_radios[0].check()
                 _random_delay(0.5, 1)
 
-            # Include media if configured — PLACEHOLDER SELECTOR
-            if submission_config.get("include_media"):
-                media_checkbox = self.page.query_selector('input[name="include_media"], .media-checkbox')
-                if media_checkbox and not media_checkbox.is_checked():
-                    media_checkbox.check()
-                    _random_delay(0.3, 0.8)
-
-            # Include size card if configured — PLACEHOLDER SELECTOR
+            # Step 3: Size card checkbox
             if submission_config.get("include_size_card"):
-                size_card = self.page.query_selector('input[name="size_card"], .size-card-checkbox')
-                if size_card and not size_card.is_checked():
-                    size_card.check()
+                sc_checkbox = frame.query_selector("input#include_sc_checkbox_id")
+                if sc_checkbox and not sc_checkbox.is_checked():
+                    sc_checkbox.check()
                     _random_delay(0.3, 0.8)
 
-            # Add note if configured — PLACEHOLDER SELECTOR
+            # Step 4: Note for casting
             note = submission_config.get("default_note", "")
             if note:
-                note_field = self.page.query_selector('textarea[name="note"], .casting-note textarea')
+                note_field = frame.query_selector("textarea#roleSubmissionNotes")
                 if note_field:
                     note_field.fill(note)
                     _random_delay(0.5, 1)
 
-            # Click submit — PLACEHOLDER SELECTOR
-            self.page.click('button:has-text("Submit"), input[value="Submit"], .submit-btn')
-            _random_delay(2, 4)
+            # Click Submit button (inside the iframe)
+            submit_btn = frame.query_selector("a#add_to_cart")
+            if not submit_btn:
+                logger.error("Submit button not found in iframe")
+                self._close_modal()
+                return False
+
+            submit_btn.click()
+            _random_delay(3, 5)
 
             logger.info(f"Submitted for: {role['role_name']}")
             return True
 
         except Exception as e:
             logger.error(f"Failed to submit for {role['role_name']}: {e}")
+            self._close_modal()
             return False
+
+    def _close_modal(self):
+        """Close the submission modal if it's open."""
+        try:
+            close_btn = self.page.query_selector(
+                "#roleSubmissionModal .close-medium-icon"
+            )
+            if close_btn:
+                close_btn.click()
+                _random_delay(0.5, 1)
+        except Exception:
+            pass
