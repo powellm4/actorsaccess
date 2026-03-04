@@ -11,6 +11,7 @@ from src.config import load_config, ConfigError
 from src.database import Database
 from src.browser import ActorsAccessBrowser
 from src.filters import role_matches, project_matches
+from src.role_selector import select_best_role
 
 logger = logging.getLogger("actorsaccess")
 
@@ -120,15 +121,15 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                 roles = browser.scrape_roles_on_project(project["url"])
                 roles_found += len(roles)
 
+                # Filter roles and collect candidates
+                candidates = []
                 for role in roles:
-                    # Use breakdown_id + role_id as unique key
                     unique_id = f"{project['breakdown_id']}_{role['role_id']}"
 
                     if db.is_applied(unique_id):
                         roles_skipped += 1
                         continue
 
-                    # Apply role filters (site's "fit for me" highlighting)
                     matches, skip_reason = role_matches(role)
                     if not matches:
                         roles_filtered += 1
@@ -141,23 +142,40 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             )
                         continue
 
-                    if dry_run:
-                        _print_role_decision("SUBMIT", project["project_name"], role)
-                        roles_applied += 1
-                        continue
+                    candidates.append(role)
 
-                    success = browser.submit_for_role(
-                        role, project["project_name"], cfg["submission"]
-                    )
-                    if success:
-                        db.record_application(
-                            unique_id, project["project_name"], role["role_name"]
-                        )
-                        roles_applied += 1
+                if not candidates:
+                    continue
+
+                # Pick the best role (AI selection if multiple candidates)
+                best = select_best_role(candidates, project["project_name"])
+                unique_id = f"{project['breakdown_id']}_{best['role_id']}"
+
+                # In dry run, show what was picked and what was passed over
+                if dry_run:
+                    if len(candidates) > 1:
+                        for role in candidates:
+                            if role is best:
+                                _print_role_decision("SUBMIT (AI pick)", project["project_name"], role)
+                            else:
+                                _print_role_decision("SKIP", project["project_name"], role, "not best fit")
                     else:
-                        logger.warning(
-                            f"Skipping failed submission: {role['role_name']}"
-                        )
+                        _print_role_decision("SUBMIT", project["project_name"], best)
+                    roles_applied += 1
+                    continue
+
+                success = browser.submit_for_role(
+                    best, project["project_name"], cfg["submission"]
+                )
+                if success:
+                    db.record_application(
+                        unique_id, project["project_name"], best["role_name"]
+                    )
+                    roles_applied += 1
+                else:
+                    logger.warning(
+                        f"Skipping failed submission: {best['role_name']}"
+                    )
 
         db.complete_run(run_id, roles_found, roles_applied, roles_skipped)
 
