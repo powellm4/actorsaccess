@@ -6,3 +6,6 @@ __pycache__/
 .pytest_cache/
 venv/
 .env
+debug_*
+docs/
+.claude/

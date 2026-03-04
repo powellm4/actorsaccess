@@ -10,6 +10,7 @@ import schedule
 from src.config import load_config, ConfigError
 from src.database import Database
 from src.browser import ActorsAccessBrowser
+from src.filters import role_matches
 
 logger = logging.getLogger("actorsaccess")
 
@@ -30,7 +31,18 @@ def setup_logging(log_config: dict):
     )
 
 
-def run_once(cfg: dict, db: Database):
+def _print_role_decision(tag: str, project_name: str, role: dict, reason: str = ""):
+    """Print a formatted role decision line for dry-run output."""
+    label = f"[{tag}]" if not reason else f"[{tag} - {reason}]"
+    print(f"\n{label} Project: {project_name} | Role: {role['role_name']}")
+    if role.get("description"):
+        desc = role["description"]
+        if len(desc) > 200:
+            desc = desc[:200] + "..."
+        print(f"  {desc}")
+
+
+def run_once(cfg: dict, db: Database, dry_run: bool = False):
     """Execute a single scrape-and-apply run.
 
     Flow:
@@ -39,13 +51,16 @@ def run_once(cfg: dict, db: Database):
     3. For each page of results:
        - Scrape project listings
        - Skip projects already fully submitted
-       - For each new project: navigate to it, scrape roles, submit for each
+       - For each new project: navigate to it, scrape roles, filter, submit
     4. Record everything in the database
+
+    If dry_run is True, print what would be submitted without actually submitting.
     """
     run_id = db.start_run()
     roles_found = 0
     roles_applied = 0
     roles_skipped = 0
+    roles_filtered = 0
 
     browser = ActorsAccessBrowser(headless=cfg["browser"]["headless"])
 
@@ -71,6 +86,9 @@ def run_once(cfg: dict, db: Database):
         max_pages = cfg.get("max_pages", 5)  # Don't crawl all 46 pages by default
         pages_to_process = min(total_pages, max_pages)
         logger.info(f"Processing {pages_to_process} of {total_pages} pages")
+
+        if dry_run:
+            print("\n=== DRY RUN — no submissions will be made ===\n")
 
         for page_num in range(1, pages_to_process + 1):
             if page_num > 1:
@@ -101,6 +119,24 @@ def run_once(cfg: dict, db: Database):
                         roles_skipped += 1
                         continue
 
+                    # Apply role filters (site's "fit for me" highlighting)
+                    matches, skip_reason = role_matches(role)
+                    if not matches:
+                        roles_filtered += 1
+                        if dry_run:
+                            _print_role_decision("SKIP", project["project_name"], role, skip_reason)
+                        else:
+                            logger.info(
+                                f"Filtered out: {project['project_name']} — "
+                                f"{role['role_name']} ({skip_reason})"
+                            )
+                        continue
+
+                    if dry_run:
+                        _print_role_decision("SUBMIT", project["project_name"], role)
+                        roles_applied += 1
+                        continue
+
                     success = browser.submit_for_role(
                         role, project["project_name"], cfg["submission"]
                     )
@@ -115,10 +151,15 @@ def run_once(cfg: dict, db: Database):
                         )
 
         db.complete_run(run_id, roles_found, roles_applied, roles_skipped)
-        logger.info(
-            f"Run complete: {roles_applied} applied, {roles_skipped} skipped, "
+
+        summary = (
+            f"Run complete: {roles_applied} {'would apply' if dry_run else 'applied'}, "
+            f"{roles_filtered} filtered out, {roles_skipped} already applied, "
             f"{roles_found} total roles found"
         )
+        if dry_run:
+            print(f"\n=== {summary} ===")
+        logger.info(summary)
 
     except Exception as e:
         logger.error(f"Run failed: {e}")
@@ -133,6 +174,10 @@ def main():
     parser.add_argument("--config", default="config.yaml", help="Path to config file")
     parser.add_argument("--once", action="store_true", help="Run once and exit")
     parser.add_argument("--headed", action="store_true", help="Run with visible browser")
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Preview what would be submitted without actually submitting",
+    )
     parser.add_argument(
         "--max-pages", type=int, default=None,
         help="Max pages of breakdowns to process (default: 5)",
@@ -156,9 +201,12 @@ def main():
     os.makedirs("data", exist_ok=True)
     db = Database("data/applied.db")
 
+    if args.dry_run:
+        args.once = True  # dry-run implies --once
+
     if args.once:
-        logger.info("Running single pass...")
-        run_once(cfg, db)
+        logger.info("Running single pass..." + (" (dry run)" if args.dry_run else ""))
+        run_once(cfg, db, dry_run=args.dry_run)
     else:
         interval = cfg["schedule"]["interval_hours"]
         logger.info(f"Starting scheduler — running every {interval} hours")

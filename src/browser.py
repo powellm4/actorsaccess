@@ -254,7 +254,8 @@ class ActorsAccessBrowser:
     def scrape_roles_on_project(self, project_url: str) -> list[dict]:
         """Navigate to a project page and scrape individual roles.
 
-        Returns a list of dicts with keys: role_id, role_name, onclick_args.
+        Returns a list of dicts with keys: role_id, role_name, element,
+        fit_for_me, description.
         """
         roles = []
         try:
@@ -274,11 +275,43 @@ class ActorsAccessBrowser:
                 # name is like "role_5273126" — extract the ID
                 role_id = name_attr.replace("role_", "") if name_attr else ""
 
+                # Check if the role is highlighted as "fit for me"
+                # The site wraps fitting roles in <div class="role_fit_for_me">
+                fit_for_me = self.page.evaluate(
+                    """(el) => {
+                        const parent = el.closest('.role_fit_for_me');
+                        return parent !== null;
+                    }""",
+                    link,
+                )
+
+                # Grab the description text following the link
+                desc_text = self.page.evaluate(
+                    """(el) => {
+                        let text = '';
+                        let node = el.nextSibling;
+                        while (node) {
+                            if (node.nodeType === Node.TEXT_NODE) {
+                                text += node.textContent;
+                            } else if (node.nodeType === Node.ELEMENT_NODE) {
+                                if (node.tagName === 'A' || node.tagName === 'HR'
+                                    || node.tagName === 'DIV') break;
+                                text += node.textContent;
+                            }
+                            node = node.nextSibling;
+                        }
+                        return text.trim();
+                    }""",
+                    link,
+                )
+
                 roles.append(
                     {
                         "role_id": role_id,
                         "role_name": role_name,
                         "element": link,
+                        "fit_for_me": fit_for_me,
+                        "description": desc_text,
                     }
                 )
 
