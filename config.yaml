@@ -1,6 +1,6 @@
 credentials:
-  username: ""  # Set via AA_USERNAME env var
-  password: ""  # Set via AA_PASSWORD env var
+  username: "REDACTED"
+  password: "REDACTED"
 
 filters:
   region: "Los Angeles"
