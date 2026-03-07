@@ -222,6 +222,17 @@ tail -f logs/auto_apply.log
 | `status` | `success` or `error` |
 | `error_message` | Error details if failed |
 
+## Migrating the database
+
+If moving to GitHub Actions from a local setup, push your existing `data/applied.db` first to avoid duplicate submissions:
+
+```bash
+git pull
+git add -f data/applied.db
+git commit -m "Add applied.db"
+git push
+```
+
 ## Running tests
 
 ```bash
