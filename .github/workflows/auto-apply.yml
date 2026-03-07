@@ -1,0 +1,41 @@
+name: Auto Apply
+
+on:
+  schedule:
+    # Every 4 hours: 8am, 12pm, 4pm, 8pm, 12am, 4am PT (UTC-7)
+    - cron: "0 15,19,23,3,7,11 * * *"
+  workflow_dispatch: # Allow manual trigger from GitHub UI
+
+jobs:
+  auto-apply:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Run auto-apply
+        env:
+          AA_USERNAME: ${{ secrets.AA_USERNAME }}
+          AA_PASSWORD: ${{ secrets.AA_PASSWORD }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python -m src.main --once
+
+      - name: Commit updated database
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f data/applied.db
+          git diff --cached --quiet && echo "No DB changes" || git commit -m "Update applied.db [skip ci]" && git push
