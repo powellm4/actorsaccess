@@ -1,0 +1,223 @@
+# src/cn/browser.py
+import logging
+import random
+import re
+import time
+from playwright.sync_api import sync_playwright, Page, Browser, BrowserContext
+
+logger = logging.getLogger(__name__)
+
+BASE_URL = "https://app.castingnetworks.com"
+LOGIN_URL = f"{BASE_URL}/login/"
+
+
+def _random_delay(min_sec: float = 2.0, max_sec: float = 8.0):
+    delay = random.uniform(min_sec, max_sec)
+    logger.debug(f"Waiting {delay:.1f}s")
+    time.sleep(delay)
+
+
+class CastingNetworksBrowser:
+    def __init__(self, headless: bool = False):
+        self.headless = headless
+        self.playwright = None
+        self.browser: Browser = None
+        self.context: BrowserContext = None
+        self.page: Page = None
+
+    def start(self):
+        self.playwright = sync_playwright().start()
+        self.browser = self.playwright.chromium.launch(
+            headless=self.headless,
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+        self.context = self.browser.new_context(
+            viewport={"width": 1280, "height": 800},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        )
+        self.page = self.context.new_page()
+        self.page.add_init_script('Object.defineProperty(navigator, "webdriver", {get: () => undefined})')
+        self.page.set_default_timeout(30000)
+        logger.info("Browser started")
+
+    def close(self):
+        if self.browser:
+            self.browser.close()
+        if self.playwright:
+            self.playwright.stop()
+        logger.info("Browser closed")
+
+    def login(self, email: str, password: str) -> bool:
+        try:
+            logger.info("Navigating to Casting Networks login")
+            self.page.goto(LOGIN_URL)
+            _random_delay(3, 5)
+
+            self.page.fill("input#email", email)
+            _random_delay(0.5, 1.5)
+            self.page.fill("input#password", password)
+            _random_delay(0.5, 1.5)
+
+            self.page.click('button[type="submit"]')
+            _random_delay(5, 8)
+
+            body_text = self.page.inner_text("body")
+            if "Casting Billboard" in body_text:
+                logger.info("Login successful")
+                return True
+
+            logger.error("Login may have failed — no post-login indicator found")
+            return False
+        except Exception as e:
+            logger.error(f"Login failed: {e}")
+            return False
+
+    def scrape_roles(self) -> list[dict]:
+        """Scrape all role cards from the current billboard page.
+
+        Returns list of dicts with keys: project_id, role_id, role_name,
+        project_name, project_type, role_type, age_range, gender, pay,
+        union, description, url.
+        """
+        roles = []
+        try:
+            role_links = self.page.query_selector_all(
+                '[data-qa-id="casting-billboard-role-name-link"]'
+            )
+            logger.info(f"Found {len(role_links)} role links on page")
+
+            for link in role_links:
+                href = link.get_attribute("href") or ""
+                role_name = link.inner_text().strip()
+
+                match = re.search(r"/project/(\d+)/role/(\d+)", href)
+                if not match:
+                    continue
+                project_id = match.group(1)
+                role_id = match.group(2)
+
+                card_data = self.page.evaluate('''(linkEl) => {
+                    let card = linkEl;
+                    for (let i = 0; i < 15; i++) {
+                        if (card.parentElement) card = card.parentElement;
+                        const cls = card.className || "";
+                        if (cls.includes("cn_w-full") && card.innerText.length > 50) break;
+                    }
+
+                    const get = (qaId) => {
+                        const el = card.querySelector('[data-qa-id="' + qaId + '"]');
+                        return el ? el.innerText.trim() : "";
+                    };
+
+                    return {
+                        projectName: get("casting-billboard-project-name-link"),
+                        projectType: get("casting-billboard-project-type"),
+                        roleType: get("casting-billboard-role-header-type-name"),
+                        ageRange: get("casting-billboard-role-header-age-range"),
+                        gender: get("casting-billboard-role-header-gender-appearance"),
+                        pay: get("casting-billboard-role-header-rate-summary"),
+                        union: get("casting-billboard-role-header-union") || get("casting-billboard-project-union"),
+                        description: get("casting-billboard-role-description"),
+                    };
+                }''', link)
+
+                roles.append({
+                    "project_id": project_id,
+                    "role_id": role_id,
+                    "role_name": role_name,
+                    "project_name": card_data.get("projectName", ""),
+                    "project_type": card_data.get("projectType", ""),
+                    "role_type": card_data.get("roleType", ""),
+                    "age_range": card_data.get("ageRange", ""),
+                    "gender": card_data.get("gender", ""),
+                    "pay": card_data.get("pay", ""),
+                    "union": card_data.get("union", ""),
+                    "description": card_data.get("description", ""),
+                    "url": href,
+                })
+
+            logger.info(f"Scraped {len(roles)} roles from page")
+        except Exception as e:
+            logger.error(f"Failed to scrape roles: {e}")
+
+        return roles
+
+    def get_total_pages(self) -> int:
+        try:
+            page_buttons = self.page.query_selector_all('button:has-text("Page ")')
+            if page_buttons:
+                last = page_buttons[-1].inner_text()
+                match = re.search(r"of (\d+)", last)
+                if match:
+                    return int(match.group(1))
+        except Exception:
+            pass
+        return 1
+
+    def go_to_page(self, page_num: int) -> bool:
+        try:
+            btn = self.page.query_selector(f'button:has-text("Page {page_num} of")')
+            if btn:
+                btn.click()
+                _random_delay(3, 5)
+                self.page.wait_for_load_state("networkidle")
+                return True
+            logger.error(f"Page {page_num} button not found")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to go to page {page_num}: {e}")
+            return False
+
+    def submit_for_role(self, role: dict, submission_config: dict) -> bool:
+        """Navigate to role detail, then submit.
+
+        Flow: role detail page -> click Submit -> customize-submission page
+        -> photos pre-selected -> optional note -> click Submit.
+        """
+        try:
+            url = role["url"]
+            if not url.startswith("http"):
+                url = BASE_URL + url
+
+            logger.info(f"Submitting for: {role['project_name']} — {role['role_name']}")
+
+            self.page.goto(url)
+            _random_delay(2, 4)
+
+            submit_link = self.page.query_selector('[data-qa-id="casting-billboard-submit-role"]')
+            if not submit_link:
+                logger.error("Submit link not found on role detail page")
+                return False
+
+            submit_link.click()
+            _random_delay(3, 5)
+
+            # Fill note if configured
+            note = submission_config.get("default_note", "")
+            if note:
+                note_field = self.page.query_selector("textarea#submissionNote")
+                if note_field:
+                    note_field.fill(note)
+                    _random_delay(0.5, 1)
+
+            # Click the final Submit button (last one on page)
+            submit_buttons = self.page.query_selector_all('button:has-text("Submit")')
+            final_submit = None
+            for btn in submit_buttons:
+                text = btn.inner_text().strip()
+                if text == "Submit":
+                    final_submit = btn
+
+            if not final_submit:
+                logger.error("Final submit button not found")
+                return False
+
+            final_submit.click()
+            _random_delay(3, 5)
+
+            logger.info(f"Submitted for: {role['role_name']}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to submit for {role['role_name']}: {e}")
+            return False
