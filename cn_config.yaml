@@ -1,0 +1,15 @@
+credentials:
+  email: "REDACTED"
+  password: "REDACTED"
+
+max_pages: 5
+
+submission:
+  default_note: ""
+
+browser:
+  headless: false
+
+logging:
+  level: "INFO"
+  file: "logs/cn_auto_apply.log"
