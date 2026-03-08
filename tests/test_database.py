@@ -60,3 +60,49 @@ def test_fail_run(db):
     row = cursor.fetchone()
     assert row[0] == "error"
     assert row[1] == "Login failed"
+
+
+def test_record_application_default_platform(db):
+    """Recording with no platform arg should default to 'aa'."""
+    db.record_application("role_aa", "AA Project", "AA Role")
+    cursor = db.conn.execute(
+        "SELECT platform FROM applied_roles WHERE role_id = ?", ("role_aa",)
+    )
+    row = cursor.fetchone()
+    assert row[0] == "aa"
+
+
+def test_record_application_cn_platform(db):
+    """Recording with platform='cn' should store 'cn'."""
+    db.record_application("role_cn", "CN Project", "CN Role", platform="cn")
+    cursor = db.conn.execute(
+        "SELECT platform FROM applied_roles WHERE role_id = ?", ("role_cn",)
+    )
+    row = cursor.fetchone()
+    assert row[0] == "cn"
+
+
+def test_is_applied_respects_platform(db):
+    """is_applied should find a CN role by role_id."""
+    db.record_application("role_cn2", "CN Project", "CN Role", platform="cn")
+    assert db.is_applied("role_cn2") is True
+
+
+def test_start_run_with_platform(db):
+    """start_run with platform='cn' should store 'cn'."""
+    run_id = db.start_run(platform="cn")
+    cursor = db.conn.execute(
+        "SELECT platform FROM run_history WHERE id = ?", (run_id,)
+    )
+    row = cursor.fetchone()
+    assert row[0] == "cn"
+
+
+def test_start_run_default_platform(db):
+    """start_run with no platform arg should default to 'aa'."""
+    run_id = db.start_run()
+    cursor = db.conn.execute(
+        "SELECT platform FROM run_history WHERE id = ?", (run_id,)
+    )
+    row = cursor.fetchone()
+    assert row[0] == "aa"
