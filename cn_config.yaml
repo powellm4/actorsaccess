@@ -6,6 +6,7 @@ max_pages: 5
 
 submission:
   default_note: ""
+  phone: "3104567890"
 
 browser:
   headless: false

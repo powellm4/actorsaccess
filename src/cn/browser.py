@@ -97,11 +97,13 @@ class CastingNetworksBrowser:
                 role_id = match.group(2)
 
                 card_data = self.page.evaluate('''(linkEl) => {
+                    // Walk up until we find the project-level container
+                    // (project name is ~9 levels up from the role link)
                     let card = linkEl;
-                    for (let i = 0; i < 15; i++) {
-                        if (card.parentElement) card = card.parentElement;
-                        const cls = card.className || "";
-                        if (cls.includes("cn_w-full") && card.innerText.length > 50) break;
+                    for (let i = 0; i < 25; i++) {
+                        if (!card.parentElement) break;
+                        card = card.parentElement;
+                        if (card.querySelector('[data-qa-id="casting-billboard-project-name-link"]')) break;
                     }
 
                     const get = (qaId) => {
@@ -189,8 +191,25 @@ class CastingNetworksBrowser:
                 logger.error("Submit link not found on role detail page")
                 return False
 
+            # Check if already submitted
+            submit_text = submit_link.inner_text().strip()
+            if submit_text == "Submitted":
+                logger.info(f"Already submitted for: {role['role_name']}")
+                return False
+
             submit_link.click()
             _random_delay(3, 5)
+
+            # Fill phone number (required field that blocks submit)
+            phone = submission_config.get("phone", "3104567890")
+            country_select = self.page.query_selector("select")
+            if country_select:
+                self.page.select_option("select", value="US")
+                _random_delay(0.3, 0.8)
+            phone_input = self.page.query_selector("input#phone")
+            if phone_input:
+                phone_input.fill(phone)
+                _random_delay(0.3, 0.8)
 
             # Fill note if configured
             note = submission_config.get("default_note", "")
@@ -199,6 +218,10 @@ class CastingNetworksBrowser:
                 if note_field:
                     note_field.fill(note)
                     _random_delay(0.5, 1)
+
+            # Click somewhere neutral to trigger validation
+            self.page.click("textarea#submissionNote")
+            _random_delay(1, 2)
 
             # Click the final Submit button (last one on page)
             submit_buttons = self.page.query_selector_all('button:has-text("Submit")')
@@ -212,8 +235,18 @@ class CastingNetworksBrowser:
                 logger.error("Final submit button not found")
                 return False
 
+            if final_submit.evaluate("el => el.disabled"):
+                logger.error("Submit button is disabled — missing required field")
+                return False
+
             final_submit.click()
-            _random_delay(3, 5)
+            _random_delay(2, 4)
+
+            # Handle confirmation dialog: "Are you sure you're ready to send?"
+            confirm_btn = self.page.query_selector('button:has-text("Yes, Send Response")')
+            if confirm_btn:
+                confirm_btn.click()
+                _random_delay(3, 5)
 
             logger.info(f"Submitted for: {role['role_name']}")
             return True
