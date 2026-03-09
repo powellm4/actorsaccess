@@ -331,7 +331,7 @@ class ActorsAccessBrowser:
 
         The submission modal contains an iframe with:
         - Step 1: Photo selection (radio buttons input[name="photo_to_use"])
-        - Step 2: Media (hidden input, no action needed if no media)
+        - Step 2: Media selection ("Select All" checkbox to include videos)
         - Step 3: Size card checkbox (input#include_sc_checkbox_id)
         - Step 4: Note textarea (textarea#roleSubmissionNotes)
         - Submit button: a#add_to_cart with onclick="submitForm();"
@@ -366,6 +366,17 @@ class ActorsAccessBrowser:
                 # Default to first photo
                 photo_radios[0].check()
                 _random_delay(0.5, 1)
+
+            # Step 2: Select all media (videos/self-tapes)
+            checkboxes = frame.query_selector_all('input[type="checkbox"]')
+            for cb in checkboxes:
+                label = cb.evaluate('el => { const lbl = el.closest("label") || el.parentElement; return lbl ? lbl.innerText.trim() : ""; }')
+                if "select all" in label.lower():
+                    if not cb.is_checked():
+                        cb.check()
+                        _random_delay(0.5, 1)
+                    logger.info("Selected all media")
+                    break
 
             # Step 3: Size card checkbox
             if submission_config.get("include_size_card"):
