@@ -2,13 +2,15 @@
 import argparse
 import logging
 import os
+import re
 import sys
 from collections import defaultdict
+from datetime import datetime
 
 from src.cn.config import load_cn_config, CnConfigError
 from src.cn.browser import CastingNetworksBrowser
 from src.database import Database
-from src.filters import _is_background
+from src.filters import _is_background, _is_ugc
 from src.role_selector import select_best_role
 
 logger = logging.getLogger("castingnetworks")
@@ -36,6 +38,28 @@ def _print_role_decision(tag: str, project_name: str, role: dict, reason: str = 
         if len(desc) > 200:
             desc = desc[:200] + "..."
         print(f"  {desc}")
+
+
+def _is_past_deadline(role: dict) -> bool:
+    """Check if a role's submission deadline has passed."""
+    date_text = role.get("submission_date", "")
+    if not date_text:
+        return False
+    # "DUE TODAY" is still valid
+    if "DUE TODAY" in date_text.upper():
+        return False
+    # Already submitted roles are handled elsewhere
+    if date_text.startswith("Submitted"):
+        return False
+    # Parse "Submissions Due Apr 29, 2026, 9:00 PM PDT"
+    match = re.search(r"Submissions Due (\w+ \d+, \d{4}, \d+:\d+ [AP]M)", date_text)
+    if not match:
+        return False
+    try:
+        deadline = datetime.strptime(match.group(1), "%b %d, %Y, %I:%M %p")
+        return datetime.now() > deadline
+    except ValueError:
+        return False
 
 
 def _is_cn_background(role: dict) -> bool:
@@ -73,6 +97,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
             print("\n=== DRY RUN — no submissions will be made ===\n")
 
         max_subs = cfg.get("max_submissions")
+        empty_pages = 0  # consecutive pages with no submissions
 
         for page_num in range(1, pages_to_process + 1):
             if max_subs and roles_applied >= max_subs:
@@ -86,6 +111,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                 if not browser.go_to_page(page_num):
                     break
 
+            page_applied_before = roles_applied
             page_roles = browser.scrape_roles()
             roles_found += len(page_roles)
 
@@ -97,20 +123,42 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
             for project_id, proj_roles in projects.items():
                 project_name = proj_roles[0]["project_name"]
 
-                candidates = []
+                # Skip entire project if we already applied to any role in it
+                already_applied_project = False
                 for role in proj_roles:
                     unique_id = f"cn_{project_id}_{role['role_id']}"
+                    sub_date = role.get("submission_date", "")
+                    if db.is_applied(unique_id) or sub_date.startswith("Submitted"):
+                        already_applied_project = True
+                        break
+                if already_applied_project:
+                    roles_skipped += len(proj_roles)
+                    continue
 
-                    if db.is_applied(unique_id):
-                        roles_skipped += 1
-                        continue
-
+                candidates = []
+                for role in proj_roles:
                     if _is_cn_background(role):
                         roles_filtered += 1
                         if dry_run:
                             _print_role_decision("SKIP", project_name, role, "background role")
                         else:
                             logger.info(f"Filtered out: {project_name} — {role['role_name']} (background)")
+                        continue
+
+                    if _is_ugc(project_name, role):
+                        roles_filtered += 1
+                        if dry_run:
+                            _print_role_decision("SKIP", project_name, role, "UGC")
+                        else:
+                            logger.info(f"Filtered out: {project_name} — {role['role_name']} (UGC)")
+                        continue
+
+                    if _is_past_deadline(role):
+                        roles_filtered += 1
+                        if dry_run:
+                            _print_role_decision("SKIP", project_name, role, "past deadline")
+                        else:
+                            logger.info(f"Filtered out: {project_name} — {role['role_name']} (past deadline)")
                         continue
 
                     candidates.append(role)
@@ -122,6 +170,14 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     break
 
                 best, ai_reason = select_best_role(candidates, project_name)
+
+                if best is None:
+                    logger.info(f"AI skipped project: {project_name} — {ai_reason}")
+                    if dry_run:
+                        for role in candidates:
+                            _print_role_decision("SKIP", project_name, role, f"AI: {ai_reason}")
+                    continue
+
                 unique_id = f"cn_{best['project_id']}_{best['role_id']}"
 
                 if dry_run:
@@ -149,6 +205,15 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     roles_applied += 1
                 else:
                     logger.warning(f"Skipping failed submission: {best['role_name']}")
+
+            # Track consecutive pages with no submissions
+            if roles_applied > page_applied_before:
+                empty_pages = 0
+            else:
+                empty_pages += 1
+                if empty_pages >= 3:
+                    logger.info("3 consecutive pages with no new submissions, stopping")
+                    break
 
         db.complete_run(run_id, roles_found, roles_applied, roles_skipped)
 

@@ -125,14 +125,18 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                 roles = browser.scrape_roles_on_project(project["url"])
                 roles_found += len(roles)
 
+                # Skip entire project if we already applied to any role in it
+                already_in_db = any(
+                    db.is_applied(f"{project['breakdown_id']}_{r['role_id']}")
+                    for r in roles
+                )
+                if already_in_db:
+                    roles_skipped += len(roles)
+                    continue
+
                 # Filter roles and collect candidates
                 candidates = []
                 for role in roles:
-                    unique_id = f"{project['breakdown_id']}_{role['role_id']}"
-
-                    if db.is_applied(unique_id):
-                        roles_skipped += 1
-                        continue
 
                     matches, skip_reason = role_matches(role)
                     if not matches:
@@ -159,6 +163,14 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
 
                 # Pick the best role (AI selection if multiple candidates)
                 best, ai_reason = select_best_role(candidates, project["project_name"])
+
+                if best is None:
+                    logger.info(f"AI skipped project: {project['project_name']} — {ai_reason}")
+                    if dry_run:
+                        for role in candidates:
+                            _print_role_decision("SKIP", project["project_name"], role, f"AI: {ai_reason}")
+                    continue
+
                 unique_id = f"{project['breakdown_id']}_{best['role_id']}"
 
                 # In dry run, show what was picked and what was passed over

@@ -97,29 +97,38 @@ class CastingNetworksBrowser:
                 role_id = match.group(2)
 
                 card_data = self.page.evaluate('''(linkEl) => {
-                    // Walk up until we find the project-level container
-                    // (project name is ~9 levels up from the role link)
-                    let card = linkEl;
-                    for (let i = 0; i < 25; i++) {
-                        if (!card.parentElement) break;
-                        card = card.parentElement;
-                        if (card.querySelector('[data-qa-id="casting-billboard-project-name-link"]')) break;
-                    }
-
-                    const get = (qaId) => {
-                        const el = card.querySelector('[data-qa-id="' + qaId + '"]');
+                    const get = (container, qaId) => {
+                        const el = container.querySelector('[data-qa-id="' + qaId + '"]');
                         return el ? el.innerText.trim() : "";
                     };
 
+                    // Walk up to find the role-level container
+                    // (contains this role's description, type, age, gender)
+                    let roleCard = linkEl;
+                    for (let i = 0; i < 15; i++) {
+                        if (!roleCard.parentElement) break;
+                        roleCard = roleCard.parentElement;
+                        if (roleCard.querySelector('[data-qa-id="casting-billboard-role-description"]')) break;
+                    }
+
+                    // Walk up further to find the project-level container
+                    let projectCard = roleCard;
+                    for (let i = 0; i < 15; i++) {
+                        if (!projectCard.parentElement) break;
+                        projectCard = projectCard.parentElement;
+                        if (projectCard.querySelector('[data-qa-id="casting-billboard-project-name-link"]')) break;
+                    }
+
                     return {
-                        projectName: get("casting-billboard-project-name-link"),
-                        projectType: get("casting-billboard-project-type"),
-                        roleType: get("casting-billboard-role-header-type-name"),
-                        ageRange: get("casting-billboard-role-header-age-range"),
-                        gender: get("casting-billboard-role-header-gender-appearance"),
-                        pay: get("casting-billboard-role-header-rate-summary"),
-                        union: get("casting-billboard-role-header-union") || get("casting-billboard-project-union"),
-                        description: get("casting-billboard-role-description"),
+                        projectName: get(projectCard, "casting-billboard-project-name-link"),
+                        projectType: get(projectCard, "casting-billboard-project-type"),
+                        roleType: get(roleCard, "casting-billboard-role-header-type-name"),
+                        ageRange: get(roleCard, "casting-billboard-role-header-age-range"),
+                        gender: get(roleCard, "casting-billboard-role-header-gender-appearance"),
+                        pay: get(roleCard, "casting-billboard-role-header-rate-summary"),
+                        union: get(roleCard, "casting-billboard-role-header-union") || get(projectCard, "casting-billboard-project-union"),
+                        description: get(roleCard, "casting-billboard-role-description"),
+                        submissionDate: get(roleCard, "casting-billboard-role-header-submission-due-date"),
                     };
                 }''', link)
 
@@ -135,6 +144,7 @@ class CastingNetworksBrowser:
                     "pay": card_data.get("pay", ""),
                     "union": card_data.get("union", ""),
                     "description": card_data.get("description", ""),
+                    "submission_date": card_data.get("submissionDate", ""),
                     "url": href,
                 })
 
@@ -149,7 +159,10 @@ class CastingNetworksBrowser:
         try:
             self.page.goto(f"{BASE_URL}/talent/casting-billboard")
             _random_delay(3, 5)
-            self.page.wait_for_load_state("networkidle")
+            self.page.wait_for_selector(
+                '[data-qa-id="casting-billboard-role-name-link"]',
+                timeout=30000,
+            )
             return True
         except Exception as e:
             logger.error(f"Failed to navigate to billboard: {e}")
@@ -180,9 +193,22 @@ class CastingNetworksBrowser:
                     text = opt.inner_text().strip()
                     if text.startswith(f"Page {page_num} of"):
                         value = opt.get_attribute("value") or ""
+                        # Grab a role name before pagination to detect change
+                        old_first = self.page.query_selector(
+                            '[data-qa-id="casting-billboard-role-name-link"]'
+                        )
+                        old_text = old_first.inner_text() if old_first else ""
                         select.select_option(value=value)
                         _random_delay(3, 5)
-                        self.page.wait_for_load_state("networkidle")
+                        # Wait for roles to change (new page loaded)
+                        for _ in range(10):
+                            new_first = self.page.query_selector(
+                                '[data-qa-id="casting-billboard-role-name-link"]'
+                            )
+                            new_text = new_first.inner_text() if new_first else ""
+                            if new_text and new_text != old_text:
+                                break
+                            time.sleep(1)
                         logger.info(f"Navigated to page {page_num}")
                         return True
             logger.error(f"Page {page_num} option not found")

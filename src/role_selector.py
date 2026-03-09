@@ -13,12 +13,13 @@ import re
 logger = logging.getLogger(__name__)
 
 ACTOR_PROFILE = """
-- Appears 25 years old
+- Appears 25 years old — very young-looking, people don't believe he's over 30. Can convincingly play 20-30.
 - Male, White, 6'0", 185 lbs, athletic build
 - Type: Leading man, comedic/charming
 - Strengths: Charisma-driven roles, protagonists, romantic leads, action heroes, comedy, wit
 - Best fit: Characters who are confident, driven, likable, or funny — the guy the audience roots for
-- Less ideal: Character roles requiring much older/younger appearance, heavy dramatic trauma-only pieces, or physically mismatched descriptions (very short, very thin, very heavy, etc.)
+- Age range sweet spot: STRONGLY prioritize roles casting 22-30. Roles casting 18-35 are acceptable. Roles requiring 40+ appearance are a poor fit.
+- Less ideal: Roles requiring 40+, heavy dramatic trauma-only pieces, or physically mismatched descriptions (very short, very thin, very heavy, etc.)
 """
 
 
@@ -52,8 +53,18 @@ def select_best_role(roles: list[dict], project_name: str) -> tuple[dict, str]:
         # Build role summaries for the prompt
         role_options = []
         for i, role in enumerate(roles):
+            meta = []
+            if role.get("role_type"):
+                meta.append(role["role_type"])
+            if role.get("age_range"):
+                meta.append(f"Age: {role['age_range']}")
+            if role.get("gender"):
+                meta.append(role["gender"])
+            if role.get("pay"):
+                meta.append(role["pay"])
+            meta_str = f" ({', '.join(meta)})" if meta else ""
             role_options.append(
-                f"{i + 1}. {role['role_name']}: {role.get('description', 'No description')[:500]}"
+                f"{i + 1}. {role['role_name']}{meta_str}: {role.get('description', 'No description')[:500]}"
             )
 
         prompt = f"""You are a casting assistant helping an actor decide which single role to submit for on a project.
@@ -72,7 +83,9 @@ Pick the ONE role that is the best fit for this actor. Consider:
 3. Role prominence (lead > supporting > day player)
 4. Overall castability — would this actor realistically be considered?
 
-Respond with the role number on the first line, then a brief reason on the second line.
+If NONE of the roles are a good fit, respond with 0 on the first line and explain why.
+
+Respond with the role number on the first line (or 0 to skip), then a brief reason on the second line.
 Example:
 2
 Best physical and type match for leading man."""
@@ -90,9 +103,14 @@ Best physical and type match for leading man."""
         if not num_match:
             logger.warning(f"AI returned no number: {text[:100]}")
             return roles[0], "AI returned invalid response, defaulted to first"
-        choice = int(num_match.group()) - 1
+        choice = int(num_match.group())
         reason = lines[1].strip() if len(lines) > 1 else ""
 
+        if choice == 0:
+            logger.info(f"AI skipped project: {reason}")
+            return None, reason
+
+        choice -= 1  # Convert to 0-indexed
         if 0 <= choice < len(roles):
             selected = roles[choice]
             logger.info(

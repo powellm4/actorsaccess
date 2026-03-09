@@ -12,12 +12,25 @@ _BG_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+_UGC_PATTERN = re.compile(r"\bUGC\b", re.IGNORECASE)
+
 
 def _is_background(role: dict) -> bool:
     """Check if a role is a background/extra role."""
     name = role.get("role_name", "")
     desc = role.get("description", "")
     return bool(_BG_PATTERN.search(name) or _BG_PATTERN.search(desc))
+
+
+def _is_ugc(project_name: str, role: dict) -> bool:
+    """Check if a role/project is UGC (user-generated content)."""
+    name = role.get("role_name", "")
+    desc = role.get("description", "")
+    return bool(
+        _UGC_PATTERN.search(project_name)
+        or _UGC_PATTERN.search(name)
+        or _UGC_PATTERN.search(desc)
+    )
 
 
 _SKIP_PROJECT_TYPES = {"theater", "theatre", "musical"}
@@ -40,6 +53,9 @@ def project_matches(project: dict) -> tuple[bool, str]:
     name = project.get("project_name", "")
     if _BG_PATTERN.search(name):
         return False, "background project"
+
+    if _UGC_PATTERN.search(name):
+        return False, "UGC project"
 
     return True, ""
 
