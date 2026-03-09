@@ -10,7 +10,7 @@ from datetime import datetime
 from src.cn.config import load_cn_config, CnConfigError
 from src.cn.browser import CastingNetworksBrowser
 from src.database import Database
-from src.filters import _is_background, _is_ugc
+from src.filters import _is_background, _is_ugc, _is_voiceover
 from src.role_selector import select_best_role
 
 logger = logging.getLogger("castingnetworks")
@@ -151,6 +151,14 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             _print_role_decision("SKIP", project_name, role, "UGC")
                         else:
                             logger.info(f"Filtered out: {project_name} — {role['role_name']} (UGC)")
+                        continue
+
+                    if _is_voiceover(role):
+                        roles_filtered += 1
+                        if dry_run:
+                            _print_role_decision("SKIP", project_name, role, "voice over")
+                        else:
+                            logger.info(f"Filtered out: {project_name} — {role['role_name']} (voice over)")
                         continue
 
                     if _is_past_deadline(role):

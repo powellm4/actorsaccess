@@ -14,12 +14,29 @@ _BG_PATTERN = re.compile(
 
 _UGC_PATTERN = re.compile(r"\bUGC\b", re.IGNORECASE)
 
+_VO_PATTERN = re.compile(
+    r"\bvoice\s*over\b|\bvoiceover\b|\bVO\b|\bvoice\s*acting\b|\bvoice\s*actor\b|\bvoice\s*role\b",
+    re.IGNORECASE,
+)
+
 
 def _is_background(role: dict) -> bool:
     """Check if a role is a background/extra role."""
     name = role.get("role_name", "")
     desc = role.get("description", "")
     return bool(_BG_PATTERN.search(name) or _BG_PATTERN.search(desc))
+
+
+def _is_voiceover(role: dict) -> bool:
+    """Check if a role is a voice over/voice acting role."""
+    name = role.get("role_name", "")
+    desc = role.get("description", "")
+    role_type = role.get("role_type", "")
+    return bool(
+        _VO_PATTERN.search(name)
+        or _VO_PATTERN.search(role_type)
+        or _VO_PATTERN.search(desc)
+    )
 
 
 def _is_ugc(project_name: str, role: dict) -> bool:
@@ -57,6 +74,9 @@ def project_matches(project: dict) -> tuple[bool, str]:
     if _UGC_PATTERN.search(name):
         return False, "UGC project"
 
+    if _VO_PATTERN.search(name):
+        return False, "voice over project"
+
     return True, ""
 
 
@@ -75,5 +95,8 @@ def role_matches(role: dict) -> tuple[bool, str]:
 
     if _is_background(role):
         return False, "background role"
+
+    if _is_voiceover(role):
+        return False, "voice over role"
 
     return True, ""
