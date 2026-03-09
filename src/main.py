@@ -11,7 +11,7 @@ from src.config import load_config, ConfigError
 from src.database import Database
 from src.browser import ActorsAccessBrowser
 from src.filters import role_matches, project_matches
-from src.role_selector import select_best_role
+from src.role_selector import select_best_role, generate_submission_note
 
 logger = logging.getLogger("actorsaccess")
 
@@ -184,11 +184,20 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                         print(f"  AI reason: {ai_reason}")
                     else:
                         _print_role_decision("SUBMIT", project["project_name"], best)
+                    custom_note = generate_submission_note(best, project["project_name"])
+                    if custom_note:
+                        print(f"  Note: {custom_note}")
                     roles_applied += 1
                     continue
 
+                # Generate custom note if the role asks for one
+                sub_cfg = cfg["submission"].copy()
+                custom_note = generate_submission_note(best, project["project_name"])
+                if custom_note:
+                    sub_cfg["default_note"] = custom_note
+
                 success = browser.submit_for_role(
-                    best, project["project_name"], cfg["submission"]
+                    best, project["project_name"], sub_cfg
                 )
                 if success:
                     db.record_application(

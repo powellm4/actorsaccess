@@ -124,3 +124,59 @@ Best physical and type match for leading man."""
     except Exception as e:
         logger.warning(f"AI role selection failed ({e}), defaulting to first role")
         return roles[0], f"AI failed ({e}), defaulted to first"
+
+
+_NOTE_REQUEST_PATTERN = re.compile(
+    r"\*?\s*note\s+(?:on|in)\s+submission|please\s+(?:include|mention|note)\s+in\s+(?:your\s+)?(?:submission|notes)",
+    re.IGNORECASE,
+)
+
+
+def generate_submission_note(role: dict, project_name: str) -> str | None:
+    """Generate a custom submission note if the role description requests one.
+
+    Returns the note string, or None if no note is needed or generation fails.
+    """
+    desc = role.get("description", "")
+    if not _NOTE_REQUEST_PATTERN.search(desc):
+        return None
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        logger.warning("No ANTHROPIC_API_KEY set — skipping note generation")
+        return None
+
+    try:
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=api_key)
+
+        prompt = f"""You are writing a brief submission note for an actor applying to a casting call. The casting post asks for specific info in the submission notes.
+
+ACTOR PROFILE:
+{ACTOR_PROFILE}
+ADDITIONAL INFO:
+- 2 years of improv training at UCB and The Groundlings
+- 5+ years of salsa dancing
+- Experience with comedy, drama, and commercial work
+- Comfortable with physical comedy and action sequences
+
+PROJECT: {project_name}
+ROLE: {role.get('role_name', '')}
+DESCRIPTION: {desc[:800]}
+
+Write a short, natural submission note (1-2 sentences max) addressing what the casting post asks for in the notes. Be specific but concise. Do NOT use a greeting, sign-off, or placeholders like "[Actor Name]". Write in first person. Just the relevant info they asked for."""
+
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=150,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        note = response.content[0].text.strip()
+        logger.info(f"Generated submission note for {role.get('role_name', '')}: {note}")
+        return note
+
+    except Exception as e:
+        logger.warning(f"Note generation failed ({e})")
+        return None

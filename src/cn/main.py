@@ -11,7 +11,7 @@ from src.cn.config import load_cn_config, CnConfigError
 from src.cn.browser import CastingNetworksBrowser
 from src.database import Database
 from src.filters import _is_background, _is_ugc, _is_voiceover
-from src.role_selector import select_best_role
+from src.role_selector import select_best_role, generate_submission_note
 
 logger = logging.getLogger("castingnetworks")
 
@@ -198,10 +198,19 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                         print(f"  AI reason: {ai_reason}")
                     else:
                         _print_role_decision("SUBMIT", project_name, best)
+                    custom_note = generate_submission_note(best, project_name)
+                    if custom_note:
+                        print(f"  Note: {custom_note}")
                     roles_applied += 1
                     continue
 
-                success = browser.submit_for_role(best, cfg["submission"])
+                # Generate custom note if the role asks for one
+                sub_cfg = cfg["submission"].copy()
+                custom_note = generate_submission_note(best, project_name)
+                if custom_note:
+                    sub_cfg["default_note"] = custom_note
+
+                success = browser.submit_for_role(best, sub_cfg)
                 if success:
                     db.record_application(
                         unique_id, project_name, best["role_name"],
