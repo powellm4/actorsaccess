@@ -144,12 +144,25 @@ class CastingNetworksBrowser:
 
         return roles
 
-    def get_total_pages(self) -> int:
+    def navigate_to_billboard(self) -> bool:
+        """Navigate back to the Casting Billboard page."""
         try:
-            page_buttons = self.page.query_selector_all('button:has-text("Page ")')
-            if page_buttons:
-                last = page_buttons[-1].inner_text()
-                match = re.search(r"of (\d+)", last)
+            self.page.goto(f"{BASE_URL}/talent/casting-billboard")
+            _random_delay(3, 5)
+            self.page.wait_for_load_state("networkidle")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to navigate to billboard: {e}")
+            return False
+
+    def get_total_pages(self) -> int:
+        """Get total pages from the pagination select dropdown."""
+        try:
+            # Pagination is a <select> with <option> elements like "Page 1 of 200"
+            options = self.page.query_selector_all('option')
+            for opt in reversed(options):
+                text = opt.inner_text().strip()
+                match = re.search(r"Page \d+ of (\d+)", text)
                 if match:
                     return int(match.group(1))
         except Exception:
@@ -157,14 +170,22 @@ class CastingNetworksBrowser:
         return 1
 
     def go_to_page(self, page_num: int) -> bool:
+        """Navigate to a page by selecting from the pagination dropdown."""
         try:
-            btn = self.page.query_selector(f'button:has-text("Page {page_num} of")')
-            if btn:
-                btn.click()
-                _random_delay(3, 5)
-                self.page.wait_for_load_state("networkidle")
-                return True
-            logger.error(f"Page {page_num} button not found")
+            # Find the select that contains "Page X of Y" options
+            selects = self.page.query_selector_all("select")
+            for select in selects:
+                options = select.query_selector_all("option")
+                for opt in options:
+                    text = opt.inner_text().strip()
+                    if text.startswith(f"Page {page_num} of"):
+                        value = opt.get_attribute("value") or ""
+                        select.select_option(value=value)
+                        _random_delay(3, 5)
+                        self.page.wait_for_load_state("networkidle")
+                        logger.info(f"Navigated to page {page_num}")
+                        return True
+            logger.error(f"Page {page_num} option not found")
             return False
         except Exception as e:
             logger.error(f"Failed to go to page {page_num}: {e}")

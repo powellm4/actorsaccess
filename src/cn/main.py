@@ -72,8 +72,17 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
         if dry_run:
             print("\n=== DRY RUN — no submissions will be made ===\n")
 
+        max_subs = cfg.get("max_submissions")
+
         for page_num in range(1, pages_to_process + 1):
+            if max_subs and roles_applied >= max_subs:
+                logger.info(f"Reached max submissions ({max_subs}), stopping")
+                break
+
             if page_num > 1:
+                # Navigate back to billboard (submissions navigate away)
+                if not browser.navigate_to_billboard():
+                    break
                 if not browser.go_to_page(page_num):
                     break
 
@@ -108,6 +117,9 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
 
                 if not candidates:
                     continue
+
+                if max_subs and roles_applied >= max_subs:
+                    break
 
                 best, ai_reason = select_best_role(candidates, project_name)
                 unique_id = f"cn_{best['project_id']}_{best['role_id']}"
@@ -163,6 +175,7 @@ def main():
     parser.add_argument("--once", action="store_true", help="Run once and exit")
     parser.add_argument("--dry-run", action="store_true", help="Preview without submitting")
     parser.add_argument("--max-pages", type=int, default=None, help="Max pages to process")
+    parser.add_argument("--max-submissions", type=int, default=None, help="Max roles to submit for")
     args = parser.parse_args()
 
     try:
@@ -173,6 +186,8 @@ def main():
 
     if args.max_pages is not None:
         cfg["max_pages"] = args.max_pages
+    if args.max_submissions is not None:
+        cfg["max_submissions"] = args.max_submissions
 
     setup_logging(cfg["logging"])
 
