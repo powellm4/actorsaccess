@@ -1,0 +1,46 @@
+name: CN Auto Apply
+
+on:
+  schedule:
+    # Every 6 hours: 6am, 12pm, 6pm, 12am PT (UTC-7)
+    - cron: "0 13,19,1,7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  cn-auto-apply:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          pip install -r requirements.txt
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Run CN auto-apply (headed via xvfb)
+        env:
+          CN_EMAIL: ${{ secrets.CN_EMAIL }}
+          CN_PASSWORD: ${{ secrets.CN_PASSWORD }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: xvfb-run --auto-servernum python -m src.cn.main --once
+
+      - name: Commit updated database
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f data/applied.db
+          git diff --cached --quiet && echo "No DB changes" || git commit -m "Update applied.db [skip ci]" && git push
