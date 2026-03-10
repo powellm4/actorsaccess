@@ -19,6 +19,11 @@ _VO_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+_COURT_TV_PATTERN = re.compile(
+    r"\bcourt\b|\bplaintiff\b|\bdefendant\b|\bsmall\s*claims\b",
+    re.IGNORECASE,
+)
+
 
 def _is_background(role: dict) -> bool:
     """Check if a role is a background/extra role."""
@@ -37,6 +42,13 @@ def _is_voiceover(role: dict) -> bool:
         or _VO_PATTERN.search(role_type)
         or _VO_PATTERN.search(desc)
     )
+
+
+def _is_court_tv(role: dict) -> bool:
+    """Check if a role is for a court TV show."""
+    name = role.get("role_name", "")
+    desc = role.get("description", "")
+    return bool(_COURT_TV_PATTERN.search(name) or _COURT_TV_PATTERN.search(desc))
 
 
 def _is_ugc(project_name: str, role: dict) -> bool:
@@ -77,6 +89,9 @@ def project_matches(project: dict) -> tuple[bool, str]:
     if _VO_PATTERN.search(name):
         return False, "voice over project"
 
+    if _COURT_TV_PATTERN.search(name):
+        return False, "court TV project"
+
     return True, ""
 
 
@@ -98,5 +113,8 @@ def role_matches(role: dict) -> tuple[bool, str]:
 
     if _is_voiceover(role):
         return False, "voice over role"
+
+    if _is_court_tv(role):
+        return False, "court TV role"
 
     return True, ""
