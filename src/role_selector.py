@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 ACTOR_PROFILE = """
 - Appears 25, plays 20-30 convincingly
-- Male, White, 6'0", 185 lbs, athletic build
+- Male, White, 6'0", 185 lbs, athletic build, brown hair
 - Type: Leading man, comedic/charming; also strong as villain/antagonist/mean characters
 - 2 years improv training at UCB and The Groundlings
 - 5+ years salsa dancing
@@ -91,6 +91,7 @@ HARD DISQUALIFIERS — reject any role that requires:
 - Large/heavyset/stocky/overweight build (actor is athletic, 185 lbs)
 - Female only
 - Specific ethnicity that excludes White
+- Specific hair color that excludes brown hair (e.g., "must be blonde", "redhead only")
 - Age clearly outside 18-35 range (not "to play younger")
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
 
@@ -150,6 +151,7 @@ HARD DISQUALIFIERS — reject if the role requires ANY of these:
 - Large/heavyset/stocky/overweight build (actor is athletic, 185 lbs)
 - Female only
 - Specific ethnicity that excludes White
+- Specific hair color that excludes brown hair (e.g., "must be blonde", "redhead only")
 - Age clearly outside 18-35 range (not "to play younger")
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
 
