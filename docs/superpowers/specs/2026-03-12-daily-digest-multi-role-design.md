@@ -88,7 +88,7 @@ Captured in both `main.py` and `cn/main.py` after AI selection:
 
 ### 4. Project URL Plumbing
 
-- **AA:** `scrape_projects()` already returns `project["url"]` as a relative path. Store as full URL: `https://breakdownexpress.com{project["url"]}` (or similar base).
+- **AA:** `scrape_projects()` already returns `project["url"]` as a relative path. Store as full URL: `https://actorsaccess.com{project["url"]}`.
 - **CN:** Each role dict has a `role["url"]` which is a per-role URL. Store role-level URLs since they're more useful for linking directly to the listing.
 - Both `main.py` files pass the URL through to `db.record_application()` and `db.record_rejection()`
 
