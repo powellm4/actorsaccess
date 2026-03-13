@@ -11,7 +11,7 @@ from src.config import load_config, ConfigError
 from src.database import Database
 from src.browser import ActorsAccessBrowser
 from src.filters import role_matches, project_matches
-from src.role_selector import select_best_role, generate_submission_note
+from src.role_selector import select_best_roles, generate_submission_note
 
 logger = logging.getLogger("actorsaccess")
 
@@ -161,56 +161,75 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     hit_limit = True
                     break
 
-                # Pick the best role (AI selection if multiple candidates)
-                best, ai_reason = select_best_role(candidates, project["project_name"])
+                # Pick the best role(s) (AI selection if multiple candidates)
+                selected, rejections = select_best_roles(candidates, project["project_name"])
 
-                if best is None:
+                # Build full project URL for AA
+                project_url = f"https://actorsaccess.com{project['url']}" if project.get("url") else ""
+
+                # Record rejections
+                for role in candidates:
+                    if role["role_name"] in rejections:
+                        db.record_rejection(
+                            project_name=project["project_name"],
+                            project_url=project_url,
+                            role_name=role["role_name"],
+                            role_description=role.get("description", ""),
+                            rejection_reason=rejections[role["role_name"]],
+                            run_id=run_id,
+                            platform="aa",
+                        )
+
+                if not selected:
+                    ai_reason = next(iter(rejections.values()), "AI skipped")
                     logger.info(f"AI skipped project: {project['project_name']} — {ai_reason}")
                     if dry_run:
                         for role in candidates:
                             _print_role_decision("SKIP", project["project_name"], role, f"AI: {ai_reason}")
                     continue
 
-                unique_id = f"{project['breakdown_id']}_{best['role_id']}"
+                for best, ai_reason in selected:
+                    unique_id = f"{project['breakdown_id']}_{best['role_id']}"
 
-                # In dry run, show what was picked and what was passed over
-                if dry_run:
-                    if len(candidates) > 1:
-                        for role in candidates:
-                            if role is best:
-                                _print_role_decision("SUBMIT (AI pick)", project["project_name"], role)
-                            else:
-                                _print_role_decision("SKIP", project["project_name"], role, "not best fit")
-                        print(f"  AI reason: {ai_reason}")
-                    else:
-                        _print_role_decision("SUBMIT", project["project_name"], best)
+                    if dry_run:
+                        tag = "SUBMIT (AI pick)" if len(candidates) > 1 else "SUBMIT"
+                        _print_role_decision(tag, project["project_name"], best)
+                        if len(candidates) > 1:
+                            print(f"  AI reason: {ai_reason}")
+                        custom_note = generate_submission_note(best, project["project_name"])
+                        if custom_note:
+                            print(f"  Note: {custom_note}")
+                        roles_applied += 1
+                        continue
+
+                    # Generate custom note if the role asks for one
+                    sub_cfg = cfg["submission"].copy()
                     custom_note = generate_submission_note(best, project["project_name"])
                     if custom_note:
-                        print(f"  Note: {custom_note}")
-                    roles_applied += 1
-                    continue
+                        sub_cfg["default_note"] = custom_note
 
-                # Generate custom note if the role asks for one
-                sub_cfg = cfg["submission"].copy()
-                custom_note = generate_submission_note(best, project["project_name"])
-                if custom_note:
-                    sub_cfg["default_note"] = custom_note
+                    success = browser.submit_for_role(
+                        best, project["project_name"], sub_cfg
+                    )
+                    if success:
+                        db.record_application(
+                            unique_id, project["project_name"], best["role_name"],
+                            role_description=best.get("description", ""),
+                            ai_reason=ai_reason,
+                            candidates_considered=len(candidates),
+                            project_url=project_url,
+                        )
+                        roles_applied += 1
+                    else:
+                        logger.warning(
+                            f"Skipping failed submission: {best['role_name']}"
+                        )
 
-                success = browser.submit_for_role(
-                    best, project["project_name"], sub_cfg
-                )
-                if success:
-                    db.record_application(
-                        unique_id, project["project_name"], best["role_name"],
-                        role_description=best.get("description", ""),
-                        ai_reason=ai_reason,
-                        candidates_considered=len(candidates),
-                    )
-                    roles_applied += 1
-                else:
-                    logger.warning(
-                        f"Skipping failed submission: {best['role_name']}"
-                    )
+                # Print rejected roles in dry run
+                if dry_run and rejections:
+                    for role in candidates:
+                        if role["role_name"] in rejections:
+                            _print_role_decision("SKIP", project["project_name"], role, rejections[role["role_name"]])
 
         db.complete_run(run_id, roles_found, roles_applied, roles_skipped)
 
