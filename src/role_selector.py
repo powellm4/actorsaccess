@@ -19,6 +19,7 @@ ACTOR_PROFILE = """
 - 5+ years salsa dancing
 - American accent (can play accents but not authentic/native non-American accents)
 - Comfortable with physical comedy, action sequences, and 12+ hour shoot days
+- Non-union
 - Email: REDACTED | Phone: REDACTED
 - Los Angeles local with reliable transportation within the 30-mile studio zone
 - Generally open availability
