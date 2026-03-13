@@ -31,3 +31,10 @@ jobs:
         env:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
         run: python -m src.digest
+
+      - name: Commit updated database
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f data/applied.db
+          git diff --cached --quiet && echo "No DB changes" || (git commit -m "Update applied.db [skip ci]" && git pull --rebase && git push)
