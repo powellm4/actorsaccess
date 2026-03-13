@@ -4,6 +4,7 @@
 Tests the data gathering and HTML rendering. Does NOT test SendGrid sending.
 """
 import os
+import time
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -101,6 +102,39 @@ def test_gather_digest_data_includes_flagged(db):
     data = gather_digest_data(db)
     assert len(data["flagged"]) == 1
     assert data["flagged"][0]["role_name"] == "Hero"
+
+
+def test_digest_only_shows_since_last_digest(db):
+    """After a digest is sent, only new roles should appear."""
+    run_id = db.start_run()
+    db.record_application(
+        "role_old", "Old Project", "Old Role",
+        ai_reason="Match", project_url="https://example.com",
+    )
+    db.complete_run(run_id, roles_found=1, roles_applied=1, roles_skipped=0)
+
+    # Simulate sending a digest
+    time.sleep(0.05)
+    db.record_digest_sent()
+
+    # Before any new activity, digest should be empty
+    data = gather_digest_data(db)
+    assert len(data["applications"]) == 0
+    assert len(data["runs"]) == 0
+
+    # New activity after digest
+    time.sleep(0.05)
+    run_id2 = db.start_run()
+    db.record_application(
+        "role_new", "New Project", "New Role",
+        ai_reason="Great fit", project_url="https://example.com/new",
+    )
+    db.complete_run(run_id2, roles_found=1, roles_applied=1, roles_skipped=0)
+
+    data = gather_digest_data(db)
+    assert len(data["applications"]) == 1
+    assert data["applications"][0]["project_name"] == "New Project"
+    assert len(data["runs"]) == 1
 
 
 def test_build_digest_html_with_flagged():

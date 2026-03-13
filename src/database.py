@@ -1,6 +1,6 @@
 # src/database.py
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class Database:
@@ -56,6 +56,10 @@ class Database:
                 flagged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(role_name, project_name, platform)
             );
+            CREATE TABLE IF NOT EXISTS digest_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
         """)
         # Add columns if upgrading from older schema
         try:
@@ -97,9 +101,9 @@ class Database:
     ):
         self.conn.execute(
             """INSERT OR IGNORE INTO applied_roles
-               (role_id, project_name, role_name, role_description, ai_reason, candidates_considered, platform, project_url)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (role_id, project_name, role_name, role_description, ai_reason, candidates_considered, platform, project_url),
+               (role_id, project_name, role_name, role_description, ai_reason, candidates_considered, platform, project_url, applied_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (role_id, project_name, role_name, role_description, ai_reason, candidates_considered, platform, project_url, self._utcnow()),
         )
         self.conn.commit()
 
@@ -107,24 +111,29 @@ class Database:
         self, project_name: str, project_url: str, role_name: str,
         role_description: str, rejection_reason: str, run_id: int, platform: str = "aa",
     ):
+        now = self._utcnow()
         self.conn.execute(
             """INSERT INTO rejected_roles
-               (project_name, project_url, role_name, role_description, rejection_reason, run_id, platform)
-               VALUES (?, ?, ?, ?, ?, ?, ?)
+               (project_name, project_url, role_name, role_description, rejection_reason, run_id, platform, rejected_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(role_name, project_name, platform) DO UPDATE SET
                    rejection_reason = excluded.rejection_reason,
                    role_description = excluded.role_description,
                    run_id = excluded.run_id,
-                   rejected_at = CURRENT_TIMESTAMP,
+                   rejected_at = excluded.rejected_at,
                    project_url = excluded.project_url""",
-            (project_name, project_url, role_name, role_description, rejection_reason, run_id, platform),
+            (project_name, project_url, role_name, role_description, rejection_reason, run_id, platform, now),
         )
         self.conn.commit()
+
+    def _utcnow(self) -> str:
+        """UTC timestamp with microsecond precision for reliable ordering."""
+        return datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
 
     def start_run(self, platform: str = "aa") -> int:
         cursor = self.conn.execute(
             "INSERT INTO run_history (started_at, platform) VALUES (?, ?)",
-            (datetime.now().isoformat(), platform),
+            (self._utcnow(), platform),
         )
         self.conn.commit()
         return cursor.lastrowid
@@ -135,7 +144,7 @@ class Database:
                SET completed_at = ?, roles_found = ?, roles_applied = ?,
                    roles_skipped = ?, status = 'success'
                WHERE id = ?""",
-            (datetime.now().isoformat(), roles_found, roles_applied, roles_skipped, run_id),
+            (self._utcnow(), roles_found, roles_applied, roles_skipped, run_id),
         )
         self.conn.commit()
 
@@ -144,40 +153,90 @@ class Database:
             """UPDATE run_history
                SET completed_at = ?, status = 'error', error_message = ?
                WHERE id = ?""",
-            (datetime.now().isoformat(), error_message, run_id),
+            (self._utcnow(), error_message, run_id),
         )
         self.conn.commit()
 
-    def get_daily_applications(self) -> list[dict]:
+    def get_last_digest_time(self) -> str:
+        """Return the timestamp of the last digest sent, or 24 hours ago if none."""
         cursor = self.conn.execute(
-            """SELECT project_name, role_name, role_description, ai_reason,
-                      candidates_considered, platform, project_url, applied_at
-               FROM applied_roles
-               WHERE applied_at >= datetime('now', '-24 hours')
-               ORDER BY applied_at DESC"""
+            "SELECT sent_at FROM digest_history ORDER BY sent_at DESC LIMIT 1"
         )
+        row = cursor.fetchone()
+        return row[0] if row else None
+
+    def record_digest_sent(self):
+        """Record that a digest was just sent."""
+        self.conn.execute(
+            "INSERT INTO digest_history (sent_at) VALUES (?)",
+            (self._utcnow(),),
+        )
+        self.conn.commit()
+
+    def _since_clause(self) -> str:
+        """Return a timestamp string for 'since last digest' or fallback to 24h."""
+        last = self.get_last_digest_time()
+        if last:
+            return last
+        return "datetime('now', '-24 hours')"
+
+    def get_daily_applications(self) -> list[dict]:
+        since = self.get_last_digest_time()
+        if since:
+            query = """SELECT project_name, role_name, role_description, ai_reason,
+                              candidates_considered, platform, project_url, applied_at
+                       FROM applied_roles
+                       WHERE applied_at > ?
+                       ORDER BY applied_at DESC"""
+            cursor = self.conn.execute(query, (since,))
+        else:
+            cursor = self.conn.execute(
+                """SELECT project_name, role_name, role_description, ai_reason,
+                          candidates_considered, platform, project_url, applied_at
+                   FROM applied_roles
+                   WHERE applied_at >= datetime('now', '-24 hours')
+                   ORDER BY applied_at DESC"""
+            )
         columns = [desc[0] for desc in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
     def get_daily_rejections(self) -> list[dict]:
-        cursor = self.conn.execute(
-            """SELECT project_name, role_name, role_description, rejection_reason,
-                      platform, project_url, rejected_at
-               FROM rejected_roles
-               WHERE rejected_at >= datetime('now', '-24 hours')
-               ORDER BY rejected_at DESC"""
-        )
+        since = self.get_last_digest_time()
+        if since:
+            query = """SELECT project_name, role_name, role_description, rejection_reason,
+                              platform, project_url, rejected_at
+                       FROM rejected_roles
+                       WHERE rejected_at > ?
+                       ORDER BY rejected_at DESC"""
+            cursor = self.conn.execute(query, (since,))
+        else:
+            cursor = self.conn.execute(
+                """SELECT project_name, role_name, role_description, rejection_reason,
+                          platform, project_url, rejected_at
+                   FROM rejected_roles
+                   WHERE rejected_at >= datetime('now', '-24 hours')
+                   ORDER BY rejected_at DESC"""
+            )
         columns = [desc[0] for desc in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
     def get_daily_run_summary(self) -> list[dict]:
-        cursor = self.conn.execute(
-            """SELECT platform, status, roles_found, roles_applied, roles_skipped,
-                      error_message, started_at, completed_at
-               FROM run_history
-               WHERE started_at >= datetime('now', '-24 hours')
-               ORDER BY started_at DESC"""
-        )
+        since = self.get_last_digest_time()
+        if since:
+            query = """SELECT platform, status, roles_found, roles_applied, roles_skipped,
+                              error_message, started_at, completed_at
+                       FROM run_history
+                       WHERE started_at > ?
+                       ORDER BY started_at DESC"""
+            cursor = self.conn.execute(query, (since,))
+        else:
+            cursor = self.conn.execute(
+                """SELECT platform, status, roles_found, roles_applied, roles_skipped,
+                          error_message, started_at, completed_at
+                   FROM run_history
+                   WHERE started_at >= datetime('now', '-24 hours')
+                   ORDER BY started_at DESC"""
+            )
         columns = [desc[0] for desc in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
@@ -185,28 +244,38 @@ class Database:
         self, project_name: str, project_url: str, role_name: str,
         role_description: str, flag_reason: str, run_id: int, platform: str = "aa",
     ):
+        now = self._utcnow()
         self.conn.execute(
             """INSERT INTO flagged_roles
-               (project_name, project_url, role_name, role_description, flag_reason, run_id, platform)
-               VALUES (?, ?, ?, ?, ?, ?, ?)
+               (project_name, project_url, role_name, role_description, flag_reason, run_id, platform, flagged_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(role_name, project_name, platform) DO UPDATE SET
                    flag_reason = excluded.flag_reason,
                    role_description = excluded.role_description,
                    run_id = excluded.run_id,
-                   flagged_at = CURRENT_TIMESTAMP,
+                   flagged_at = excluded.flagged_at,
                    project_url = excluded.project_url""",
-            (project_name, project_url, role_name, role_description, flag_reason, run_id, platform),
+            (project_name, project_url, role_name, role_description, flag_reason, run_id, platform, now),
         )
         self.conn.commit()
 
     def get_daily_flagged(self) -> list[dict]:
-        cursor = self.conn.execute(
-            """SELECT project_name, role_name, role_description, flag_reason,
-                      platform, project_url, flagged_at
-               FROM flagged_roles
-               WHERE flagged_at >= datetime('now', '-24 hours')
-               ORDER BY flagged_at DESC"""
-        )
+        since = self.get_last_digest_time()
+        if since:
+            query = """SELECT project_name, role_name, role_description, flag_reason,
+                              platform, project_url, flagged_at
+                       FROM flagged_roles
+                       WHERE flagged_at > ?
+                       ORDER BY flagged_at DESC"""
+            cursor = self.conn.execute(query, (since,))
+        else:
+            cursor = self.conn.execute(
+                """SELECT project_name, role_name, role_description, flag_reason,
+                          platform, project_url, flagged_at
+                   FROM flagged_roles
+                   WHERE flagged_at >= datetime('now', '-24 hours')
+                   ORDER BY flagged_at DESC"""
+            )
         columns = [desc[0] for desc in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 

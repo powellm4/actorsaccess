@@ -2,8 +2,11 @@ name: Daily Digest
 
 on:
   schedule:
-    # 12:45pm PT = 7:45pm UTC, 8:15pm PT = 3:15am UTC
+    # 10:00am PT = 5:00pm UTC, 12:45pm PT = 7:45pm UTC
+    # 4:15pm PT = 11:15pm UTC, 8:15pm PT = 3:15am UTC
+    - cron: "0 17 * * *"
     - cron: "45 19 * * *"
+    - cron: "15 23 * * *"
     - cron: "15 3 * * *"
   workflow_dispatch: # Allow manual trigger
 

@@ -196,6 +196,7 @@ def main():
         data = gather_digest_data(db)
         html = build_digest_html(data)
         send_email(html)
+        db.record_digest_sent()
     finally:
         db.close()
 
