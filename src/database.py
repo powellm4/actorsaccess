@@ -86,6 +86,10 @@ class Database:
             self.conn.execute("ALTER TABLE applied_roles ADD COLUMN project_url TEXT DEFAULT ''")
         except sqlite3.OperationalError:
             pass
+        try:
+            self.conn.execute("ALTER TABLE applied_roles ADD COLUMN submission_note TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
         self.conn.commit()
 
     def is_applied(self, role_id: str) -> bool:
@@ -97,13 +101,13 @@ class Database:
     def record_application(
         self, role_id: str, project_name: str, role_name: str,
         role_description: str = "", ai_reason: str = "", candidates_considered: int = 1,
-        platform: str = "aa", project_url: str = "",
+        platform: str = "aa", project_url: str = "", submission_note: str = "",
     ):
         self.conn.execute(
             """INSERT OR IGNORE INTO applied_roles
-               (role_id, project_name, role_name, role_description, ai_reason, candidates_considered, platform, project_url, applied_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (role_id, project_name, role_name, role_description, ai_reason, candidates_considered, platform, project_url, self._utcnow()),
+               (role_id, project_name, role_name, role_description, ai_reason, candidates_considered, platform, project_url, applied_at, submission_note)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (role_id, project_name, role_name, role_description, ai_reason, candidates_considered, platform, project_url, self._utcnow(), submission_note),
         )
         self.conn.commit()
 
@@ -184,7 +188,7 @@ class Database:
         since = self.get_last_digest_time()
         if since:
             query = """SELECT project_name, role_name, role_description, ai_reason,
-                              candidates_considered, platform, project_url, applied_at
+                              candidates_considered, platform, project_url, applied_at, submission_note
                        FROM applied_roles
                        WHERE applied_at > ?
                        ORDER BY applied_at DESC"""
@@ -192,7 +196,7 @@ class Database:
         else:
             cursor = self.conn.execute(
                 """SELECT project_name, role_name, role_description, ai_reason,
-                          candidates_considered, platform, project_url, applied_at
+                          candidates_considered, platform, project_url, applied_at, submission_note
                    FROM applied_roles
                    WHERE applied_at >= datetime('now', '-24 hours')
                    ORDER BY applied_at DESC"""

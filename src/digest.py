@@ -84,6 +84,9 @@ def build_digest_html(data: dict) -> str:
                     section += f' <em>(chosen from {app["candidates_considered"]} candidates)</em>'
                 section += f'<br><span style="color:#555;">{desc}</span>' if desc else ""
                 section += f'<br><strong>Reason:</strong> {app.get("ai_reason", "N/A")}'
+                note = app.get("submission_note", "")
+                if note:
+                    section += f'<br><strong>Note submitted:</strong> <em>{note}</em>'
                 section += '\n</div>\n'
 
         # Rejected roles

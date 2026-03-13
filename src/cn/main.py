@@ -255,6 +255,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             candidates_considered=len(candidates),
                             platform="cn",
                             project_url=role_url,
+                            submission_note=analysis.get("note") or "",
                         )
                         roles_applied += 1
                     else:

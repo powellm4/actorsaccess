@@ -233,6 +233,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             ai_reason=ai_reason,
                             candidates_considered=len(candidates),
                             project_url=project_url,
+                            submission_note=analysis.get("note") or "",
                         )
                         roles_applied += 1
                     else:
