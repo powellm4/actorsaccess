@@ -101,6 +101,7 @@ class Database:
                VALUES (?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(role_name, project_name, platform) DO UPDATE SET
                    rejection_reason = excluded.rejection_reason,
+                   role_description = excluded.role_description,
                    run_id = excluded.run_id,
                    rejected_at = CURRENT_TIMESTAMP,
                    project_url = excluded.project_url""",

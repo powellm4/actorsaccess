@@ -192,7 +192,7 @@ def test_get_daily_applications(db):
         ai_reason="Best fit", project_url="https://example.com",
     )
     rows = db.get_daily_applications()
-    assert len(rows) >= 1
+    assert len(rows) == 1
     assert rows[0]["project_name"] == "Daily Project"
 
 
@@ -209,7 +209,7 @@ def test_get_daily_rejections(db):
         platform="aa",
     )
     rows = db.get_daily_rejections()
-    assert len(rows) >= 1
+    assert len(rows) == 1
     assert rows[0]["role_name"] == "Side Character"
 
 
