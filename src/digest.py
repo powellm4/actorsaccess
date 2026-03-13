@@ -57,7 +57,9 @@ def build_digest_html(data: dict) -> str:
                 platform_badge = _platform_badge(app.get("platform", "aa"))
                 desc = (app.get("role_description") or "")[:200]
                 section += f'<div style="background:#e8f5e9;padding:12px;border-radius:4px;margin-bottom:8px;">\n'
-                section += f'<strong style="color:#2e7d32;">APPLIED</strong> {platform_badge} — <strong>{app["role_name"]}</strong>'
+                app_url = app.get("project_url", "")
+                app_link = f' — <a href="{app_url}">view listing</a>' if app_url else ""
+                section += f'<strong style="color:#2e7d32;">APPLIED</strong> {platform_badge} — <strong>{app["role_name"]}</strong>{app_link}'
                 if app.get("candidates_considered", 1) > 1:
                     section += f' <em>(chosen from {app["candidates_considered"]} candidates)</em>'
                 section += f'<br><span style="color:#555;">{desc}</span>' if desc else ""
