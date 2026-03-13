@@ -223,10 +223,21 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     if analysis["action"] == "SUBMIT_WITH_NOTE":
                         sub_cfg["default_note"] = analysis["note"]
 
-                    success = browser.submit_for_role(
+                    result = browser.submit_for_role(
                         best, project["project_name"], sub_cfg
                     )
-                    if success:
+                    if isinstance(result, str) and result.startswith("NEEDS_SELFTAPE:"):
+                        flag_reason = "Self-tape/video audition requested"
+                        logger.info(f"Flagging {best['role_name']} — {flag_reason}")
+                        db.record_flagged_role(
+                            project_name=project["project_name"],
+                            project_url=project_url,
+                            role_name=best["role_name"],
+                            role_description=best.get("description", ""),
+                            flag_reason=flag_reason,
+                            run_id=run_id,
+                        )
+                    elif result:
                         db.record_application(
                             unique_id, project["project_name"], best["role_name"],
                             role_description=best.get("description", ""),

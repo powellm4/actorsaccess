@@ -326,7 +326,7 @@ class ActorsAccessBrowser:
 
         return roles
 
-    def submit_for_role(self, role: dict, project_name: str, submission_config: dict) -> bool:
+    def submit_for_role(self, role: dict, project_name: str, submission_config: dict) -> bool | str:
         """Click a role link to open the submission modal and submit.
 
         The submission modal contains an iframe with:
@@ -335,6 +335,11 @@ class ActorsAccessBrowser:
         - Step 3: Size card checkbox (input#include_sc_checkbox_id)
         - Step 4: Note textarea (textarea#roleSubmissionNotes)
         - Submit button: a#add_to_cart with onclick="submitForm();"
+
+        Returns:
+            True if submitted successfully.
+            False if submission failed.
+            A string starting with "NEEDS_SELFTAPE:" if a self-tape is requested.
         """
         try:
             logger.info(f"Submitting for: {project_name} — {role['role_name']}")
@@ -355,6 +360,30 @@ class ActorsAccessBrowser:
                 return False
 
             _random_delay(1, 3)
+
+            # Check media instructions for self-tape requests
+            media_instructions = frame.evaluate('''() => {
+                const els = document.querySelectorAll('*');
+                for (const el of els) {
+                    const text = el.innerText || '';
+                    if (text.toLowerCase().includes('media instruction')) return text;
+                }
+                return '';
+            }''')
+            if media_instructions:
+                mi_lower = media_instructions.lower()
+                selftape_keywords = [
+                    "self-tape", "self tape", "selftape",
+                    "reading of the sides", "audition video",
+                    "video audition", "record a",
+                    "film yourself", "tape yourself",
+                    "submit a video", "video of you",
+                ]
+                if any(kw in mi_lower for kw in selftape_keywords):
+                    reason = media_instructions.strip()[:300]
+                    logger.info(f"Self-tape requested for {role['role_name']}, skipping submission")
+                    self._close_modal()
+                    return f"NEEDS_SELFTAPE: {reason}"
 
             # Step 1: Select headshot (radio button by index)
             headshot_index = submission_config.get("headshot_index", 0)
