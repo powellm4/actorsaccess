@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 ACTOR_PROFILE = """
 - Appears 25, plays 20-30 convincingly
 - Male, White, 6'0", 185 lbs, athletic build, brown hair (thick, slightly curly, short-medium length)
-- Type: Leading man, comedic/charming; also strong as villain/antagonist/mean characters
+- Type: Leading man, comedic/charming; also strong as villain/antagonist/mean characters; also excels at grounded/calm/straight man/voice-of-reason roles
 - 2 years improv training at UCB and The Groundlings
 - 5+ years salsa dancing
 - American accent (can play accents but not authentic/native non-American accents)
