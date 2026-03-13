@@ -11,7 +11,7 @@ from src.cn.config import load_cn_config, CnConfigError
 from src.cn.browser import CastingNetworksBrowser
 from src.database import Database
 from src.filters import _is_background, _is_ugc, _is_voiceover
-from src.role_selector import select_best_role, generate_submission_note
+from src.role_selector import select_best_roles, generate_submission_note
 
 logger = logging.getLogger("castingnetworks")
 
@@ -177,51 +177,78 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                 if max_subs and roles_applied >= max_subs:
                     break
 
-                best, ai_reason = select_best_role(candidates, project_name)
+                selected, rejections = select_best_roles(candidates, project_name)
 
-                if best is None:
+                # Build project URL for CN (use first candidate's URL)
+                project_url = candidates[0].get("url", "")
+                if project_url and not project_url.startswith("http"):
+                    project_url = f"https://app.castingnetworks.com{project_url}"
+
+                # Record rejections
+                for role in candidates:
+                    if role["role_name"] in rejections:
+                        role_url = role.get("url", "")
+                        if role_url and not role_url.startswith("http"):
+                            role_url = f"https://app.castingnetworks.com{role_url}"
+                        db.record_rejection(
+                            project_name=project_name,
+                            project_url=role_url or project_url,
+                            role_name=role["role_name"],
+                            role_description=role.get("description", ""),
+                            rejection_reason=rejections[role["role_name"]],
+                            run_id=run_id,
+                            platform="cn",
+                        )
+
+                if not selected:
+                    ai_reason = next(iter(rejections.values()), "AI skipped")
                     logger.info(f"AI skipped project: {project_name} — {ai_reason}")
                     if dry_run:
                         for role in candidates:
                             _print_role_decision("SKIP", project_name, role, f"AI: {ai_reason}")
                     continue
 
-                unique_id = f"cn_{best['project_id']}_{best['role_id']}"
+                for best, ai_reason in selected:
+                    unique_id = f"cn_{best['project_id']}_{best['role_id']}"
 
-                if dry_run:
-                    if len(candidates) > 1:
-                        for role in candidates:
-                            if role is best:
-                                _print_role_decision("SUBMIT (AI pick)", project_name, role)
-                            else:
-                                _print_role_decision("SKIP", project_name, role, "not best fit")
-                        print(f"  AI reason: {ai_reason}")
-                    else:
-                        _print_role_decision("SUBMIT", project_name, best)
+                    if dry_run:
+                        tag = "SUBMIT (AI pick)" if len(candidates) > 1 else "SUBMIT"
+                        _print_role_decision(tag, project_name, best)
+                        if len(candidates) > 1:
+                            print(f"  AI reason: {ai_reason}")
+                        custom_note = generate_submission_note(best, project_name)
+                        if custom_note:
+                            print(f"  Note: {custom_note}")
+                        roles_applied += 1
+                        continue
+
+                    sub_cfg = cfg["submission"].copy()
                     custom_note = generate_submission_note(best, project_name)
                     if custom_note:
-                        print(f"  Note: {custom_note}")
-                    roles_applied += 1
-                    continue
+                        sub_cfg["default_note"] = custom_note
 
-                # Generate custom note if the role asks for one
-                sub_cfg = cfg["submission"].copy()
-                custom_note = generate_submission_note(best, project_name)
-                if custom_note:
-                    sub_cfg["default_note"] = custom_note
+                    success = browser.submit_for_role(best, sub_cfg)
+                    if success:
+                        role_url = best.get("url", "")
+                        if role_url and not role_url.startswith("http"):
+                            role_url = f"https://app.castingnetworks.com{role_url}"
+                        db.record_application(
+                            unique_id, project_name, best["role_name"],
+                            role_description=best.get("description", ""),
+                            ai_reason=ai_reason,
+                            candidates_considered=len(candidates),
+                            platform="cn",
+                            project_url=role_url,
+                        )
+                        roles_applied += 1
+                    else:
+                        logger.warning(f"Skipping failed submission: {best['role_name']}")
 
-                success = browser.submit_for_role(best, sub_cfg)
-                if success:
-                    db.record_application(
-                        unique_id, project_name, best["role_name"],
-                        role_description=best.get("description", ""),
-                        ai_reason=ai_reason,
-                        candidates_considered=len(candidates),
-                        platform="cn",
-                    )
-                    roles_applied += 1
-                else:
-                    logger.warning(f"Skipping failed submission: {best['role_name']}")
+                # Print rejected roles in dry run
+                if dry_run and rejections:
+                    for role in candidates:
+                        if role["role_name"] in rejections:
+                            _print_role_decision("SKIP", project_name, role, rejections[role["role_name"]])
 
             # Track consecutive pages with no submissions
             if roles_applied > page_applied_before:
