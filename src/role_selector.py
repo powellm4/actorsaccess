@@ -89,6 +89,8 @@ AVAILABLE ROLES:
 
 Pick the ONE role that is the best fit for this actor. If a second or third role is also a genuinely strong fit, return those too — but only if they are truly well-matched. Don't force extra picks.
 
+IMPORTANT: If ANY role description says "submit for only one role", "one submission per actor", or similar, you MUST select only ONE role no matter what.
+
 HARD DISQUALIFIERS — reject any role that requires:
 - Height outside 5'10"–6'1" (e.g., "must be 6'3"+", "under 5'6"")
 - Large/heavyset/stocky/overweight build (actor is athletic, 185 lbs)
