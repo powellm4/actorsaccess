@@ -41,9 +41,9 @@ def build_digest_html(data: dict) -> str:
             platform_badge = _platform_badge(item.get("platform", "aa"))
             desc = (item.get("role_description") or "")[:200]
             project_url = item.get("project_url", "")
-            project_link = f'<a href="{project_url}">{item["project_name"]}</a>' if project_url else item["project_name"]
+            role_label = f'<a href="{project_url}" style="color:#4a148c;text-decoration:underline;">{item["role_name"]}</a>' if project_url else item["role_name"]
             flagged_section += f'<div style="background:#ede7f6;border-left:4px solid #7c4dff;padding:12px;border-radius:4px;margin-bottom:8px;">\n'
-            flagged_section += f'{platform_badge} <strong>{project_link}</strong> — {item["role_name"]}'
+            flagged_section += f'{platform_badge} <strong>{item["project_name"]}</strong> — <strong>{role_label}</strong>'
             flagged_section += f'<br><span style="color:#4a148c;"><strong>Needed:</strong> {item.get("flag_reason", "Unknown")}</span>'
             if desc:
                 flagged_section += f'<br><span style="color:#555;">{desc}</span>'
@@ -78,8 +78,8 @@ def build_digest_html(data: dict) -> str:
                 desc = (app.get("role_description") or "")[:200]
                 section += f'<div style="background:#e8f5e9;padding:12px;border-radius:4px;margin-bottom:8px;">\n'
                 app_url = app.get("project_url", "")
-                app_link = f' — <a href="{app_url}">view listing</a>' if app_url else ""
-                section += f'<strong style="color:#2e7d32;">APPLIED</strong> {platform_badge} — <strong>{app["role_name"]}</strong>{app_link}'
+                role_label = f'<a href="{app_url}" style="color:#2e7d32;text-decoration:underline;">{app["role_name"]}</a>' if app_url else app["role_name"]
+                section += f'<strong style="color:#2e7d32;">APPLIED</strong> {platform_badge} — <strong>{role_label}</strong>'
                 if app.get("candidates_considered", 1) > 1:
                     section += f' <em>(chosen from {app["candidates_considered"]} candidates)</em>'
                 section += f'<br><span style="color:#555;">{desc}</span>' if desc else ""
@@ -92,9 +92,9 @@ def build_digest_html(data: dict) -> str:
                 platform_badge = _platform_badge(rej.get("platform", "aa"))
                 desc = (rej.get("role_description") or "")[:200]
                 rej_url = rej.get("project_url", "")
-                role_link = f' — <a href="{rej_url}">view listing</a>' if rej_url else ""
+                role_label = f'<a href="{rej_url}" style="color:#e65100;text-decoration:underline;">{rej["role_name"]}</a>' if rej_url else rej["role_name"]
                 section += f'<div style="background:#fff3e0;padding:12px;border-radius:4px;margin-bottom:8px;">\n'
-                section += f'<strong style="color:#e65100;">PASSED</strong> {platform_badge} — <strong>{rej["role_name"]}</strong>{role_link}'
+                section += f'<strong style="color:#e65100;">PASSED</strong> {platform_badge} — <strong>{role_label}</strong>'
                 section += f'<br><span style="color:#555;">{desc}</span>' if desc else ""
                 section += f'<br><strong>Reason:</strong> {rej.get("rejection_reason", "N/A")}'
                 section += '\n</div>\n'
