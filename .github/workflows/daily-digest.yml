@@ -10,6 +10,9 @@ on:
     - cron: "15 3 * * *"
   workflow_dispatch: # Allow manual trigger
 
+permissions:
+  contents: write
+
 jobs:
   send-digest:
     runs-on: ubuntu-latest
