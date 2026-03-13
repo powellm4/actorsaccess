@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 ACTOR_PROFILE = """
 - Appears 25, plays 20-30 convincingly
-- Male, White, 6'0", 185 lbs, athletic build, brown hair
+- Male, White, 6'0", 185 lbs, athletic build, brown hair (thick, slightly curly, short-medium length)
 - Type: Leading man, comedic/charming; also strong as villain/antagonist/mean characters
 - 2 years improv training at UCB and The Groundlings
 - 5+ years salsa dancing
