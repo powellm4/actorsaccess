@@ -41,13 +41,37 @@ def _make_mock_anthropic_error():
     return mock_module, mock_client
 
 
-def test_single_role_returns_directly():
-    """Single candidate should return without API call."""
+def test_single_role_fit_check():
+    """Single candidate should pass AI fitness check."""
+    mock_module, mock_client = _make_mock_anthropic("FIT - Good physical and type match")
     roles = [SAMPLE_ROLES[0]]
-    selected, rejections = select_best_roles(roles, "Test Project")
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles(roles, "Test Project")
     assert len(selected) == 1
     assert selected[0][0]["role_name"] == "Jake"
-    assert selected[0][1] == "only matching role"
+    assert rejections == {}
+
+
+def test_single_role_skip():
+    """Single candidate that fails fitness check should be skipped."""
+    mock_module, mock_client = _make_mock_anthropic("SKIP - Requires heavyset build")
+    roles = [SAMPLE_ROLES[0]]
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles(roles, "Test Project")
+    assert len(selected) == 0
+    assert "Jake" in rejections
+
+
+def test_single_role_no_api_key_returns_directly():
+    """Single candidate without API key should return without check."""
+    roles = [SAMPLE_ROLES[0]]
+    with patch.dict(os.environ, {}, clear=True):
+        os.environ.pop("ANTHROPIC_API_KEY", None)
+        selected, rejections = select_best_roles(roles, "Test Project")
+    assert len(selected) == 1
+    assert selected[0][0]["role_name"] == "Jake"
     assert rejections == {}
 
 

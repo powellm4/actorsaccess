@@ -44,13 +44,13 @@ def select_best_roles(roles: list[dict], project_name: str) -> tuple[list[tuple[
         - List of (role dict, reason string) for selected roles
         - Dict mapping rejected role names to rejection reasons
     """
-    if len(roles) == 1:
-        return [(roles[0], "only matching role")], {}
-
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         logger.warning("No ANTHROPIC_API_KEY set — defaulting to first role")
         return [(roles[0], "no API key, defaulted to first")], {}
+
+    if len(roles) == 1:
+        return _check_single_role_fit(roles[0], project_name, api_key)
 
     try:
         import anthropic
@@ -86,7 +86,15 @@ AVAILABLE ROLES:
 
 Pick the ONE role that is the best fit for this actor. If a second or third role is also a genuinely strong fit, return those too — but only if they are truly well-matched. Don't force extra picks.
 
-Consider:
+HARD DISQUALIFIERS — reject any role that requires:
+- Height outside 5'10"–6'1" (e.g., "must be 6'3"+", "under 5'6"")
+- Large/heavyset/stocky/overweight build (actor is athletic, 185 lbs)
+- Female only
+- Specific ethnicity that excludes White
+- Age clearly outside 18-35 range (not "to play younger")
+- Skills the actor doesn't have (singing, musical instrument, specific martial art)
+
+Also consider:
 1. Physical match (age, build, height, ethnicity)
 2. Type match (leading man, comedic/charming)
 3. Role prominence (lead and supporting are both strong fits; day players are acceptable too)
@@ -116,6 +124,56 @@ REJECTED: 3 - Background role, not a fit"""
         logger.warning(f"AI role selection failed ({e}), defaulting to first role")
         rejections = {r["role_name"]: f"AI failed ({e}), defaulted to first" for r in roles[1:]}
         return [(roles[0], f"AI failed ({e}), defaulted to first")], rejections
+
+
+def _check_single_role_fit(
+    role: dict, project_name: str, api_key: str,
+) -> tuple[list[tuple[dict, str]], dict[str, str]]:
+    """Quick AI check: is this single role a physical/type fit?"""
+    try:
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=api_key)
+
+        desc = role.get("description", "No description")[:500]
+        prompt = f"""You are a casting assistant. Quickly decide if this actor should submit for this role.
+
+ACTOR PROFILE:
+{ACTOR_PROFILE}
+
+PROJECT: {project_name}
+ROLE: {role['role_name']}
+DESCRIPTION: {desc}
+
+HARD DISQUALIFIERS — reject if the role requires ANY of these:
+- Height outside 5'10"–6'1" (e.g., "must be 6'3"+", "under 5'6"")
+- Large/heavyset/stocky/overweight build (actor is athletic, 185 lbs)
+- Female only
+- Specific ethnicity that excludes White
+- Age clearly outside 18-35 range (not "to play younger")
+- Skills the actor doesn't have (singing, musical instrument, specific martial art)
+
+If the role is a fit or ambiguous, respond: FIT - <brief reason>
+If the role is clearly not a fit, respond: SKIP - <brief reason>"""
+
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=100,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        text = response.content[0].text.strip()
+        if text.upper().startswith("SKIP"):
+            reason = text.split("-", 1)[1].strip() if "-" in text else text
+            logger.info(f"AI skipped single role {role['role_name']} on {project_name}: {reason}")
+            return [], {role["role_name"]: reason}
+
+        reason = text.split("-", 1)[1].strip() if "-" in text else "only matching role"
+        return [(role, reason)], {}
+
+    except Exception as e:
+        logger.warning(f"AI fitness check failed ({e}), applying anyway")
+        return [(role, "only matching role (AI check failed)")], {}
 
 
 def _parse_structured_response(
