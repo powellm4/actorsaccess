@@ -32,6 +32,18 @@ class Database:
                 error_message TEXT,
                 platform TEXT DEFAULT 'aa'
             );
+            CREATE TABLE IF NOT EXISTS rejected_roles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_name TEXT,
+                project_url TEXT DEFAULT '',
+                role_name TEXT,
+                role_description TEXT,
+                rejection_reason TEXT,
+                run_id INTEGER,
+                platform TEXT DEFAULT 'aa',
+                rejected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(role_name, project_name, platform)
+            );
         """)
         # Add columns if upgrading from older schema
         try:
@@ -54,6 +66,10 @@ class Database:
             self.conn.execute("ALTER TABLE run_history ADD COLUMN platform TEXT DEFAULT 'aa'")
         except sqlite3.OperationalError:
             pass
+        try:
+            self.conn.execute("ALTER TABLE applied_roles ADD COLUMN project_url TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
         self.conn.commit()
 
     def is_applied(self, role_id: str) -> bool:
@@ -65,13 +81,30 @@ class Database:
     def record_application(
         self, role_id: str, project_name: str, role_name: str,
         role_description: str = "", ai_reason: str = "", candidates_considered: int = 1,
-        platform: str = "aa",
+        platform: str = "aa", project_url: str = "",
     ):
         self.conn.execute(
             """INSERT OR IGNORE INTO applied_roles
-               (role_id, project_name, role_name, role_description, ai_reason, candidates_considered, platform)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (role_id, project_name, role_name, role_description, ai_reason, candidates_considered, platform),
+               (role_id, project_name, role_name, role_description, ai_reason, candidates_considered, platform, project_url)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (role_id, project_name, role_name, role_description, ai_reason, candidates_considered, platform, project_url),
+        )
+        self.conn.commit()
+
+    def record_rejection(
+        self, project_name: str, project_url: str, role_name: str,
+        role_description: str, rejection_reason: str, run_id: int, platform: str = "aa",
+    ):
+        self.conn.execute(
+            """INSERT INTO rejected_roles
+               (project_name, project_url, role_name, role_description, rejection_reason, run_id, platform)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(role_name, project_name, platform) DO UPDATE SET
+                   rejection_reason = excluded.rejection_reason,
+                   run_id = excluded.run_id,
+                   rejected_at = CURRENT_TIMESTAMP,
+                   project_url = excluded.project_url""",
+            (project_name, project_url, role_name, role_description, rejection_reason, run_id, platform),
         )
         self.conn.commit()
 
@@ -101,6 +134,39 @@ class Database:
             (datetime.now().isoformat(), error_message, run_id),
         )
         self.conn.commit()
+
+    def get_daily_applications(self) -> list[dict]:
+        cursor = self.conn.execute(
+            """SELECT project_name, role_name, role_description, ai_reason,
+                      candidates_considered, platform, project_url, applied_at
+               FROM applied_roles
+               WHERE applied_at >= datetime('now', '-24 hours')
+               ORDER BY applied_at DESC"""
+        )
+        columns = [desc[0] for desc in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    def get_daily_rejections(self) -> list[dict]:
+        cursor = self.conn.execute(
+            """SELECT project_name, role_name, role_description, rejection_reason,
+                      platform, project_url, rejected_at
+               FROM rejected_roles
+               WHERE rejected_at >= datetime('now', '-24 hours')
+               ORDER BY rejected_at DESC"""
+        )
+        columns = [desc[0] for desc in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    def get_daily_run_summary(self) -> list[dict]:
+        cursor = self.conn.execute(
+            """SELECT platform, status, roles_found, roles_applied, roles_skipped,
+                      error_message, started_at, completed_at
+               FROM run_history
+               WHERE started_at >= datetime('now', '-24 hours')
+               ORDER BY started_at DESC"""
+        )
+        columns = [desc[0] for desc in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
     def close(self):
         self.conn.close()

@@ -106,3 +106,117 @@ def test_start_run_default_platform(db):
     )
     row = cursor.fetchone()
     assert row[0] == "aa"
+
+
+def test_rejected_roles_table_created(db):
+    """DB should create rejected_roles table on init."""
+    cursor = db.conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    )
+    tables = {row[0] for row in cursor.fetchall()}
+    assert "rejected_roles" in tables
+
+
+def test_record_rejection(db):
+    run_id = db.start_run()
+    db.record_rejection(
+        project_name="Test Project",
+        project_url="https://actorsaccess.com/projects/?breakdown=123",
+        role_name="Villain",
+        role_description="The bad guy",
+        rejection_reason="Age range too high",
+        run_id=run_id,
+        platform="aa",
+    )
+    cursor = db.conn.execute(
+        "SELECT project_name, role_name, rejection_reason, platform FROM rejected_roles"
+    )
+    row = cursor.fetchone()
+    assert row[0] == "Test Project"
+    assert row[1] == "Villain"
+    assert row[2] == "Age range too high"
+    assert row[3] == "aa"
+
+
+def test_record_rejection_upserts(db):
+    """Second rejection for same role/project/platform should update reason."""
+    run_id = db.start_run()
+    db.record_rejection(
+        project_name="Test Project",
+        project_url="https://example.com",
+        role_name="Villain",
+        role_description="The bad guy",
+        rejection_reason="Age range too high",
+        run_id=run_id,
+        platform="aa",
+    )
+    run_id2 = db.start_run()
+    db.record_rejection(
+        project_name="Test Project",
+        project_url="https://example.com",
+        role_name="Villain",
+        role_description="The bad guy",
+        rejection_reason="Not a leading man type",
+        run_id=run_id2,
+        platform="aa",
+    )
+    cursor = db.conn.execute("SELECT COUNT(*) FROM rejected_roles")
+    assert cursor.fetchone()[0] == 1
+    cursor = db.conn.execute("SELECT rejection_reason FROM rejected_roles")
+    assert cursor.fetchone()[0] == "Not a leading man type"
+
+
+def test_record_application_with_project_url(db):
+    db.record_application(
+        "role_url", "URL Project", "Lead",
+        project_url="https://actorsaccess.com/projects/?breakdown=456",
+    )
+    cursor = db.conn.execute(
+        "SELECT project_url FROM applied_roles WHERE role_id = ?", ("role_url",)
+    )
+    assert cursor.fetchone()[0] == "https://actorsaccess.com/projects/?breakdown=456"
+
+
+def test_record_application_project_url_defaults_empty(db):
+    db.record_application("role_nourl", "No URL Project", "Lead")
+    cursor = db.conn.execute(
+        "SELECT project_url FROM applied_roles WHERE role_id = ?", ("role_nourl",)
+    )
+    assert cursor.fetchone()[0] == ""
+
+
+def test_get_daily_applications(db):
+    """get_daily_applications should return today's applications."""
+    db.record_application(
+        "role_daily", "Daily Project", "Lead",
+        ai_reason="Best fit", project_url="https://example.com",
+    )
+    rows = db.get_daily_applications()
+    assert len(rows) >= 1
+    assert rows[0]["project_name"] == "Daily Project"
+
+
+def test_get_daily_rejections(db):
+    """get_daily_rejections should return today's rejections."""
+    run_id = db.start_run()
+    db.record_rejection(
+        project_name="Daily Project",
+        project_url="https://example.com",
+        role_name="Side Character",
+        role_description="A friend",
+        rejection_reason="Not leading man",
+        run_id=run_id,
+        platform="aa",
+    )
+    rows = db.get_daily_rejections()
+    assert len(rows) >= 1
+    assert rows[0]["role_name"] == "Side Character"
+
+
+def test_get_daily_run_summary(db):
+    """get_daily_run_summary should return today's run stats."""
+    run_id = db.start_run()
+    db.complete_run(run_id, roles_found=10, roles_applied=3, roles_skipped=7)
+    summary = db.get_daily_run_summary()
+    assert len(summary) >= 1
+    assert summary[0]["roles_applied"] == 3
