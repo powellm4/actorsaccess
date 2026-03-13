@@ -19,6 +19,7 @@ ACTOR_PROFILE = """
 - 5+ years salsa dancing
 - American accent (can play accents but not authentic/native non-American accents)
 - Comfortable with physical comedy, action sequences, and 12+ hour shoot days
+- Email: REDACTED | Phone: REDACTED
 - Los Angeles local with reliable transportation within the 30-mile studio zone
 - Generally open availability
 - No demo reel currently — still apply for roles requesting one
@@ -271,7 +272,7 @@ Analyze the role description and determine the correct action:
 1. If the description does NOT ask for any specific information in the submission notes, respond:
    ACTION: SUBMIT
 
-2. If the description asks for information you CAN answer from the actor profile (e.g., location/local hire, availability for long days, improv/dance skills, physical attributes, transportation), respond:
+2. If the description asks for information you CAN answer from the actor profile (e.g., location/local hire, availability for long days, improv/dance skills, physical attributes, transportation, phone number, email address, contact info), respond:
    ACTION: SUBMIT_WITH_NOTE
    NOTE: <1-2 sentence note in first person addressing what they asked for. Be specific and concise. No greeting, sign-off, or placeholders.>
 

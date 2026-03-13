@@ -10,7 +10,7 @@ from datetime import datetime
 from src.cn.config import load_cn_config, CnConfigError
 from src.cn.browser import CastingNetworksBrowser
 from src.database import Database
-from src.filters import _is_background, _is_ugc, _is_voiceover
+from src.filters import _is_background, _is_court_tv, _is_ugc, _is_voiceover, _COURT_TV_PATTERN
 from src.role_selector import select_best_roles, analyze_submission_requirements
 
 logger = logging.getLogger("castingnetworks")
@@ -135,6 +135,16 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     roles_skipped += len(proj_roles)
                     continue
 
+                # Skip court TV projects
+                if _COURT_TV_PATTERN.search(project_name):
+                    roles_filtered += len(proj_roles)
+                    if dry_run:
+                        for role in proj_roles:
+                            _print_role_decision("SKIP", project_name, role, "court TV project")
+                    else:
+                        logger.info(f"Filtered out project: {project_name} (court TV)")
+                    continue
+
                 candidates = []
                 for role in proj_roles:
                     if _is_cn_background(role):
@@ -159,6 +169,14 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             _print_role_decision("SKIP", project_name, role, "voice over")
                         else:
                             logger.info(f"Filtered out: {project_name} — {role['role_name']} (voice over)")
+                        continue
+
+                    if _is_court_tv(role):
+                        roles_filtered += 1
+                        if dry_run:
+                            _print_role_decision("SKIP", project_name, role, "court TV")
+                        else:
+                            logger.info(f"Filtered out: {project_name} — {role['role_name']} (court TV)")
                         continue
 
                     if _is_past_deadline(role):
