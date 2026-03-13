@@ -34,10 +34,10 @@ Two changes:
 
 **Uniqueness:** `UNIQUE(role_name, project_name, platform)` to prevent duplicate rejections across runs when the same listing appears on multiple days.
 
-**New column on `applied_roles`:** `project_url TEXT DEFAULT ''` — URL to the project listing.
+**New column on `applied_roles`:** `project_url TEXT DEFAULT ''` — URL to the project listing. Added via `ALTER TABLE ... ADD COLUMN` migration pattern (same as existing schema migrations in `database.py`).
 
 **New method on `Database`:**
-- `record_rejection(...)` — inserts into `rejected_roles` (INSERT OR IGNORE to respect uniqueness)
+- `record_rejection(project_name, project_url, role_name, role_description, rejection_reason, run_id, platform)` — upserts into `rejected_roles` using `ON CONFLICT(role_name, project_name, platform) DO UPDATE SET rejection_reason, run_id, rejected_at` so the digest always shows the most recent AI reasoning
 - `record_application()` — add optional `project_url` parameter with default `""`
 
 ### 2. Multi-Role Submission
@@ -62,6 +62,7 @@ Two changes:
 > REJECTED: 4 - reason for rejecting role 4
 
 - **Parsing:** Look for lines starting with `SELECTED:` or `REJECTED:` and extract role number + reason via regex. This structured format avoids ambiguity in the current free-text parsing.
+- **Fallback:** If the AI response contains no `SELECTED:` lines (malformed output), fall back to selecting the first candidate with reason "AI returned unparseable response, defaulted to first". All other candidates get rejected with the same reason.
 - When only 1 candidate exists, return it directly (no API call, same as current behavior)
 - When API key is missing, fall back to first role only (same as current behavior)
 - When AI returns SKIP: return empty selected list, all candidates go to rejections dict
