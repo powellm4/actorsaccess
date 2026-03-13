@@ -143,7 +143,7 @@ def send_email(html: str):
         from sendgrid.helpers.mail import Mail, Email, To, Content
 
         message = Mail(
-            from_email=Email("REDACTED"),
+            from_email=Email("fourplexxbl@hotmail.com"),
             to_emails=To("REDACTED"),
             subject=f"Casting Digest — {datetime.now(tz=timezone.utc).strftime('%B %d, %Y')}",
             html_content=Content("text/html", html),
