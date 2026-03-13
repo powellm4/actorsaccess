@@ -158,27 +158,26 @@ def _wrap_html(body: str) -> str:
 
 
 def send_email(html: str):
-    """Send the digest email via SendGrid."""
-    api_key = os.environ.get("SENDGRID_API_KEY")
-    if not api_key:
-        logger.error("SENDGRID_API_KEY not set — cannot send digest")
+    """Send the digest email via Gmail SMTP."""
+    import smtplib
+    from email.mime.text import MIMEText
+
+    password = os.environ.get("GMAIL_APP_PASSWORD")
+    if not password:
+        logger.error("GMAIL_APP_PASSWORD not set — cannot send digest")
         return
 
+    sender = "REDACTED"
+    msg = MIMEText(html, "html")
+    msg["Subject"] = f"Casting Digest — {datetime.now(tz=timezone.utc).strftime('%B %d, %Y')}"
+    msg["From"] = sender
+    msg["To"] = sender
+
     try:
-        from sendgrid import SendGridAPIClient
-        from sendgrid.helpers.mail import Mail, Email, To, Content
-
-        message = Mail(
-            from_email=Email("REDACTED"),
-            to_emails=To("REDACTED"),
-            subject=f"Casting Digest — {datetime.now(tz=timezone.utc).strftime('%B %d, %Y')}",
-            html_content=Content("text/html", html),
-        )
-
-        sg = SendGridAPIClient(api_key)
-        response = sg.send(message)
-        logger.info(f"Digest email sent (status {response.status_code})")
-
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(sender, password)
+            server.sendmail(sender, sender, msg.as_string())
+        logger.info("Digest email sent via Gmail")
     except Exception as e:
         logger.error(f"Failed to send digest email: {e}")
 
