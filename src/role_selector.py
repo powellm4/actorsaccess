@@ -5,7 +5,6 @@ When a project has multiple roles that pass filters, uses Claude Haiku
 to pick the single best fit based on the actor's profile.
 """
 
-import json
 import logging
 import os
 import re
@@ -13,13 +12,19 @@ import re
 logger = logging.getLogger(__name__)
 
 ACTOR_PROFILE = """
-- Appears 25 years old — very young-looking, people don't believe he's over 30. Can convincingly play 20-30.
+- Appears 25, plays 20-30 convincingly
 - Male, White, 6'0", 185 lbs, athletic build
-- Type: Leading man, comedic/charming
-- Strengths: Charisma-driven roles, protagonists, romantic leads, action heroes, comedy, wit
-- Best fit: Characters who are confident, driven, likable, or funny — the guy the audience roots for
-- Age range sweet spot: STRONGLY prioritize roles casting 22-30. Roles casting 18-35 are acceptable. Roles requiring 40+ appearance are a poor fit.
-- Less ideal: Roles requiring 40+, heavy dramatic trauma-only pieces, or physically mismatched descriptions (very short, very thin, very heavy, etc.)
+- Type: Leading man, comedic/charming; also strong as villain/antagonist/mean characters
+- 2 years improv training at UCB and The Groundlings
+- 5+ years salsa dancing
+- Comfortable with physical comedy, action sequences, and 12+ hour shoot days
+- Los Angeles local with reliable transportation within the 30-mile studio zone
+- Generally open availability
+- No demo reel currently — still apply for roles requesting one
+- No voice over / voice acting
+- No UGC
+- No background/extra work
+- No theatre/musical work
 """
 
 
@@ -79,12 +84,12 @@ PROJECT: {project_name}
 AVAILABLE ROLES:
 {chr(10).join(role_options)}
 
-Pick the ONE role that is the best fit for this actor. If a second role is also a genuinely strong fit, return it too — but only if both are truly well-matched. Don't force a second pick.
+Pick the ONE role that is the best fit for this actor. If a second or third role is also a genuinely strong fit, return those too — but only if they are truly well-matched. Don't force extra picks.
 
 Consider:
 1. Physical match (age, build, height, ethnicity)
 2. Type match (leading man, comedic/charming)
-3. Role prominence (lead > supporting > day player)
+3. Role prominence (lead and supporting are both strong fits; day players are acceptable too)
 4. Overall castability — would this actor realistically be considered?
 
 If NONE of the roles are a good fit, respond with SKIP on the first line and explain why.
@@ -159,67 +164,102 @@ def _parse_structured_response(
         if role["role_name"] not in selected_names and role["role_name"] not in rejections:
             rejections[role["role_name"]] = "not mentioned by AI"
 
-    # Cap at 2 selections per spec
-    if len(selected) > 2:
-        for extra_role, extra_reason in selected[2:]:
-            rejections[extra_role["role_name"]] = f"Capped at 2 selections (was: {extra_reason})"
-        selected = selected[:2]
+    # Cap at 3 selections
+    if len(selected) > 3:
+        for extra_role, extra_reason in selected[3:]:
+            rejections[extra_role["role_name"]] = f"Capped at 3 selections (was: {extra_reason})"
+        selected = selected[:3]
 
     logger.info(f"AI selected {len(selected)} role(s) for {project_name}: {[s[0]['role_name'] for s in selected]}")
     return selected, rejections
 
 
-_NOTE_REQUEST_PATTERN = re.compile(
-    r"\*?\s*note\s+(?:on|in)\s+submission|please\s+(?:include|mention|note)\s+in\s+(?:your\s+)?(?:submission|notes)",
-    re.IGNORECASE,
-)
+def analyze_submission_requirements(role: dict, project_name: str) -> dict:
+    """Analyze role description for submission requirements.
 
-
-def generate_submission_note(role: dict, project_name: str) -> str | None:
-    """Generate a custom submission note if the role description requests one.
-
-    Returns the note string, or None if no note is needed or generation fails.
+    Returns:
+        {"action": "SUBMIT" | "SUBMIT_WITH_NOTE" | "NEEDS_INPUT",
+         "note": str | None,
+         "needs_input_reason": str | None}
     """
-    desc = role.get("description", "")
-    if not _NOTE_REQUEST_PATTERN.search(desc):
-        return None
-
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
-        logger.warning("No ANTHROPIC_API_KEY set — skipping note generation")
-        return None
+        raise RuntimeError("ANTHROPIC_API_KEY not set — cannot analyze submission requirements")
 
-    try:
-        import anthropic
+    desc = role.get("description", "")
+    if not desc.strip():
+        return {"action": "SUBMIT", "note": None, "needs_input_reason": None}
 
-        client = anthropic.Anthropic(api_key=api_key)
+    import anthropic
 
-        prompt = f"""You are writing a brief submission note for an actor applying to a casting call. The casting post asks for specific info in the submission notes.
+    client = anthropic.Anthropic(api_key=api_key)
+
+    prompt = f"""You are analyzing a casting breakdown to determine if it asks for specific information in the submission or submission notes.
 
 ACTOR PROFILE:
 {ACTOR_PROFILE}
-ADDITIONAL INFO:
-- 2 years of improv training at UCB and The Groundlings
-- 5+ years of salsa dancing
-- Experience with comedy, drama, and commercial work
-- Comfortable with physical comedy and action sequences
 
 PROJECT: {project_name}
 ROLE: {role.get('role_name', '')}
-DESCRIPTION: {desc[:800]}
+DESCRIPTION: {desc[:1000]}
 
-Write a short, natural submission note (1-2 sentences max) addressing what the casting post asks for in the notes. Be specific but concise. Do NOT use a greeting, sign-off, or placeholders like "[Actor Name]". Write in first person. Just the relevant info they asked for."""
+Analyze the role description and determine the correct action:
 
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=150,
-            messages=[{"role": "user", "content": prompt}],
-        )
+1. If the description does NOT ask for any specific information in the submission notes, respond:
+   ACTION: SUBMIT
 
-        note = response.content[0].text.strip()
-        logger.info(f"Generated submission note for {role.get('role_name', '')}: {note}")
-        return note
+2. If the description asks for information you CAN answer from the actor profile (e.g., location/local hire, availability for long days, improv/dance skills, physical attributes, transportation), respond:
+   ACTION: SUBMIT_WITH_NOTE
+   NOTE: <1-2 sentence note in first person addressing what they asked for. Be specific and concise. No greeting, sign-off, or placeholders.>
 
-    except Exception as e:
-        logger.warning(f"Note generation failed ({e})")
-        return None
+3. If the description asks for information you CANNOT answer (e.g., specific date availability, links to demo reel or website, union status/SAG-AFTRA number, specific wardrobe sizes, COVID test results, references, self-tape samples), respond:
+   ACTION: NEEDS_INPUT
+   REASON: <brief description of what info is needed>
+
+IMPORTANT RULES:
+- If they ask for a demo reel or reel link, respond with ACTION: SUBMIT (apply anyway, do not mention lack of reel)
+- If multiple requirements exist and you can answer SOME but not all, use NEEDS_INPUT
+- When in doubt between SUBMIT and SUBMIT_WITH_NOTE, prefer SUBMIT
+- Only use SUBMIT_WITH_NOTE when the casting post clearly asks for specific info in notes
+
+Respond with ONLY the action line (and NOTE/REASON line if applicable). No other text."""
+
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=200,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = response.content[0].text.strip()
+    return _parse_analysis_response(text, role, project_name)
+
+
+def _parse_analysis_response(text: str, role: dict, project_name: str) -> dict:
+    """Parse the AI analysis response into a structured result."""
+    lines = text.strip().split("\n")
+    action_line = lines[0].strip()
+
+    if "NEEDS_INPUT" in action_line:
+        reason = None
+        for line in lines[1:]:
+            if line.strip().upper().startswith("REASON:"):
+                reason = line.split(":", 1)[1].strip()
+                break
+        if not reason:
+            reason = "Casting post requires information not in actor profile"
+        logger.info(f"Flagging {role.get('role_name', '')} on {project_name}: {reason}")
+        return {"action": "NEEDS_INPUT", "note": None, "needs_input_reason": reason}
+
+    if "SUBMIT_WITH_NOTE" in action_line:
+        note = None
+        for line in lines[1:]:
+            if line.strip().upper().startswith("NOTE:"):
+                note = line.split(":", 1)[1].strip()
+                break
+        if note:
+            logger.info(f"Generated note for {role.get('role_name', '')} on {project_name}: {note}")
+            return {"action": "SUBMIT_WITH_NOTE", "note": note, "needs_input_reason": None}
+        # Couldn't parse note, fall through to SUBMIT
+        logger.warning(f"SUBMIT_WITH_NOTE but no note parsed for {role.get('role_name', '')} on {project_name}")
+
+    return {"action": "SUBMIT", "note": None, "needs_input_reason": None}

@@ -9,7 +9,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from src.role_selector import select_best_roles
+from src.role_selector import select_best_roles, analyze_submission_requirements
 
 
 SAMPLE_ROLES = [
@@ -133,8 +133,8 @@ def test_api_failure_falls_back_to_first():
     assert "API timeout" in selected[0][1]
 
 
-def test_three_selections_capped_at_two():
-    """AI returning 3 SELECTED lines should cap at 2."""
+def test_three_selections_all_kept():
+    """AI returning 3 SELECTED lines should keep all 3."""
     mock_anthropic, _ = _make_mock_anthropic(
         "SELECTED: 1 - Great fit\nSELECTED: 2 - Also good\nSELECTED: 3 - Third pick"
     )
@@ -142,5 +142,76 @@ def test_three_selections_capped_at_two():
         with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
             selected, rejections = select_best_roles(SAMPLE_ROLES, "Test Project")
 
-    assert len(selected) == 2
-    assert "Tommy" in rejections
+    assert len(selected) == 3
+    assert rejections == {}
+
+
+# --- analyze_submission_requirements tests ---
+
+SAMPLE_ROLE = {
+    "role_name": "Jake",
+    "description": "Looking for a 25-30 male lead. Please include your availability and location in your submission notes.",
+}
+
+
+def test_analyze_submit_no_requirements():
+    """No special requirements should return SUBMIT."""
+    mock_anthropic, _ = _make_mock_anthropic("ACTION: SUBMIT")
+    role = {"role_name": "Jake", "description": "Male lead, 25-30."}
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            result = analyze_submission_requirements(role, "Test Project")
+    assert result["action"] == "SUBMIT"
+    assert result["note"] is None
+    assert result["needs_input_reason"] is None
+
+
+def test_analyze_submit_with_note():
+    """Answerable requirements should return SUBMIT_WITH_NOTE."""
+    mock_anthropic, _ = _make_mock_anthropic(
+        "ACTION: SUBMIT_WITH_NOTE\nNOTE: I'm LA local with reliable transportation and open availability."
+    )
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            result = analyze_submission_requirements(SAMPLE_ROLE, "Test Project")
+    assert result["action"] == "SUBMIT_WITH_NOTE"
+    assert "LA local" in result["note"]
+    assert result["needs_input_reason"] is None
+
+
+def test_analyze_needs_input():
+    """Unanswerable requirements should return NEEDS_INPUT."""
+    mock_anthropic, _ = _make_mock_anthropic(
+        "ACTION: NEEDS_INPUT\nREASON: Casting requires SAG-AFTRA number"
+    )
+    role = {"role_name": "Jake", "description": "Must provide SAG-AFTRA number."}
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            result = analyze_submission_requirements(role, "Test Project")
+    assert result["action"] == "NEEDS_INPUT"
+    assert result["note"] is None
+    assert "SAG-AFTRA" in result["needs_input_reason"]
+
+
+def test_analyze_api_failure_raises():
+    """API failure should raise to stop the run."""
+    mock_anthropic, _ = _make_mock_anthropic_error()
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            with pytest.raises(Exception, match="API timeout"):
+                analyze_submission_requirements(SAMPLE_ROLE, "Test Project")
+
+
+def test_analyze_no_api_key_raises():
+    """Missing API key should raise to stop the run."""
+    with patch.dict(os.environ, {}, clear=True):
+        os.environ.pop("ANTHROPIC_API_KEY", None)
+        with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY not set"):
+            analyze_submission_requirements(SAMPLE_ROLE, "Test Project")
+
+
+def test_analyze_empty_description_defaults_to_submit():
+    """Empty description should return SUBMIT without API call."""
+    role = {"role_name": "Jake", "description": ""}
+    result = analyze_submission_requirements(role, "Test Project")
+    assert result["action"] == "SUBMIT"

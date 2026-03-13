@@ -81,6 +81,49 @@ def test_build_digest_html_with_data(db):
 
 def test_build_digest_html_empty():
     """Empty data should produce 'no applications' message."""
-    data = {"applications": [], "rejections": [], "runs": []}
+    data = {"applications": [], "rejections": [], "flagged": [], "runs": []}
     html = build_digest_html(data)
     assert "No applications" in html or "no applications" in html
+
+
+def test_gather_digest_data_includes_flagged(db):
+    """Digest data should include flagged roles."""
+    run_id = db.start_run()
+    db.record_flagged_role(
+        project_name="Flagged Project",
+        project_url="https://example.com/flagged",
+        role_name="Hero",
+        role_description="An action hero",
+        flag_reason="Needs specific availability dates",
+        run_id=run_id,
+        platform="aa",
+    )
+    data = gather_digest_data(db)
+    assert len(data["flagged"]) == 1
+    assert data["flagged"][0]["role_name"] == "Hero"
+
+
+def test_build_digest_html_with_flagged():
+    """Flagged roles should appear in 'Needs Your Attention' section."""
+    data = {
+        "applications": [],
+        "rejections": [],
+        "flagged": [
+            {
+                "project_name": "Flagged Project",
+                "project_url": "https://example.com/flagged",
+                "role_name": "Hero",
+                "role_description": "An action hero",
+                "flag_reason": "Needs SAG-AFTRA number",
+                "platform": "aa",
+                "flagged_at": "2026-03-12 10:00:00",
+            }
+        ],
+        "runs": [],
+    }
+    html = build_digest_html(data)
+    assert "Needs Your Attention" in html
+    assert "Flagged Project" in html
+    assert "Hero" in html
+    assert "Needs SAG-AFTRA number" in html
+    assert "https://example.com/flagged" in html

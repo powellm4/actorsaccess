@@ -220,3 +220,79 @@ def test_get_daily_run_summary(db):
     summary = db.get_daily_run_summary()
     assert len(summary) >= 1
     assert summary[0]["roles_applied"] == 3
+
+
+def test_flagged_roles_table_created(db):
+    """DB should create flagged_roles table on init."""
+    cursor = db.conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    )
+    tables = {row[0] for row in cursor.fetchall()}
+    assert "flagged_roles" in tables
+
+
+def test_record_flagged_role(db):
+    run_id = db.start_run()
+    db.record_flagged_role(
+        project_name="Test Project",
+        project_url="https://example.com",
+        role_name="Lead",
+        role_description="A leading role",
+        flag_reason="Needs SAG-AFTRA number",
+        run_id=run_id,
+        platform="aa",
+    )
+    cursor = db.conn.execute(
+        "SELECT project_name, role_name, flag_reason, platform FROM flagged_roles"
+    )
+    row = cursor.fetchone()
+    assert row[0] == "Test Project"
+    assert row[1] == "Lead"
+    assert row[2] == "Needs SAG-AFTRA number"
+    assert row[3] == "aa"
+
+
+def test_record_flagged_role_upserts(db):
+    """Second flag for same role/project/platform should update reason."""
+    run_id = db.start_run()
+    db.record_flagged_role(
+        project_name="Test Project",
+        project_url="https://example.com",
+        role_name="Lead",
+        role_description="A leading role",
+        flag_reason="Needs SAG number",
+        run_id=run_id,
+        platform="aa",
+    )
+    run_id2 = db.start_run()
+    db.record_flagged_role(
+        project_name="Test Project",
+        project_url="https://example.com",
+        role_name="Lead",
+        role_description="A leading role",
+        flag_reason="Needs specific availability dates",
+        run_id=run_id2,
+        platform="aa",
+    )
+    cursor = db.conn.execute("SELECT COUNT(*) FROM flagged_roles")
+    assert cursor.fetchone()[0] == 1
+    cursor = db.conn.execute("SELECT flag_reason FROM flagged_roles")
+    assert cursor.fetchone()[0] == "Needs specific availability dates"
+
+
+def test_get_daily_flagged(db):
+    """get_daily_flagged should return today's flagged roles."""
+    run_id = db.start_run()
+    db.record_flagged_role(
+        project_name="Test Project",
+        project_url="https://example.com",
+        role_name="Lead",
+        role_description="A leading role",
+        flag_reason="Needs SAG number",
+        run_id=run_id,
+        platform="cn",
+    )
+    rows = db.get_daily_flagged()
+    assert len(rows) == 1
+    assert rows[0]["role_name"] == "Lead"
+    assert rows[0]["platform"] == "cn"

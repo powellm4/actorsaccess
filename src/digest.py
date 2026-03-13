@@ -17,6 +17,7 @@ def gather_digest_data(db: Database) -> dict:
     return {
         "applications": db.get_daily_applications(),
         "rejections": db.get_daily_rejections(),
+        "flagged": db.get_daily_flagged(),
         "runs": db.get_daily_run_summary(),
     }
 
@@ -25,10 +26,29 @@ def build_digest_html(data: dict) -> str:
     """Build an HTML email body from digest data."""
     applications = data["applications"]
     rejections = data["rejections"]
+    flagged = data.get("flagged", [])
     runs = data["runs"]
 
-    if not applications and not rejections:
+    if not applications and not rejections and not flagged:
         return _empty_digest_html(runs)
+
+    # Build flagged roles section (shown at top)
+    flagged_section = ""
+    if flagged:
+        flagged_section = '<div style="margin-bottom:24px;">\n'
+        flagged_section += '<h2 style="color:#4a148c;margin-bottom:12px;">Needs Your Attention</h2>\n'
+        for item in flagged:
+            platform_badge = _platform_badge(item.get("platform", "aa"))
+            desc = (item.get("role_description") or "")[:200]
+            project_url = item.get("project_url", "")
+            project_link = f'<a href="{project_url}">{item["project_name"]}</a>' if project_url else item["project_name"]
+            flagged_section += f'<div style="background:#ede7f6;border-left:4px solid #7c4dff;padding:12px;border-radius:4px;margin-bottom:8px;">\n'
+            flagged_section += f'{platform_badge} <strong>{project_link}</strong> — {item["role_name"]}'
+            flagged_section += f'<br><span style="color:#4a148c;"><strong>Needed:</strong> {item.get("flag_reason", "Unknown")}</span>'
+            if desc:
+                flagged_section += f'<br><span style="color:#555;">{desc}</span>'
+            flagged_section += '\n</div>\n'
+        flagged_section += '</div>\n'
 
     # Group by project
     projects = defaultdict(lambda: {"applied": [], "rejected": []})
@@ -89,7 +109,11 @@ def build_digest_html(data: dict) -> str:
     failed_runs = [r for r in runs if r.get("status") == "error"]
 
     footer = f'<div style="margin-top:24px;padding:16px;background:#f5f5f5;border-radius:8px;">\n'
-    footer += f'<strong>Summary:</strong> {total_applied} roles applied, {total_rejected} roles passed, {total_projects} projects evaluated<br>\n'
+    total_flagged = len(flagged)
+    footer += f'<strong>Summary:</strong> {total_applied} roles applied, {total_rejected} roles passed'
+    if total_flagged:
+        footer += f', {total_flagged} flagged for review'
+    footer += f', {total_projects} projects evaluated<br>\n'
     footer += f'<strong>Runs:</strong> {len(runs)} total'
     if failed_runs:
         footer += f' ({len(failed_runs)} failed)'
@@ -97,7 +121,7 @@ def build_digest_html(data: dict) -> str:
             footer += f'<br><span style="color:red;">Failed ({fr.get("platform","?")}): {fr.get("error_message","unknown")}</span>'
     footer += '\n</div>\n'
 
-    body = "\n".join(sections) + footer
+    body = flagged_section + "\n".join(sections) + footer
     return _wrap_html(body)
 
 

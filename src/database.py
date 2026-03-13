@@ -44,6 +44,18 @@ class Database:
                 rejected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(role_name, project_name, platform)
             );
+            CREATE TABLE IF NOT EXISTS flagged_roles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_name TEXT,
+                project_url TEXT DEFAULT '',
+                role_name TEXT,
+                role_description TEXT,
+                flag_reason TEXT,
+                run_id INTEGER,
+                platform TEXT DEFAULT 'aa',
+                flagged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(role_name, project_name, platform)
+            );
         """)
         # Add columns if upgrading from older schema
         try:
@@ -165,6 +177,35 @@ class Database:
                FROM run_history
                WHERE started_at >= datetime('now', '-24 hours')
                ORDER BY started_at DESC"""
+        )
+        columns = [desc[0] for desc in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    def record_flagged_role(
+        self, project_name: str, project_url: str, role_name: str,
+        role_description: str, flag_reason: str, run_id: int, platform: str = "aa",
+    ):
+        self.conn.execute(
+            """INSERT INTO flagged_roles
+               (project_name, project_url, role_name, role_description, flag_reason, run_id, platform)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(role_name, project_name, platform) DO UPDATE SET
+                   flag_reason = excluded.flag_reason,
+                   role_description = excluded.role_description,
+                   run_id = excluded.run_id,
+                   flagged_at = CURRENT_TIMESTAMP,
+                   project_url = excluded.project_url""",
+            (project_name, project_url, role_name, role_description, flag_reason, run_id, platform),
+        )
+        self.conn.commit()
+
+    def get_daily_flagged(self) -> list[dict]:
+        cursor = self.conn.execute(
+            """SELECT project_name, role_name, role_description, flag_reason,
+                      platform, project_url, flagged_at
+               FROM flagged_roles
+               WHERE flagged_at >= datetime('now', '-24 hours')
+               ORDER BY flagged_at DESC"""
         )
         columns = [desc[0] for desc in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]

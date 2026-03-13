@@ -11,7 +11,7 @@ from src.config import load_config, ConfigError
 from src.database import Database
 from src.browser import ActorsAccessBrowser
 from src.filters import role_matches, project_matches
-from src.role_selector import select_best_roles, generate_submission_note
+from src.role_selector import select_best_roles, analyze_submission_requirements
 
 logger = logging.getLogger("actorsaccess")
 
@@ -191,22 +191,37 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                 for best, ai_reason in selected:
                     unique_id = f"{project['breakdown_id']}_{best['role_id']}"
 
+                    # Analyze submission requirements
+                    analysis = analyze_submission_requirements(best, project["project_name"])
+
+                    if analysis["action"] == "NEEDS_INPUT":
+                        db.record_flagged_role(
+                            project_name=project["project_name"],
+                            project_url=project_url,
+                            role_name=best["role_name"],
+                            role_description=best.get("description", ""),
+                            flag_reason=analysis["needs_input_reason"],
+                            run_id=run_id,
+                            platform="aa",
+                        )
+                        logger.info(f"Flagged for review: {best['role_name']} — {analysis['needs_input_reason']}")
+                        if dry_run:
+                            _print_role_decision("FLAGGED", project["project_name"], best, analysis["needs_input_reason"])
+                        continue
+
                     if dry_run:
                         tag = "SUBMIT (AI pick)" if len(candidates) > 1 else "SUBMIT"
                         _print_role_decision(tag, project["project_name"], best)
                         if len(candidates) > 1:
                             print(f"  AI reason: {ai_reason}")
-                        custom_note = generate_submission_note(best, project["project_name"])
-                        if custom_note:
-                            print(f"  Note: {custom_note}")
+                        if analysis["action"] == "SUBMIT_WITH_NOTE":
+                            print(f"  Note: {analysis['note']}")
                         roles_applied += 1
                         continue
 
-                    # Generate custom note if the role asks for one
                     sub_cfg = cfg["submission"].copy()
-                    custom_note = generate_submission_note(best, project["project_name"])
-                    if custom_note:
-                        sub_cfg["default_note"] = custom_note
+                    if analysis["action"] == "SUBMIT_WITH_NOTE":
+                        sub_cfg["default_note"] = analysis["note"]
 
                     success = browser.submit_for_role(
                         best, project["project_name"], sub_cfg
