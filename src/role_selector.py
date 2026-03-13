@@ -17,6 +17,7 @@ ACTOR_PROFILE = """
 - Type: Leading man, comedic/charming; also strong as villain/antagonist/mean characters
 - 2 years improv training at UCB and The Groundlings
 - 5+ years salsa dancing
+- American accent (can play accents but not authentic/native non-American accents)
 - Comfortable with physical comedy, action sequences, and 12+ hour shoot days
 - Los Angeles local with reliable transportation within the 30-mile studio zone
 - Generally open availability
@@ -94,6 +95,7 @@ HARD DISQUALIFIERS — reject any role that requires:
 - Specific hair color that excludes brown hair (e.g., "must be blonde", "redhead only")
 - Age clearly outside 18-35 range (not "to play younger")
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
+- Requires an authentic/native non-American accent (e.g., "must have authentic British accent", "native French speaker")
 
 Also consider:
 1. Physical match (age, build, height, ethnicity)
@@ -154,6 +156,7 @@ HARD DISQUALIFIERS — reject if the role requires ANY of these:
 - Specific hair color that excludes brown hair (e.g., "must be blonde", "redhead only")
 - Age clearly outside 18-35 range (not "to play younger")
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
+- Requires an authentic/native non-American accent (e.g., "must have authentic British accent", "native French speaker")
 
 If the role is a fit or ambiguous, respond: FIT - <brief reason>
 If the role is clearly not a fit, respond: SKIP - <brief reason>"""
