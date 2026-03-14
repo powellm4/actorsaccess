@@ -122,7 +122,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     continue
 
                 # Navigate into the project to see individual roles
-                roles = browser.scrape_roles_on_project(project["url"])
+                roles, project_notes = browser.scrape_roles_on_project(project["url"])
                 roles_found += len(roles)
 
                 # Skip entire project if we already applied to any role in it
@@ -192,7 +192,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     unique_id = f"{project['breakdown_id']}_{best['role_id']}"
 
                     # Analyze submission requirements
-                    analysis = analyze_submission_requirements(best, project["project_name"])
+                    analysis = analyze_submission_requirements(best, project["project_name"], project_notes)
 
                     if analysis["action"] == "NEEDS_INPUT":
                         db.record_flagged_role(

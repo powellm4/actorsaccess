@@ -19,6 +19,7 @@ ACTOR_PROFILE = """
 - 5+ years salsa dancing
 - American accent (can play accents but not authentic/native non-American accents)
 - Comfortable with physical comedy, action sequences, and 12+ hour shoot days
+- Shoe size: 9-10
 - Non-union
 - Email: REDACTED | Phone: REDACTED
 - Los Angeles local with reliable transportation within the 30-mile studio zone
@@ -87,36 +88,41 @@ PROJECT: {project_name}
 AVAILABLE ROLES:
 {chr(10).join(role_options)}
 
-Pick the ONE role that is the best fit for this actor. If a second or third role is also a genuinely strong fit, return those too — but only if they are truly well-matched. Don't force extra picks.
+Select ALL roles that are a reasonable fit for this actor. Only reject roles that have a genuine disqualifier. Being a day player or lower pay is NOT a reason to reject — submit for every role the actor could realistically book.
 
-IMPORTANT: If ANY role description says "submit for only one role", "one submission per actor", or similar, you MUST select only ONE role no matter what.
+IMPORTANT: If ANY role description says "submit for only one role", "one submission per actor", or similar, you MUST select only ONE role (the best fit) no matter what.
 
 HARD DISQUALIFIERS — reject any role that requires:
 - Height outside 5'10"–6'1" (e.g., "must be 6'3"+", "under 5'6"")
 - Large/heavyset/stocky/overweight build (actor is athletic, 185 lbs)
 - Female only
 - Specific ethnicity that excludes White
-- Specific hair color that excludes brown hair (e.g., "must be blonde", "redhead only")
+- Specific hair color that is NOT brown (e.g., "blonde", "redhead", "black hair"). The actor has BROWN hair — if the role says "blonde hair", that is a rejection.
 - Age clearly outside 18-35 range (not "to play younger")
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
 - Requires an authentic/native non-American accent (e.g., "must have authentic British accent", "native French speaker")
 
-Also consider:
+NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair color, build) are EXACT requirements — any mismatch is a hard disqualifier.
+
+Also consider (but these are NOT reasons to reject — only to rank):
 1. Physical match (age, build, height, ethnicity)
 2. Type match (leading man, comedic/charming)
-3. Role prominence (lead and supporting are both strong fits; day players are acceptable too)
+3. Role prominence (lead, supporting, day player — all acceptable)
 4. Overall castability — would this actor realistically be considered?
 
 If NONE of the roles are a good fit, respond with SKIP on the first line and explain why.
 
 Respond with this exact format (one line per role):
-SELECTED: <number> - <reason for picking this role>
-REJECTED: <number> - <reason for rejecting this role>
+SELECTED: <number> - <explain WHY this role is a good fit>
+REJECTED: <number> - <explain WHY this role is not a fit>
 
-Example for selecting one role out of three:
-SELECTED: 2 - Best physical and type match for leading man
-REJECTED: 1 - Age range 40-50 is too old
-REJECTED: 3 - Background role, not a fit"""
+IMPORTANT: The reason must explain WHY, not just restate the role name. Bad: "HARRISON". Good: "Age and type match for athletic leading man".
+
+Example:
+SELECTED: 1 - Age and type match for athletic leading man
+SELECTED: 3 - Age range fits, playboy type works for actor's look
+REJECTED: 2 - Requires heavyset build, actor is athletic
+REJECTED: 4 - Background/extra role, actor does not do background work"""
 
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
@@ -152,15 +158,17 @@ PROJECT: {project_name}
 ROLE: {role['role_name']}
 DESCRIPTION: {desc}
 
-HARD DISQUALIFIERS — reject if the role requires ANY of these:
+HARD DISQUALIFIERS — SKIP if the role requires ANY of these:
 - Height outside 5'10"–6'1" (e.g., "must be 6'3"+", "under 5'6"")
 - Large/heavyset/stocky/overweight build (actor is athletic, 185 lbs)
 - Female only
 - Specific ethnicity that excludes White
-- Specific hair color that excludes brown hair (e.g., "must be blonde", "redhead only")
+- Specific hair color that is NOT brown (e.g., "blonde", "redhead", "black hair"). The actor has BROWN hair — if the role says "blonde hair", that is a SKIP.
 - Age clearly outside 18-35 range (not "to play younger")
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
 - Requires an authentic/native non-American accent (e.g., "must have authentic British accent", "native French speaker")
+
+NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair color, build) are EXACT requirements — any mismatch is a hard disqualifier.
 
 If the role is a fit or ambiguous, respond: FIT - <brief reason>
 If the role is clearly not a fit, respond: SKIP - <brief reason>"""
@@ -231,18 +239,12 @@ def _parse_structured_response(
         if role["role_name"] not in selected_names and role["role_name"] not in rejections:
             rejections[role["role_name"]] = "not mentioned by AI"
 
-    # Cap at 3 selections
-    if len(selected) > 3:
-        for extra_role, extra_reason in selected[3:]:
-            rejections[extra_role["role_name"]] = f"Capped at 3 selections (was: {extra_reason})"
-        selected = selected[:3]
-
     logger.info(f"AI selected {len(selected)} role(s) for {project_name}: {[s[0]['role_name'] for s in selected]}")
     return selected, rejections
 
 
-def analyze_submission_requirements(role: dict, project_name: str) -> dict:
-    """Analyze role description for submission requirements.
+def analyze_submission_requirements(role: dict, project_name: str, project_notes: str = "") -> dict:
+    """Analyze role description and project-level notes for submission requirements.
 
     Returns:
         {"action": "SUBMIT" | "SUBMIT_WITH_NOTE" | "NEEDS_INPUT",
@@ -254,7 +256,7 @@ def analyze_submission_requirements(role: dict, project_name: str) -> dict:
         raise RuntimeError("ANTHROPIC_API_KEY not set — cannot analyze submission requirements")
 
     desc = role.get("description", "")
-    if not desc.strip():
+    if not desc.strip() and not project_notes.strip():
         return {"action": "SUBMIT", "note": None, "needs_input_reason": None}
 
     import anthropic
@@ -269,25 +271,33 @@ ACTOR PROFILE:
 PROJECT: {project_name}
 ROLE: {role.get('role_name', '')}
 DESCRIPTION: {desc[:1000]}
+{f"PROJECT-LEVEL INSTRUCTIONS: {project_notes[:1000]}" if project_notes.strip() else ""}
 
-Analyze the role description and determine the correct action:
+Analyze BOTH the role description AND any project-level instructions to determine the correct action:
 
 1. If the description does NOT ask for any specific information in the submission notes, respond:
    ACTION: SUBMIT
 
-2. If the description asks for information you CAN answer from the actor profile (e.g., location/local hire, availability for long days, improv/dance skills, physical attributes, transportation, phone number, email address, contact info), respond:
+2. If the description asks for information you CAN answer from the actor profile (e.g., location/local hire, availability for long days, improv/dance skills, physical attributes, shoe size, transportation, phone number, email address, contact info), respond:
    ACTION: SUBMIT_WITH_NOTE
    NOTE: <1-2 sentence note in first person addressing what they asked for. Be specific and concise. No greeting, sign-off, or placeholders.>
 
-3. If the description asks for information you CANNOT answer (e.g., specific date availability, links to demo reel or website, union status/SAG-AFTRA number, specific wardrobe sizes, COVID test results, references, self-tape samples), respond:
+3. If the description asks for information you CANNOT answer (e.g., links to demo reel or website, union status/SAG-AFTRA number, specific wardrobe sizes, COVID test results, references, self-tape samples), respond:
    ACTION: NEEDS_INPUT
    REASON: <brief description of what info is needed>
+
+4. If the description mentions SPECIFIC SHOOT DATES and asks the actor to confirm availability, respond:
+   ACTION: CHECK_DATES
+   DATES: <start date in YYYY-MM-DD> to <end date in YYYY-MM-DD>
+   NOTE_IF_AVAILABLE: <1-2 sentence note in first person confirming availability for those specific dates, including location. Be specific and concise.>
 
 IMPORTANT RULES:
 - If they ask for a demo reel or reel link, respond with ACTION: SUBMIT (apply anyway, do not mention lack of reel)
 - If multiple requirements exist and you can answer SOME but not all, use NEEDS_INPUT
 - When in doubt between SUBMIT and SUBMIT_WITH_NOTE, prefer SUBMIT
 - Only use SUBMIT_WITH_NOTE when the casting post clearly asks for specific info in notes
+- If shoot dates are mentioned but the post does NOT ask the actor to confirm availability, do NOT use CHECK_DATES — use SUBMIT or SUBMIT_WITH_NOTE as appropriate
+- For CHECK_DATES, extract the earliest and latest dates from the shoot schedule
 
 Respond with ONLY the action line (and NOTE/REASON line if applicable). No other text."""
 
@@ -305,6 +315,42 @@ def _parse_analysis_response(text: str, role: dict, project_name: str) -> dict:
     """Parse the AI analysis response into a structured result."""
     lines = text.strip().split("\n")
     action_line = lines[0].strip()
+
+    if "CHECK_DATES" in action_line:
+        dates_str = None
+        note_if_available = None
+        for line in lines[1:]:
+            stripped = line.strip()
+            if stripped.upper().startswith("DATES:"):
+                dates_str = stripped.split(":", 1)[1].strip()
+            elif stripped.upper().startswith("NOTE_IF_AVAILABLE:"):
+                note_if_available = stripped.split(":", 1)[1].strip()
+
+        if dates_str and note_if_available:
+            # Parse "YYYY-MM-DD to YYYY-MM-DD"
+            date_match = re.match(r"(\d{4}-\d{2}-\d{2})\s+to\s+(\d{4}-\d{2}-\d{2})", dates_str)
+            if date_match:
+                start_date, end_date = date_match.group(1), date_match.group(2)
+                try:
+                    from src.calendar_check import check_availability
+                    calendars = ["Acting", "Travel"]
+                    available, conflicts = check_availability(start_date, end_date, calendars)
+                    if available:
+                        logger.info(f"Calendar free for {role.get('role_name', '')} on {project_name}: {start_date} to {end_date}")
+                        return {"action": "SUBMIT_WITH_NOTE", "note": note_if_available, "needs_input_reason": None}
+                    else:
+                        conflict_list = ", ".join(conflicts[:5])
+                        reason = f"Calendar conflict {start_date} to {end_date}: {conflict_list}"
+                        logger.info(f"Calendar conflict for {role.get('role_name', '')} on {project_name}: {conflict_list}")
+                        return {"action": "NEEDS_INPUT", "note": None, "needs_input_reason": reason}
+                except Exception as e:
+                    logger.warning(f"Calendar check failed: {e}")
+                    reason = f"Could not verify availability for {start_date} to {end_date}"
+                    return {"action": "NEEDS_INPUT", "note": None, "needs_input_reason": reason}
+
+        # Couldn't parse CHECK_DATES response — fall back to NEEDS_INPUT
+        logger.warning(f"CHECK_DATES response unparseable for {role.get('role_name', '')} on {project_name}")
+        return {"action": "NEEDS_INPUT", "note": None, "needs_input_reason": "Shoot dates mentioned but could not verify availability"}
 
     if "NEEDS_INPUT" in action_line:
         reason = None

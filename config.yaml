@@ -21,6 +21,12 @@ max_pages: 5
 browser:
   headless: true
 
+google_calendar:
+  service_account_key_env: "GOOGLE_CALENDAR_SA_KEY"
+  calendars:
+    - "Acting"
+    - "Travel"
+
 logging:
   level: "INFO"
   file: "logs/auto_apply.log"

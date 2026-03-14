@@ -256,19 +256,43 @@ class ActorsAccessBrowser:
 
         return projects
 
-    def scrape_roles_on_project(self, project_url: str) -> list[dict]:
+    def scrape_roles_on_project(self, project_url: str) -> tuple[list[dict], str]:
         """Navigate to a project page and scrape individual roles.
 
-        Returns a list of dicts with keys: role_id, role_name, element,
-        fit_for_me, description.
+        Returns a tuple of:
+        - List of dicts with keys: role_id, role_name, element,
+          fit_for_me, description.
+        - Project-level notes/instructions (text before the first role).
         """
         roles = []
+        project_notes = ""
         try:
             # Navigate to the project breakdown page
             if not project_url.startswith("http"):
                 project_url = BASE_URL + project_url
             self.page.goto(project_url)
             _random_delay(2, 4)
+
+            # Scrape project-level notes (text between header and first role)
+            project_notes = self.page.evaluate("""() => {
+                const firstRole = document.querySelector('a.breakdown-open-add-role');
+                if (!firstRole) return '';
+                // Find the container: try known classes, fall back to body
+                const body = document.querySelector('.breakdown-body, .breakdownBody, #breakdown_body')
+                    || firstRole.parentElement;
+                if (!body) return '';
+                let text = '';
+                const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+                while (walker.nextNode()) {
+                    const node = walker.currentNode;
+                    if (node === firstRole || firstRole.contains(node)) break;
+                    if (node.closest && node.closest('a.breakdown-open-add-role')) break;
+                    if (node.nodeType === Node.TEXT_NODE) {
+                        text += node.textContent;
+                    }
+                }
+                return text.trim();
+            }""") or ""
 
             # Roles are links with class 'breakdown-open-add-role'
             # onclick="selectPhoto(5273126,885850,this);"
@@ -321,10 +345,12 @@ class ActorsAccessBrowser:
                 )
 
             logger.info(f"Found {len(roles)} roles on project page")
+            if project_notes:
+                logger.info(f"Project notes: {project_notes[:200]}")
         except Exception as e:
             logger.error(f"Failed to scrape roles: {e}")
 
-        return roles
+        return roles, project_notes
 
     def submit_for_role(self, role: dict, project_name: str, submission_config: dict) -> bool | str:
         """Click a role link to open the submission modal and submit.

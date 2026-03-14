@@ -239,3 +239,56 @@ def test_analyze_empty_description_defaults_to_submit():
     role = {"role_name": "Jake", "description": ""}
     result = analyze_submission_requirements(role, "Test Project")
     assert result["action"] == "SUBMIT"
+
+
+# --- CHECK_DATES tests ---
+
+
+def test_analyze_check_dates_available():
+    """CHECK_DATES action with free calendar should return SUBMIT_WITH_NOTE."""
+    mock_anthropic, _ = _make_mock_anthropic(
+        "ACTION: CHECK_DATES\nDATES: 2026-04-05 to 2026-04-12\n"
+        "NOTE_IF_AVAILABLE: I'm available April 5-12 in Los Angeles."
+    )
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            with patch("src.calendar_check.check_availability", return_value=(True, [])):
+                result = analyze_submission_requirements(
+                    {"role_name": "Jake", "description": "Must be available April 5-12."},
+                    "Test Project",
+                )
+    assert result["action"] == "SUBMIT_WITH_NOTE"
+    assert "April 5-12" in result["note"]
+
+
+def test_analyze_check_dates_conflict():
+    """CHECK_DATES with calendar conflict should return NEEDS_INPUT."""
+    mock_anthropic, _ = _make_mock_anthropic(
+        "ACTION: CHECK_DATES\nDATES: 2026-04-05 to 2026-04-12\n"
+        "NOTE_IF_AVAILABLE: I'm available April 5-12 in Los Angeles."
+    )
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            with patch("src.calendar_check.check_availability",
+                       return_value=(False, ["Callback - Netflix"])):
+                result = analyze_submission_requirements(
+                    {"role_name": "Jake", "description": "Must be available April 5-12."},
+                    "Test Project",
+                )
+    assert result["action"] == "NEEDS_INPUT"
+    assert "Callback - Netflix" in result["needs_input_reason"]
+
+
+def test_analyze_check_dates_unparseable():
+    """Malformed CHECK_DATES should fall back to NEEDS_INPUT."""
+    mock_anthropic, _ = _make_mock_anthropic(
+        "ACTION: CHECK_DATES\nDATES: next month sometime\n"
+        "NOTE_IF_AVAILABLE: I'm available."
+    )
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            result = analyze_submission_requirements(
+                {"role_name": "Jake", "description": "Available next month?"},
+                "Test Project",
+            )
+    assert result["action"] == "NEEDS_INPUT"

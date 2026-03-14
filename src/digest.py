@@ -39,7 +39,7 @@ def build_digest_html(data: dict) -> str:
         flagged_section += '<h2 style="color:#4a148c;margin-bottom:12px;">Needs Your Attention</h2>\n'
         for item in flagged:
             platform_badge = _platform_badge(item.get("platform", "aa"))
-            desc = (item.get("role_description") or "")[:200]
+            desc = item.get("role_description") or ""
             project_url = item.get("project_url", "")
             role_label = f'<a href="{project_url}" style="color:#4a148c;text-decoration:underline;">{item["role_name"]}</a>' if project_url else item["role_name"]
             flagged_section += f'<div style="background:#ede7f6;border-left:4px solid #7c4dff;padding:12px;border-radius:4px;margin-bottom:8px;">\n'
@@ -75,7 +75,7 @@ def build_digest_html(data: dict) -> str:
         if roles["applied"]:
             for app in roles["applied"]:
                 platform_badge = _platform_badge(app.get("platform", "aa"))
-                desc = (app.get("role_description") or "")[:200]
+                desc = app.get("role_description") or ""
                 section += f'<div style="background:#e8f5e9;padding:12px;border-radius:4px;margin-bottom:8px;">\n'
                 app_url = app.get("project_url", "")
                 role_label = f'<a href="{app_url}" style="color:#2e7d32;text-decoration:underline;">{app["role_name"]}</a>' if app_url else app["role_name"]
@@ -87,13 +87,15 @@ def build_digest_html(data: dict) -> str:
                 note = app.get("submission_note", "")
                 if note:
                     section += f'<br><strong>Note submitted:</strong> <em>{note}</em>'
+                else:
+                    section += f'<br><span style="color:#888;">No specific submission info requested</span>'
                 section += '\n</div>\n'
 
         # Rejected roles
         if roles["rejected"]:
             for rej in roles["rejected"]:
                 platform_badge = _platform_badge(rej.get("platform", "aa"))
-                desc = (rej.get("role_description") or "")[:200]
+                desc = rej.get("role_description") or ""
                 rej_url = rej.get("project_url", "")
                 role_label = f'<a href="{rej_url}" style="color:#e65100;text-decoration:underline;">{rej["role_name"]}</a>' if rej_url else rej["role_name"]
                 section += f'<div style="background:#fff3e0;padding:12px;border-radius:4px;margin-bottom:8px;">\n'
