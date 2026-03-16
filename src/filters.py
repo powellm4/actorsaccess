@@ -24,6 +24,11 @@ _COURT_TV_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+_SCENE_RECREATION_PATTERN = re.compile(
+    r"\bscene\s+recreation\b|\bscene\s+study\b|\bscene\s+reenactment\b|\bscene\s+remake\b",
+    re.IGNORECASE,
+)
+
 
 def _is_background(role: dict) -> bool:
     """Check if a role is a background/extra role."""
@@ -91,6 +96,9 @@ def project_matches(project: dict) -> tuple[bool, str]:
 
     if _COURT_TV_PATTERN.search(name):
         return False, "court TV project"
+
+    if _SCENE_RECREATION_PATTERN.search(name):
+        return False, "scene recreation project"
 
     return True, ""
 
