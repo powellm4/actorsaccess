@@ -12,7 +12,7 @@ import re
 logger = logging.getLogger(__name__)
 
 ACTOR_PROFILE = """
-- Appears 25, plays 20-30 convincingly
+- Appears 25, plays 20-30 most convincingly, but can stretch to 35
 - Male, White, 6'0", 185 lbs, athletic build, brown hair (thick, slightly curly, short-medium length)
 - Type: Leading man, comedic/charming; also strong as villain/antagonist/mean characters; also excels at grounded/calm/straight man/voice-of-reason roles
 - 2 years improv training at UCB and The Groundlings
@@ -98,7 +98,7 @@ HARD DISQUALIFIERS — reject any role that requires:
 - Female only
 - Specific ethnicity that excludes White
 - Specific hair color that is NOT brown (e.g., "blonde", "redhead", "black hair"). The actor has BROWN hair — if the role says "blonde hair", that is a rejection.
-- Age clearly outside 18-35 range (not "to play younger")
+- Age range with NO overlap with 18-35 (e.g., "40-55" is a rejection, but "30-40" is NOT because it overlaps with the actor's range)
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
 - Requires an authentic/native non-American accent (e.g., "must have authentic British accent", "native French speaker")
 
@@ -164,7 +164,7 @@ HARD DISQUALIFIERS — SKIP if the role requires ANY of these:
 - Female only
 - Specific ethnicity that excludes White
 - Specific hair color that is NOT brown (e.g., "blonde", "redhead", "black hair"). The actor has BROWN hair — if the role says "blonde hair", that is a SKIP.
-- Age clearly outside 18-35 range (not "to play younger")
+- Age range with NO overlap with 18-35 (e.g., "40-55" is a rejection, but "30-40" is NOT because it overlaps with the actor's range)
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
 - Requires an authentic/native non-American accent (e.g., "must have authentic British accent", "native French speaker")
 
