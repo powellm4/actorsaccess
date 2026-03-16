@@ -124,7 +124,6 @@ class Database:
                    rejection_reason = excluded.rejection_reason,
                    role_description = excluded.role_description,
                    run_id = excluded.run_id,
-                   rejected_at = excluded.rejected_at,
                    project_url = excluded.project_url""",
             (project_name, project_url, role_name, role_description, rejection_reason, run_id, platform, now),
         )
@@ -257,7 +256,6 @@ class Database:
                    flag_reason = excluded.flag_reason,
                    role_description = excluded.role_description,
                    run_id = excluded.run_id,
-                   flagged_at = excluded.flagged_at,
                    project_url = excluded.project_url""",
             (project_name, project_url, role_name, role_description, flag_reason, run_id, platform, now),
         )
