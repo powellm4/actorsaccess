@@ -123,18 +123,6 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
             for project_id, proj_roles in projects.items():
                 project_name = proj_roles[0]["project_name"]
 
-                # Skip entire project if we already applied to any role in it
-                already_applied_project = False
-                for role in proj_roles:
-                    unique_id = f"cn_{project_id}_{role['role_id']}"
-                    sub_date = role.get("submission_date", "")
-                    if db.is_applied(unique_id) or sub_date.startswith("Submitted"):
-                        already_applied_project = True
-                        break
-                if already_applied_project:
-                    roles_skipped += len(proj_roles)
-                    continue
-
                 # Skip court TV projects
                 if _COURT_TV_PATTERN.search(project_name):
                     roles_filtered += len(proj_roles)
@@ -147,6 +135,13 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
 
                 candidates = []
                 for role in proj_roles:
+                    # Skip roles we've already applied for or that CN shows as submitted
+                    unique_id = f"cn_{project_id}_{role['role_id']}"
+                    sub_date = role.get("submission_date", "")
+                    if db.is_applied(unique_id) or sub_date.startswith("Submitted"):
+                        roles_skipped += 1
+                        continue
+
                     if _is_cn_background(role):
                         roles_filtered += 1
                         if dry_run:

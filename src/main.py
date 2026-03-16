@@ -125,18 +125,13 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                 roles, project_notes = browser.scrape_roles_on_project(project["url"])
                 roles_found += len(roles)
 
-                # Skip entire project if we already applied to any role in it
-                already_in_db = any(
-                    db.is_applied(f"{project['breakdown_id']}_{r['role_id']}")
-                    for r in roles
-                )
-                if already_in_db:
-                    roles_skipped += len(roles)
-                    continue
-
-                # Filter roles and collect candidates
+                # Filter roles and collect candidates (skip already-applied roles)
                 candidates = []
                 for role in roles:
+                    # Skip roles we've already applied for
+                    if db.is_applied(f"{project['breakdown_id']}_{role['role_id']}"):
+                        roles_skipped += 1
+                        continue
 
                     matches, skip_reason = role_matches(role)
                     if not matches:
