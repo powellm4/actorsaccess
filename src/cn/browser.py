@@ -217,8 +217,44 @@ class CastingNetworksBrowser:
             logger.error(f"Failed to go to page {page_num}: {e}")
             return False
 
+    def scrape_role_instructions(self, role: dict) -> str:
+        """Navigate to a role detail page and scrape submission instructions.
+
+        Returns the instructions text, or empty string if none found.
+        """
+        try:
+            url = role["url"]
+            if not url.startswith("http"):
+                url = BASE_URL + url
+
+            self.page.goto(url)
+            _random_delay(2, 4)
+
+            # Look for submission instructions on the role detail page
+            instructions = self.page.evaluate("""() => {
+                // Try common patterns for instruction text on CN role pages
+                const selectors = [
+                    '[data-qa-id="casting-billboard-role-submission-instructions"]',
+                    '[data-qa-id="submission-instructions"]',
+                    '.submission-instructions',
+                ];
+                for (const sel of selectors) {
+                    const el = document.querySelector(sel);
+                    if (el) return el.innerText.trim();
+                }
+                // Fallback: look for text containing "Instructions For Submission"
+                const allText = document.body.innerText;
+                const match = allText.match(/Instructions For Submission Note\\s*\\n([\\s\\S]*?)(?=\\n(?:Requesting|Submission sent|$))/i);
+                if (match) return match[1].trim();
+                return '';
+            }""")
+            return instructions or ""
+        except Exception as e:
+            logger.warning(f"Failed to scrape role instructions: {e}")
+            return ""
+
     def submit_for_role(self, role: dict, submission_config: dict) -> bool:
-        """Navigate to role detail, then submit.
+        """Submit for a role (assumes already on role detail page from scrape_role_instructions).
 
         Flow: role detail page -> click Submit -> customize-submission page
         -> photos pre-selected -> optional note -> click Submit.
@@ -230,8 +266,10 @@ class CastingNetworksBrowser:
 
             logger.info(f"Submitting for: {role['project_name']} — {role['role_name']}")
 
-            self.page.goto(url)
-            _random_delay(2, 4)
+            # Navigate to role page if not already there
+            if self.page.url != url:
+                self.page.goto(url)
+                _random_delay(2, 4)
 
             submit_link = self.page.query_selector('[data-qa-id="casting-billboard-submit-role"]')
             if not submit_link:

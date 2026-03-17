@@ -225,7 +225,14 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     unique_id = f"cn_{best['project_id']}_{best['role_id']}"
 
                     # Analyze submission requirements
-                    analysis = analyze_submission_requirements(best, project_name)
+                    # Scrape submission instructions from the role detail page
+                    role_instructions = ""
+                    if not dry_run:
+                        role_instructions = browser.scrape_role_instructions(best)
+                        if role_instructions:
+                            logger.info(f"Found submission instructions for {best['role_name']}: {role_instructions[:200]}")
+
+                    analysis = analyze_submission_requirements(best, project_name, role_instructions)
 
                     if analysis["action"] == "NEEDS_INPUT":
                         db.record_flagged_role(

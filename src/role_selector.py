@@ -126,7 +126,7 @@ REJECTED: 4 - Background/extra role, actor does not do background work"""
 
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=500,
+            max_tokens=1000,
             messages=[{"role": "user", "content": prompt}],
         )
 
@@ -175,7 +175,7 @@ If the role is clearly not a fit, respond: SKIP - <brief reason>"""
 
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=100,
+            max_tokens=200,
             messages=[{"role": "user", "content": prompt}],
         )
 
