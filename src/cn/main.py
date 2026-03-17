@@ -232,6 +232,25 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                         if role_instructions:
                             logger.info(f"Found submission instructions for {best['role_name']}: {role_instructions[:200]}")
 
+                    # Check for self-tape/video audition requests
+                    selftape_keywords = ["self-tape", "self tape", "selftape", "slate"]
+                    instructions_lower = role_instructions.lower()
+                    if any(kw in instructions_lower for kw in selftape_keywords):
+                        flag_reason = "Self-tape/video audition requested"
+                        logger.info(f"Flagging {best['role_name']} — {flag_reason}")
+                        db.record_flagged_role(
+                            project_name=project_name,
+                            project_url=project_url,
+                            role_name=best["role_name"],
+                            role_description=best.get("description", ""),
+                            flag_reason=flag_reason,
+                            run_id=run_id,
+                            platform="cn",
+                        )
+                        if dry_run:
+                            _print_role_decision("FLAGGED", project_name, best, flag_reason)
+                        continue
+
                     analysis = analyze_submission_requirements(best, project_name, role_instructions)
 
                     if analysis["action"] == "NEEDS_INPUT":

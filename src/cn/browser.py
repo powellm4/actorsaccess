@@ -230,9 +230,12 @@ class CastingNetworksBrowser:
             self.page.goto(url)
             _random_delay(2, 4)
 
-            # Look for submission instructions on the role detail page
-            instructions = self.page.evaluate("""() => {
-                // Try common patterns for instruction text on CN role pages
+            # Look for submission instructions and requested media on the role detail page
+            page_data = self.page.evaluate("""() => {
+                let instructions = '';
+                let requestedMedia = '';
+
+                // Try common selectors for instruction text
                 const selectors = [
                     '[data-qa-id="casting-billboard-role-submission-instructions"]',
                     '[data-qa-id="submission-instructions"]',
@@ -240,15 +243,31 @@ class CastingNetworksBrowser:
                 ];
                 for (const sel of selectors) {
                     const el = document.querySelector(sel);
-                    if (el) return el.innerText.trim();
+                    if (el) { instructions = el.innerText.trim(); break; }
                 }
+
                 // Fallback: look for text containing "Instructions For Submission"
-                const allText = document.body.innerText;
-                const match = allText.match(/Instructions For Submission Note\\s*\\n([\\s\\S]*?)(?=\\n(?:Requesting|Submission sent|$))/i);
-                if (match) return match[1].trim();
-                return '';
+                if (!instructions) {
+                    const allText = document.body.innerText;
+                    const match = allText.match(/Instructions For Submission Note\\s*\\n([\\s\\S]*?)(?=\\n(?:Requesting|Submission sent|$))/i);
+                    if (match) instructions = match[1].trim();
+                }
+
+                // Grab "Requested Media" field
+                const allText2 = document.body.innerText;
+                const mediaMatch = allText2.match(/Requested Media\\s*\\n(.+)/i);
+                if (mediaMatch) requestedMedia = mediaMatch[1].trim();
+
+                return { instructions, requestedMedia };
             }""")
-            return instructions or ""
+            instructions = page_data.get("instructions", "") if page_data else ""
+            requested_media = page_data.get("requestedMedia", "") if page_data else ""
+
+            # Combine instructions with requested media info
+            result = instructions
+            if requested_media:
+                result = f"Requested Media: {requested_media}\n{result}".strip()
+            return result
         except Exception as e:
             logger.warning(f"Failed to scrape role instructions: {e}")
             return ""
