@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 ACTOR_PROFILE = """
 - Appears 25, plays 20-30 most convincingly, but can stretch to 35
-- Male, White, 6'0", 185 lbs, athletic build, brown hair (thick, slightly curly, short-medium length)
+- Male, White, 6'0", 185 lbs, athletic build, brown hair (thick, slightly curly, short-medium length), clean-shaven (no beard)
 - Type: Leading man, comedic/charming; also strong as villain/antagonist/mean characters; also excels at grounded/calm/straight man/voice-of-reason roles
 - 2 years improv training at UCB and The Groundlings
 - 5+ years salsa dancing
@@ -101,6 +101,7 @@ HARD DISQUALIFIERS — reject any role that requires:
 - Age range with NO overlap with 18-35 (e.g., "40-55" is a rejection, but "30-40" is NOT because it overlaps with the actor's range)
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
 - Requires an authentic/native non-American accent (e.g., "must have authentic British accent", "native French speaker")
+- Requires a beard or facial hair (actor is clean-shaven)
 - NOT a real acting role — consumer studies, product testing, paid research studies, focus groups, medical studies, or any role where participants are selected based on personal conditions (skin conditions, health issues, etc.) rather than acting ability
 
 NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair color, build) are EXACT requirements — any mismatch is a hard disqualifier.
@@ -168,6 +169,7 @@ HARD DISQUALIFIERS — SKIP if the role requires ANY of these:
 - Age range with NO overlap with 18-35 (e.g., "40-55" is a rejection, but "30-40" is NOT because it overlaps with the actor's range)
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
 - Requires an authentic/native non-American accent (e.g., "must have authentic British accent", "native French speaker")
+- Requires a beard or facial hair (actor is clean-shaven)
 - NOT a real acting role — consumer studies, product testing, paid research studies, focus groups, medical studies, or any role where participants are selected based on personal conditions (skin conditions, health issues, etc.) rather than acting ability
 
 NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair color, build) are EXACT requirements — any mismatch is a hard disqualifier.

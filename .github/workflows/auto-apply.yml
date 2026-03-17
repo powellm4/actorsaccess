@@ -47,6 +47,7 @@ jobs:
           AA_USERNAME: ${{ secrets.AA_USERNAME }}
           AA_PASSWORD: ${{ secrets.AA_PASSWORD }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_CALENDAR_SA_KEY: ${{ secrets.GOOGLE_CALENDAR_SA_KEY }}
         run: python -m src.main --once
 
       - name: Upload database (after AA)
@@ -59,6 +60,7 @@ jobs:
           CN_EMAIL: ${{ secrets.CN_EMAIL }}
           CN_PASSWORD: ${{ secrets.CN_PASSWORD }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_CALENDAR_SA_KEY: ${{ secrets.GOOGLE_CALENDAR_SA_KEY }}
         run: xvfb-run --auto-servernum python -m src.cn.main --once
 
       - name: Upload database (after CN)

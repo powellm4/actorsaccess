@@ -233,9 +233,18 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             logger.info(f"Found submission instructions for {best['role_name']}: {role_instructions[:200]}")
 
                     # Check for self-tape/video audition requests
+                    # Only flag if instructions ask to SUBMIT a self-tape now,
+                    # not if they just describe the audition format (e.g., "Self-taped, online audition")
                     selftape_keywords = ["self-tape", "self tape", "selftape", "slate"]
                     instructions_lower = role_instructions.lower()
-                    if any(kw in instructions_lower for kw in selftape_keywords):
+                    # Phrases that describe audition format, not a submission requirement
+                    format_phrases = [
+                        "self-taped audition", "self-taped, online audition",
+                        "self tape audition", "self-taped online audition",
+                        "audition instructions will be sent",
+                    ]
+                    is_format_description = any(fp in instructions_lower for fp in format_phrases)
+                    if not is_format_description and any(kw in instructions_lower for kw in selftape_keywords):
                         flag_reason = "Self-tape/video audition requested"
                         logger.info(f"Flagging {best['role_name']} — {flag_reason}")
                         db.record_flagged_role(
