@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: db-access
+  cancel-in-progress: false
+
 jobs:
   cn-auto-apply:
     runs-on: ubuntu-latest
@@ -31,6 +35,13 @@ jobs:
           playwright install chromium
           playwright install-deps chromium
 
+      - name: Download database
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p data
+          gh release download db-storage --pattern applied.db --dir data/ --clobber
+
       - name: Run CN auto-apply (headed via xvfb)
         env:
           CN_EMAIL: ${{ secrets.CN_EMAIL }}
@@ -38,19 +49,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: xvfb-run --auto-servernum python -m src.cn.main --once
 
-      - name: Commit updated database
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -f data/applied.db
-          git diff --cached --quiet && echo "No DB changes" || {
-            git commit -m "Update applied.db [skip ci]"
-            for i in 1 2 3; do
-              git pull --rebase && git push && break
-              # Binary DB conflict — keep ours (has latest run data)
-              git checkout --ours data/applied.db
-              git add -f data/applied.db
-              git rebase --continue
-              git push && break
-            done
-          }
+      - name: Upload database
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload db-storage data/applied.db --clobber

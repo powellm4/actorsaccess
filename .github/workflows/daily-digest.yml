@@ -13,6 +13,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: db-access
+  cancel-in-progress: false
+
 jobs:
   send-digest:
     runs-on: ubuntu-latest
@@ -30,24 +34,19 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Download database
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p data
+          gh release download db-storage --pattern applied.db --dir data/ --clobber
+
       - name: Send daily digest
         env:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
         run: python -m src.digest
 
-      - name: Commit updated database
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -f data/applied.db
-          git diff --cached --quiet && echo "No DB changes" || {
-            git commit -m "Update applied.db [skip ci]"
-            for i in 1 2 3; do
-              git pull --rebase && git push && break
-              # Binary DB conflict — keep ours (has latest run data)
-              git checkout --ours data/applied.db
-              git add -f data/applied.db
-              git rebase --continue
-              git push && break
-            done
-          }
+      - name: Upload database
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload db-storage data/applied.db --clobber
