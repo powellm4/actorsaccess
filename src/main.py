@@ -125,12 +125,25 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                 roles, project_notes = browser.scrape_roles_on_project(project["url"])
                 roles_found += len(roles)
 
+                # Log all scraped roles with fit_for_me status
+                for role in roles:
+                    fit = role.get("fit_for_me", False)
+                    logger.info(
+                        f"Scraped role: {project['project_name']} — "
+                        f"{role['role_name']} (fit_for_me={fit}, id={role.get('role_id', '?')})"
+                    )
+
                 # Filter roles and collect candidates (skip already-applied roles)
                 candidates = []
                 for role in roles:
                     # Skip roles we've already applied for
-                    if db.is_applied(f"{project['breakdown_id']}_{role['role_id']}"):
+                    unique_id = f"{project['breakdown_id']}_{role['role_id']}"
+                    if db.is_applied(unique_id):
                         roles_skipped += 1
+                        logger.info(
+                            f"Already applied: {project['project_name']} — "
+                            f"{role['role_name']} (id={unique_id})"
+                        )
                         continue
 
                     matches, skip_reason = role_matches(role)
@@ -147,6 +160,12 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
 
                     candidates.append(role)
 
+                logger.info(
+                    f"Candidates for {project['project_name']}: "
+                    f"{[c['role_name'] for c in candidates]} "
+                    f"(from {len(roles)} scraped, {roles_skipped} already applied, {roles_filtered} filtered)"
+                )
+
                 if not candidates:
                     continue
 
@@ -158,6 +177,11 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
 
                 # Pick the best role(s) (AI selection if multiple candidates)
                 selected, rejections = select_best_roles(candidates, project["project_name"])
+                logger.info(
+                    f"AI selection for {project['project_name']}: "
+                    f"selected={[s[0]['role_name'] for s in selected]}, "
+                    f"rejected={list(rejections.keys())}"
+                )
 
                 # Build full project URL for AA
                 project_url = f"https://actorsaccess.com{project['url']}" if project.get("url") else ""
