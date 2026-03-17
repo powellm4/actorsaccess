@@ -2,9 +2,9 @@ name: Auto Apply
 
 on:
   schedule:
-    # Every 4 hours: 8am, 12pm, 4pm, 8pm, 12am, 4am PT (UTC-7)
-    - cron: "0 15,19,23,3,7,11 * * *"
-  workflow_dispatch: # Allow manual trigger from GitHub UI
+    # 8am, 11am, 2pm, 5pm, 8pm, 11pm PT (UTC-7)
+    - cron: "0 15,18,21,0,3,6 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -29,6 +29,8 @@ jobs:
 
       - name: Install dependencies
         run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
           pip install -r requirements.txt
           playwright install chromium
           playwright install-deps chromium
@@ -40,14 +42,36 @@ jobs:
           mkdir -p data
           gh release download db-storage --pattern applied.db --dir data/ --clobber
 
-      - name: Run auto-apply
+      - name: Run AA auto-apply
         env:
           AA_USERNAME: ${{ secrets.AA_USERNAME }}
           AA_PASSWORD: ${{ secrets.AA_PASSWORD }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python -m src.main --once
 
-      - name: Upload database
+      - name: Upload database (after AA)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload db-storage data/applied.db --clobber
+
+      - name: Run CN auto-apply (headed via xvfb)
+        env:
+          CN_EMAIL: ${{ secrets.CN_EMAIL }}
+          CN_PASSWORD: ${{ secrets.CN_PASSWORD }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: xvfb-run --auto-servernum python -m src.cn.main --once
+
+      - name: Upload database (after CN)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload db-storage data/applied.db --clobber
+
+      - name: Send digest email
+        env:
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: python -m src.digest
+
+      - name: Upload database (after digest)
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload db-storage data/applied.db --clobber

@@ -22,7 +22,7 @@ ACTOR_PROFILE = """
 - Shoe size: 9-10
 - Non-union
 - Email: REDACTED | Phone: REDACTED
-- Los Angeles local with reliable transportation within the 30-mile studio zone
+- Los Angeles local with reliable transportation
 - Generally open availability
 - No demo reel currently — still apply for roles requesting one
 - No voice over / voice acting
@@ -101,6 +101,7 @@ HARD DISQUALIFIERS — reject any role that requires:
 - Age range with NO overlap with 18-35 (e.g., "40-55" is a rejection, but "30-40" is NOT because it overlaps with the actor's range)
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
 - Requires an authentic/native non-American accent (e.g., "must have authentic British accent", "native French speaker")
+- NOT a real acting role — consumer studies, product testing, paid research studies, focus groups, medical studies, or any role where participants are selected based on personal conditions (skin conditions, health issues, etc.) rather than acting ability
 
 NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair color, build) are EXACT requirements — any mismatch is a hard disqualifier.
 
@@ -167,6 +168,7 @@ HARD DISQUALIFIERS — SKIP if the role requires ANY of these:
 - Age range with NO overlap with 18-35 (e.g., "40-55" is a rejection, but "30-40" is NOT because it overlaps with the actor's range)
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
 - Requires an authentic/native non-American accent (e.g., "must have authentic British accent", "native French speaker")
+- NOT a real acting role — consumer studies, product testing, paid research studies, focus groups, medical studies, or any role where participants are selected based on personal conditions (skin conditions, health issues, etc.) rather than acting ability
 
 NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair color, build) are EXACT requirements — any mismatch is a hard disqualifier.
 
@@ -292,6 +294,8 @@ Analyze BOTH the role description AND any project-level instructions to determin
    NOTE_IF_AVAILABLE: <1-2 sentence note in first person confirming availability for those specific dates, including location. Be specific and concise.>
 
 IMPORTANT RULES:
+- ONLY address what the post specifically requests — do not volunteer extra information about availability, location, or transportation unless the post explicitly asks for it
+- If they ask for contact info, provide the email and phone number from the profile
 - If they ask for a demo reel or reel link, respond with ACTION: SUBMIT (apply anyway, do not mention lack of reel)
 - If multiple requirements exist and you can answer SOME but not all, use NEEDS_INPUT
 - When in doubt between SUBMIT and SUBMIT_WITH_NOTE, prefer SUBMIT
