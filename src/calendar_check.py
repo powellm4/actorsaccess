@@ -9,7 +9,6 @@ import os
 logger = logging.getLogger(__name__)
 
 _service_cache = None
-_calendar_id_cache = {}
 
 
 def get_calendar_service():
@@ -42,37 +41,15 @@ def get_calendar_service():
         return None
 
 
-def _resolve_calendar_ids(service, calendar_names: list[str]) -> list[str]:
-    """Resolve calendar names to their IDs."""
-    cache_key = tuple(sorted(calendar_names))
-    if cache_key in _calendar_id_cache:
-        return _calendar_id_cache[cache_key]
-
-    try:
-        cal_list = service.calendarList().list().execute()
-        name_to_id = {cal["summary"]: cal["id"] for cal in cal_list.get("items", [])}
-        ids = []
-        for name in calendar_names:
-            if name in name_to_id:
-                ids.append(name_to_id[name])
-            else:
-                logger.warning(f"Calendar '{name}' not found — skipping")
-        _calendar_id_cache[cache_key] = ids
-        return ids
-    except Exception as e:
-        logger.warning(f"Failed to list calendars: {e}")
-        return []
-
-
 def check_availability(
-    start_date: str, end_date: str, calendar_names: list[str],
+    start_date: str, end_date: str, calendar_ids: list[str],
 ) -> tuple[bool, list[str]]:
     """Check if a date range is free on the specified calendars.
 
     Args:
         start_date: ISO date string (e.g., "2026-04-05")
         end_date: ISO date string (e.g., "2026-04-12")
-        calendar_names: List of calendar names to check (e.g., ["Acting", "Travel"])
+        calendar_ids: List of Google Calendar IDs to check.
 
     Returns:
         Tuple of (is_available, conflicting_event_names).
@@ -82,7 +59,6 @@ def check_availability(
     if service is None:
         return True, []
 
-    calendar_ids = _resolve_calendar_ids(service, calendar_names)
     if not calendar_ids:
         return True, []
 
@@ -110,3 +86,73 @@ def check_availability(
         return True, []
 
     return len(conflicts) == 0, conflicts
+
+
+def parse_work_dates(submission_date: str) -> tuple[str, str] | None:
+    """Extract work dates from a submission_date string.
+
+    Handles formats like:
+    - "Work Mar 29 - Mar 30"
+    - "Submissions Due ... | Work Mar 29 - Mar 30 | Posted ..."
+    - "Work Mar 29 - Apr 5, 2026"
+    - "Work Mar 29, 2026"
+
+    Returns (start_iso, end_iso) or None if no work dates found.
+    """
+    import re
+    from datetime import datetime
+
+    match = re.search(
+        r"Work\s+(\w+ \d+(?:,?\s*\d{4})?)\s*(?:-\s*(\w+ \d+(?:,?\s*\d{4})?))?",
+        submission_date,
+    )
+    if not match:
+        return None
+
+    raw_start = match.group(1).strip().rstrip(",")
+    raw_end = (match.group(2) or "").strip().rstrip(",")
+    current_year = datetime.now().year
+
+    def _parse(raw: str) -> str | None:
+        if not raw:
+            return None
+        for fmt in ("%b %d %Y", "%b %d, %Y", "%b %d"):
+            try:
+                dt = datetime.strptime(raw, fmt)
+                if dt.year == 1900:
+                    dt = dt.replace(year=current_year)
+                return dt.strftime("%Y-%m-%d")
+            except ValueError:
+                continue
+        return None
+
+    start = _parse(raw_start)
+    if not start:
+        return None
+    end = _parse(raw_end) if raw_end else start
+    return start, end
+
+
+def check_work_date_conflicts(
+    role: dict, calendar_ids: list[str],
+) -> tuple[bool, list[str]]:
+    """Check if a role's work dates conflict with calendar events.
+
+    Args:
+        role: Role dict (must have 'submission_date' key).
+        calendar_ids: List of Google Calendar IDs to check.
+
+    Returns:
+        (True, conflicts) if there is a conflict,
+        (False, []) if no conflict or no work dates found.
+    """
+    dates = parse_work_dates(role.get("submission_date", ""))
+    if not dates:
+        return False, []
+
+    start, end = dates
+    available, conflicts = check_availability(start, end, calendar_ids)
+    if not available:
+        logger.info(f"Calendar conflict for work dates {start} to {end}: {', '.join(conflicts[:5])}")
+        return True, conflicts
+    return False, []

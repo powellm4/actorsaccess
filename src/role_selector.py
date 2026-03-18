@@ -247,7 +247,7 @@ def _parse_structured_response(
     return selected, rejections
 
 
-def analyze_submission_requirements(role: dict, project_name: str, project_notes: str = "") -> dict:
+def analyze_submission_requirements(role: dict, project_name: str, project_notes: str = "", calendar_ids: list[str] | None = None) -> dict:
     """Analyze role description and project-level notes for submission requirements.
 
     Returns:
@@ -314,10 +314,10 @@ Respond with ONLY the action line (and NOTE/REASON line if applicable). No other
     )
 
     text = response.content[0].text.strip()
-    return _parse_analysis_response(text, role, project_name)
+    return _parse_analysis_response(text, role, project_name, calendar_ids=calendar_ids)
 
 
-def _parse_analysis_response(text: str, role: dict, project_name: str) -> dict:
+def _parse_analysis_response(text: str, role: dict, project_name: str, calendar_ids: list[str] | None = None) -> dict:
     """Parse the AI analysis response into a structured result."""
     lines = text.strip().split("\n")
     action_line = lines[0].strip()
@@ -339,8 +339,7 @@ def _parse_analysis_response(text: str, role: dict, project_name: str) -> dict:
                 start_date, end_date = date_match.group(1), date_match.group(2)
                 try:
                     from src.calendar_check import check_availability
-                    calendars = ["Acting", "Travel"]
-                    available, conflicts = check_availability(start_date, end_date, calendars)
+                    available, conflicts = check_availability(start_date, end_date, calendar_ids or [])
                     if available:
                         logger.info(f"Calendar free for {role.get('role_name', '')} on {project_name}: {start_date} to {end_date}")
                         return {"action": "SUBMIT_WITH_NOTE", "note": note_if_available, "needs_input_reason": None}

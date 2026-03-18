@@ -211,7 +211,8 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     unique_id = f"{project['breakdown_id']}_{best['role_id']}"
 
                     # Analyze submission requirements
-                    analysis = analyze_submission_requirements(best, project["project_name"], project_notes)
+                    cal_ids = cfg.get("google_calendar", {}).get("calendar_ids", [])
+                    analysis = analyze_submission_requirements(best, project["project_name"], project_notes, calendar_ids=cal_ids)
 
                     if analysis["action"] == "NEEDS_INPUT":
                         db.record_flagged_role(
