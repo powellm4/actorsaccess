@@ -256,7 +256,8 @@ class Database:
                    flag_reason = excluded.flag_reason,
                    role_description = excluded.role_description,
                    run_id = excluded.run_id,
-                   project_url = excluded.project_url""",
+                   project_url = excluded.project_url,
+                   flagged_at = flagged_roles.flagged_at""",
             (project_name, project_url, role_name, role_description, flag_reason, run_id, platform, now),
         )
         self.conn.commit()
