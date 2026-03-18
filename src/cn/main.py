@@ -10,7 +10,7 @@ from datetime import datetime
 from src.cn.config import load_cn_config, CnConfigError
 from src.cn.browser import CastingNetworksBrowser
 from src.database import Database
-from src.filters import _is_background, _is_court_tv, _is_ugc, _is_voiceover, _COURT_TV_PATTERN
+from src.filters import _is_background, _is_court_tv, _is_ugc, _is_unpaid, _is_voiceover, _COURT_TV_PATTERN
 from src.role_selector import select_best_roles, analyze_submission_requirements
 
 logger = logging.getLogger("castingnetworks")
@@ -148,6 +148,14 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             _print_role_decision("SKIP", project_name, role, "background role")
                         else:
                             logger.info(f"Filtered out: {project_name} — {role['role_name']} (background)")
+                        continue
+
+                    if _is_unpaid(role):
+                        roles_filtered += 1
+                        if dry_run:
+                            _print_role_decision("SKIP", project_name, role, "unpaid")
+                        else:
+                            logger.info(f"Filtered out: {project_name} — {role['role_name']} (unpaid)")
                         continue
 
                     if _is_ugc(project_name, role):

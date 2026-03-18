@@ -29,6 +29,11 @@ _SCENE_RECREATION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+_UNPAID_PATTERN = re.compile(
+    r"\bno\s*pay\b|\bunpaid\b|\bnon[- ]?paid\b|\bdeferred\b|\bcopy\s*&?\s*credit\b|\bcopy/credit\b",
+    re.IGNORECASE,
+)
+
 
 def _is_background(role: dict) -> bool:
     """Check if a role is a background/extra role."""
@@ -47,6 +52,14 @@ def _is_voiceover(role: dict) -> bool:
         or _VO_PATTERN.search(role_type)
         or _VO_PATTERN.search(desc)
     )
+
+
+def _is_unpaid(role: dict) -> bool:
+    """Check if a role is explicitly unpaid based on the pay/rate field."""
+    pay = role.get("pay", "").strip()
+    if not pay:
+        return False
+    return bool(_UNPAID_PATTERN.search(pay))
 
 
 def _is_court_tv(role: dict) -> bool:

@@ -7,7 +7,7 @@ filters:
   gender: "male"
   age_range: [19, 29]
   union_status: "nonunion_fit"
-  paying_only: false
+  paying_only: true
   exclude_reality_tv: true
 
 submission:
