@@ -12,6 +12,7 @@ from src.database import Database
 from src.browser import ActorsAccessBrowser
 from src.filters import role_matches, project_matches
 from src.role_selector import select_best_roles, analyze_submission_requirements
+from src.calendar_check import parse_shoot_dates, check_availability
 
 logger = logging.getLogger("actorsaccess")
 
@@ -207,12 +208,37 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             _print_role_decision("SKIP", project["project_name"], role, f"AI: {ai_reason}")
                     continue
 
+                # Check shoot dates against calendar BEFORE any submissions
+                cal_ids = cfg.get("google_calendar", {}).get("calendar_ids", [])
+                shoot_dates = parse_shoot_dates(project_notes)
+                dates_available = True
+                if shoot_dates:
+                    start_date, end_date = shoot_dates
+                    dates_available, conflicts = check_availability(start_date, end_date, cal_ids)
+                    if not dates_available:
+                        conflict_list = ", ".join(conflicts[:5])
+                        flag_reason = f"Calendar conflict with shoot dates {start_date} to {end_date}: {conflict_list}"
+                        for best, ai_reason in selected:
+                            db.record_flagged_role(
+                                project_name=project["project_name"],
+                                project_url=project_url,
+                                role_name=best["role_name"],
+                                role_description=best.get("description", ""),
+                                flag_reason=flag_reason,
+                                run_id=run_id,
+                                platform="aa",
+                            )
+                            logger.info(f"Skipping {best['role_name']} — {flag_reason}")
+                            if dry_run:
+                                _print_role_decision("FLAGGED", project["project_name"], best, flag_reason)
+                        continue
+
                 for best, ai_reason in selected:
                     unique_id = f"{project['breakdown_id']}_{best['role_id']}"
 
-                    # Analyze submission requirements
-                    cal_ids = cfg.get("google_calendar", {}).get("calendar_ids", [])
-                    analysis = analyze_submission_requirements(best, project["project_name"], project_notes, calendar_ids=cal_ids)
+                    # Analyze submission requirements (dates already verified above)
+                    confirmed_dates = f"{shoot_dates[0]} to {shoot_dates[1]}" if shoot_dates else None
+                    analysis = analyze_submission_requirements(best, project["project_name"], project_notes, confirmed_dates=confirmed_dates)
 
                     if analysis["action"] == "NEEDS_INPUT":
                         db.record_flagged_role(

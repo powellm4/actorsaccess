@@ -247,8 +247,12 @@ def _parse_structured_response(
     return selected, rejections
 
 
-def analyze_submission_requirements(role: dict, project_name: str, project_notes: str = "", calendar_ids: list[str] | None = None) -> dict:
+def analyze_submission_requirements(role: dict, project_name: str, project_notes: str = "", confirmed_dates: str | None = None) -> dict:
     """Analyze role description and project-level notes for submission requirements.
+
+    Args:
+        confirmed_dates: If set (e.g., "2026-04-12 to 2026-04-25"), calendar has already been
+            checked and actor is available. The AI can reference these dates in notes.
 
     Returns:
         {"action": "SUBMIT" | "SUBMIT_WITH_NOTE" | "NEEDS_INPUT",
@@ -267,6 +271,10 @@ def analyze_submission_requirements(role: dict, project_name: str, project_notes
 
     client = anthropic.Anthropic(api_key=api_key)
 
+    availability_context = ""
+    if confirmed_dates:
+        availability_context = f"\nCONFIRMED AVAILABILITY: Actor's calendar has been checked and is FREE for {confirmed_dates}. If the post asks for availability, include this in the note."
+
     prompt = f"""You are analyzing a casting breakdown to determine if it asks for specific information in the submission or submission notes.
 
 ACTOR PROFILE:
@@ -275,14 +283,14 @@ ACTOR PROFILE:
 PROJECT: {project_name}
 ROLE: {role.get('role_name', '')}
 DESCRIPTION: {desc[:1000]}
-{f"PROJECT-LEVEL INSTRUCTIONS: {project_notes[:1000]}" if project_notes.strip() else ""}
+{f"PROJECT-LEVEL INSTRUCTIONS: {project_notes[:1000]}" if project_notes.strip() else ""}{availability_context}
 
 Analyze BOTH the role description AND any project-level instructions to determine the correct action:
 
 1. If the description does NOT ask for any specific information in the submission notes, respond:
    ACTION: SUBMIT
 
-2. If the description asks for information you CAN answer from the actor profile (e.g., location/local hire, availability for long days, improv/dance skills, physical attributes, shoe size, transportation, phone number, email address, contact info), respond:
+2. If the description asks for information you CAN answer from the actor profile or confirmed availability (e.g., location/local hire, availability/dates, comfort with long days, improv/dance skills, physical attributes, shoe size, transportation, phone number, email address, contact info), respond:
    ACTION: SUBMIT_WITH_NOTE
    NOTE: <1-2 sentence note in first person addressing what they asked for. Be specific and concise. No greeting, sign-off, or placeholders.>
 
@@ -290,20 +298,15 @@ Analyze BOTH the role description AND any project-level instructions to determin
    ACTION: NEEDS_INPUT
    REASON: <brief description of what info is needed>
 
-4. If the description mentions SPECIFIC SHOOT DATES and asks the actor to confirm availability, respond:
-   ACTION: CHECK_DATES
-   DATES: <start date in YYYY-MM-DD> to <end date in YYYY-MM-DD>
-   NOTE_IF_AVAILABLE: <1-2 sentence note in first person confirming availability for those specific dates, including location. Be specific and concise.>
-
 IMPORTANT RULES:
 - ONLY address what the post specifically requests — do not volunteer extra information about availability, location, or transportation unless the post explicitly asks for it
+- If the post asks for availability/dates and CONFIRMED AVAILABILITY is provided above, include the specific dates in the note
 - If they ask for contact info, provide the email and phone number from the profile
 - If they ask for a demo reel or reel link, respond with ACTION: SUBMIT (apply anyway, do not mention lack of reel)
-- If multiple requirements exist and you can answer SOME but not all, use NEEDS_INPUT
+- If multiple requirements exist and you can answer SOME but not all, use NEEDS_INPUT — UNLESS the unanswerable item is a demo reel (apply anyway)
 - When in doubt between SUBMIT and SUBMIT_WITH_NOTE, prefer SUBMIT
 - Only use SUBMIT_WITH_NOTE when the casting post clearly asks for specific info in notes
-- If shoot dates are mentioned but the post does NOT ask the actor to confirm availability, do NOT use CHECK_DATES — use SUBMIT or SUBMIT_WITH_NOTE as appropriate
-- For CHECK_DATES, extract the earliest and latest dates from the shoot schedule
+- Treat project-level REQUIREMENTS (e.g., "NOTE YOUR DETAILED AVAILABILITY") with the same weight as role-level requests — these apply to every role submission
 
 Respond with ONLY the action line (and NOTE/REASON line if applicable). No other text."""
 
@@ -314,48 +317,13 @@ Respond with ONLY the action line (and NOTE/REASON line if applicable). No other
     )
 
     text = response.content[0].text.strip()
-    return _parse_analysis_response(text, role, project_name, calendar_ids=calendar_ids)
+    return _parse_analysis_response(text, role, project_name)
 
 
-def _parse_analysis_response(text: str, role: dict, project_name: str, calendar_ids: list[str] | None = None) -> dict:
+def _parse_analysis_response(text: str, role: dict, project_name: str) -> dict:
     """Parse the AI analysis response into a structured result."""
     lines = text.strip().split("\n")
     action_line = lines[0].strip()
-
-    if "CHECK_DATES" in action_line:
-        dates_str = None
-        note_if_available = None
-        for line in lines[1:]:
-            stripped = line.strip()
-            if stripped.upper().startswith("DATES:"):
-                dates_str = stripped.split(":", 1)[1].strip()
-            elif stripped.upper().startswith("NOTE_IF_AVAILABLE:"):
-                note_if_available = stripped.split(":", 1)[1].strip()
-
-        if dates_str and note_if_available:
-            # Parse "YYYY-MM-DD to YYYY-MM-DD"
-            date_match = re.match(r"(\d{4}-\d{2}-\d{2})\s+to\s+(\d{4}-\d{2}-\d{2})", dates_str)
-            if date_match:
-                start_date, end_date = date_match.group(1), date_match.group(2)
-                try:
-                    from src.calendar_check import check_availability
-                    available, conflicts = check_availability(start_date, end_date, calendar_ids or [])
-                    if available:
-                        logger.info(f"Calendar free for {role.get('role_name', '')} on {project_name}: {start_date} to {end_date}")
-                        return {"action": "SUBMIT_WITH_NOTE", "note": note_if_available, "needs_input_reason": None}
-                    else:
-                        conflict_list = ", ".join(conflicts[:5])
-                        reason = f"Calendar conflict {start_date} to {end_date}: {conflict_list}"
-                        logger.info(f"Calendar conflict for {role.get('role_name', '')} on {project_name}: {conflict_list}")
-                        return {"action": "NEEDS_INPUT", "note": None, "needs_input_reason": reason}
-                except Exception as e:
-                    logger.warning(f"Calendar check failed: {e}")
-                    reason = f"Could not verify availability for {start_date} to {end_date}"
-                    return {"action": "NEEDS_INPUT", "note": None, "needs_input_reason": reason}
-
-        # Couldn't parse CHECK_DATES response — fall back to NEEDS_INPUT
-        logger.warning(f"CHECK_DATES response unparseable for {role.get('role_name', '')} on {project_name}")
-        return {"action": "NEEDS_INPUT", "note": None, "needs_input_reason": "Shoot dates mentioned but could not verify availability"}
 
     if "NEEDS_INPUT" in action_line:
         reason = None

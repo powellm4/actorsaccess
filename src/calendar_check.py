@@ -88,6 +88,53 @@ def check_availability(
     return len(conflicts) == 0, conflicts
 
 
+def parse_shoot_dates(text: str) -> tuple[str, str] | None:
+    """Extract shoot dates from project notes or breakdown text.
+
+    Handles AA-style formats like:
+    - "Shoot Dates: April 12 - 25, 2026"
+    - "April 7-18, 2026"
+    - "AVAILABILITY BETWEEN APRIL 12-25, 2026"
+    - "from April 7-18, 2026"
+
+    Returns (start_iso, end_iso) or None if no shoot dates found.
+    """
+    import re
+    from datetime import datetime
+
+    current_year = datetime.now().year
+
+    # Pattern: "Month Day - Day, Year" (e.g., "April 12-25, 2026" or "April 12 - 25, 2026")
+    match = re.search(
+        r"(\w+)\s+(\d{1,2})\s*[-–]\s*(\d{1,2}),?\s*(\d{4})",
+        text,
+    )
+    if match:
+        month_str, start_day, end_day, year = match.groups()
+        try:
+            start = datetime.strptime(f"{month_str} {start_day} {year}", "%B %d %Y")
+            end = datetime.strptime(f"{month_str} {end_day} {year}", "%B %d %Y")
+            return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+
+    # Pattern: "Month Day - Month Day, Year" (e.g., "March 28 - April 5, 2026")
+    match = re.search(
+        r"(\w+)\s+(\d{1,2})\s*[-–]\s*(\w+)\s+(\d{1,2}),?\s*(\d{4})",
+        text,
+    )
+    if match:
+        m1, d1, m2, d2, year = match.groups()
+        try:
+            start = datetime.strptime(f"{m1} {d1} {year}", "%B %d %Y")
+            end = datetime.strptime(f"{m2} {d2} {year}", "%B %d %Y")
+            return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+
+    return None
+
+
 def parse_work_dates(submission_date: str) -> tuple[str, str] | None:
     """Extract work dates from a submission_date string.
 

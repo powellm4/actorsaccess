@@ -32,12 +32,34 @@ def build_digest_html(data: dict) -> str:
     if not applications and not rejections and not flagged:
         return _empty_digest_html(runs)
 
-    # Build flagged roles section (shown at top)
+    # Split flagged roles into calendar conflicts vs other
+    calendar_conflicts = [f for f in flagged if f.get("flag_reason", "").startswith("Calendar conflict")]
+    other_flagged = [f for f in flagged if not f.get("flag_reason", "").startswith("Calendar conflict")]
+
+    # Build calendar conflicts section
+    calendar_section = ""
+    if calendar_conflicts:
+        calendar_section = '<div style="margin-bottom:24px;">\n'
+        calendar_section += '<h2 style="color:#b71c1c;margin-bottom:12px;">Skipped — Calendar Conflicts</h2>\n'
+        for item in calendar_conflicts:
+            platform_badge = _platform_badge(item.get("platform", "aa"))
+            desc = item.get("role_description") or ""
+            project_url = item.get("project_url", "")
+            role_label = f'<a href="{project_url}" style="color:#b71c1c;text-decoration:underline;">{item["role_name"]}</a>' if project_url else item["role_name"]
+            calendar_section += f'<div style="background:#ffebee;border-left:4px solid #e53935;padding:12px;border-radius:4px;margin-bottom:8px;">\n'
+            calendar_section += f'{platform_badge} <strong>{item["project_name"]}</strong> — <strong>{role_label}</strong>'
+            calendar_section += f'<br><span style="color:#b71c1c;">{item.get("flag_reason", "Unknown")}</span>'
+            if desc:
+                calendar_section += f'<br><span style="color:#555;">{desc}</span>'
+            calendar_section += '\n</div>\n'
+        calendar_section += '</div>\n'
+
+    # Build other flagged roles section
     flagged_section = ""
-    if flagged:
+    if other_flagged:
         flagged_section = '<div style="margin-bottom:24px;">\n'
         flagged_section += '<h2 style="color:#4a148c;margin-bottom:12px;">Needs Your Attention</h2>\n'
-        for item in flagged:
+        for item in other_flagged:
             platform_badge = _platform_badge(item.get("platform", "aa"))
             desc = item.get("role_description") or ""
             project_url = item.get("project_url", "")
@@ -114,8 +136,11 @@ def build_digest_html(data: dict) -> str:
     failed_runs = [r for r in runs if r.get("status") == "error"]
 
     footer = f'<div style="margin-top:24px;padding:16px;background:#f5f5f5;border-radius:8px;">\n'
-    total_flagged = len(flagged)
+    total_calendar = len(calendar_conflicts)
+    total_flagged = len(other_flagged)
     footer += f'<strong>Summary:</strong> {total_applied} roles applied, {total_rejected} roles passed'
+    if total_calendar:
+        footer += f', {total_calendar} skipped (calendar conflict)'
     if total_flagged:
         footer += f', {total_flagged} flagged for review'
     footer += f', {total_projects} projects evaluated<br>\n'
@@ -126,7 +151,7 @@ def build_digest_html(data: dict) -> str:
             footer += f'<br><span style="color:red;">Failed ({fr.get("platform","?")}): {fr.get("error_message","unknown")}</span>'
     footer += '\n</div>\n'
 
-    body = flagged_section + "\n".join(sections) + footer
+    body = calendar_section + flagged_section + "\n".join(sections) + footer
     return _wrap_html(body)
 
 

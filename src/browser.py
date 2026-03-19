@@ -273,25 +273,16 @@ class ActorsAccessBrowser:
             self.page.goto(project_url)
             _random_delay(2, 4)
 
-            # Scrape project-level notes (text between header and first role)
+            # Scrape all text before the first role, including the page header/metadata
+            # This captures shoot dates, requirements, and other project-level info
             project_notes = self.page.evaluate("""() => {
                 const firstRole = document.querySelector('a.breakdown-open-add-role');
                 if (!firstRole) return '';
-                // Find the container: try known classes, fall back to body
-                const body = document.querySelector('.breakdown-body, .breakdownBody, #breakdown_body')
-                    || firstRole.parentElement;
-                if (!body) return '';
-                let text = '';
-                const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
-                while (walker.nextNode()) {
-                    const node = walker.currentNode;
-                    if (node === firstRole || firstRole.contains(node)) break;
-                    if (node.closest && node.closest('a.breakdown-open-add-role')) break;
-                    if (node.nodeType === Node.TEXT_NODE) {
-                        text += node.textContent;
-                    }
-                }
-                return text.trim();
+                // Get all text content before the first role element
+                const range = document.createRange();
+                range.setStart(document.body, 0);
+                range.setEndBefore(firstRole);
+                return range.toString().trim();
             }""") or ""
 
             # Roles are links with class 'breakdown-open-add-role'

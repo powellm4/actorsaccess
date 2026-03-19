@@ -10,7 +10,7 @@ from datetime import datetime
 from src.cn.config import load_cn_config, CnConfigError
 from src.cn.browser import CastingNetworksBrowser
 from src.database import Database
-from src.calendar_check import check_work_date_conflicts
+from src.calendar_check import check_work_date_conflicts, parse_work_dates, check_availability
 from src.filters import _is_background, _is_court_tv, _is_ugc, _is_unpaid, _is_voiceover, _COURT_TV_PATTERN
 from src.role_selector import select_best_roles, analyze_submission_requirements
 
@@ -269,12 +269,35 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             _print_role_decision("FLAGGED", project_name, best, flag_reason)
                         continue
 
-                    cal_ids = cfg.get("google_calendar", {}).get("calendar_ids", [])
-                    analysis = analyze_submission_requirements(best, project_name, role_instructions, calendar_ids=cal_ids)
-
                     # Check calendar for work date conflicts before submitting
-                    if analysis["action"] in ("SUBMIT", "SUBMIT_WITH_NOTE"):
-                        cal_ids = cfg.get("google_calendar", {}).get("calendar_ids", [])
+                    cal_ids = cfg.get("google_calendar", {}).get("calendar_ids", [])
+                    work_dates = parse_work_dates(best.get("submission_date", ""))
+                    confirmed_dates = None
+                    if work_dates:
+                        start, end = work_dates
+                        available, conflicts = check_availability(start, end, cal_ids)
+                        if not available:
+                            conflict_list = ", ".join(conflicts[:5])
+                            flag_reason = f"Calendar conflict with work dates: {conflict_list}"
+                            db.record_flagged_role(
+                                project_name=project_name,
+                                project_url=project_url,
+                                role_name=best["role_name"],
+                                role_description=best.get("description", ""),
+                                flag_reason=flag_reason,
+                                run_id=run_id,
+                                platform="cn",
+                            )
+                            logger.info(f"Skipping {best['role_name']} — {flag_reason}")
+                            if dry_run:
+                                _print_role_decision("FLAGGED", project_name, best, flag_reason)
+                            continue
+                        confirmed_dates = f"{start} to {end}"
+
+                    analysis = analyze_submission_requirements(best, project_name, role_instructions, confirmed_dates=confirmed_dates)
+
+                    # Legacy check: work date conflicts for roles without parsed dates
+                    if not work_dates and analysis["action"] in ("SUBMIT", "SUBMIT_WITH_NOTE"):
                         has_conflict, conflicts = check_work_date_conflicts(
                             best, cal_ids
                         )
