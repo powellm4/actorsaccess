@@ -290,22 +290,24 @@ Analyze BOTH the role description AND any project-level instructions to determin
 1. If the description does NOT ask for any specific information in the submission notes, respond:
    ACTION: SUBMIT
 
-2. If the description asks for information you CAN answer from the actor profile or confirmed availability (e.g., location/local hire, availability/dates, comfort with long days, improv/dance skills, physical attributes, shoe size, transportation, phone number, email address, contact info), respond:
+2. If the description EXPLICITLY asks for specific factual information in the submission notes that you CAN answer from the actor profile or confirmed availability (e.g., location/local hire, availability/dates, comfort with long days, shoe size, phone number, email address, contact info), respond:
    ACTION: SUBMIT_WITH_NOTE
-   NOTE: <1-2 sentence note in first person addressing what they asked for. Be specific and concise. No greeting, sign-off, or placeholders.>
+   NOTE: <1 sentence, max 30 words, in first person. ONLY state the facts they asked for. No selling, no qualifications, no acting skills, no why-you're-right-for-the-role.>
 
 3. If the description asks for information you CANNOT answer (e.g., links to demo reel or website, union status/SAG-AFTRA number, specific wardrobe sizes, COVID test results, references, self-tape samples), respond:
    ACTION: NEEDS_INPUT
    REASON: <brief description of what info is needed>
 
 IMPORTANT RULES:
+- ONLY use SUBMIT_WITH_NOTE when the post has a clear, explicit request like "note your availability", "confirm you are local", "include your contact info", or "let us know about X experience"
+- A role description describing the character is NOT a request for info — do not respond to it
+- NEVER include acting skills, training, experience, character analysis, or why the actor is a good fit — these are NOT submission notes
 - ONLY address what the post specifically requests — do not volunteer extra information about availability, location, or transportation unless the post explicitly asks for it
 - If the post asks for availability/dates and CONFIRMED AVAILABILITY is provided above, include the specific dates in the note
 - If they ask for contact info, provide the email and phone number from the profile
 - If they ask for a demo reel or reel link, respond with ACTION: SUBMIT (apply anyway, do not mention lack of reel)
 - If multiple requirements exist and you can answer SOME but not all, use NEEDS_INPUT — UNLESS the unanswerable item is a demo reel (apply anyway)
-- When in doubt between SUBMIT and SUBMIT_WITH_NOTE, prefer SUBMIT
-- Only use SUBMIT_WITH_NOTE when the casting post clearly asks for specific info in notes
+- When in doubt between SUBMIT and SUBMIT_WITH_NOTE, ALWAYS prefer SUBMIT
 - Treat project-level REQUIREMENTS (e.g., "NOTE YOUR DETAILED AVAILABILITY") with the same weight as role-level requests — these apply to every role submission
 
 Respond with ONLY the action line (and NOTE/REASON line if applicable). No other text."""
