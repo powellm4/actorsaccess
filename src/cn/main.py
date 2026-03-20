@@ -143,6 +143,11 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                         roles_skipped += 1
                         continue
 
+                    # Skip roles already rejected by AI (don't re-evaluate or re-record)
+                    if db.is_rejected(role["role_name"], project_name, "cn"):
+                        roles_skipped += 1
+                        continue
+
                     if _is_cn_background(role):
                         roles_filtered += 1
                         if dry_run:

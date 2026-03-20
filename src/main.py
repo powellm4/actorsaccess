@@ -137,13 +137,21 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                 # Filter roles and collect candidates (skip already-applied roles)
                 candidates = []
                 for role in roles:
-                    # Skip roles we've already applied for
+                    # Skip roles we've already applied for or rejected
                     unique_id = f"{project['breakdown_id']}_{role['role_id']}"
                     if db.is_applied(unique_id):
                         roles_skipped += 1
                         logger.info(
                             f"Already applied: {project['project_name']} — "
                             f"{role['role_name']} (id={unique_id})"
+                        )
+                        continue
+
+                    if db.is_rejected(role["role_name"], project["project_name"], "aa"):
+                        roles_skipped += 1
+                        logger.info(
+                            f"Already rejected: {project['project_name']} — "
+                            f"{role['role_name']}"
                         )
                         continue
 

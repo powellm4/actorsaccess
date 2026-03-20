@@ -98,6 +98,13 @@ class Database:
         )
         return cursor.fetchone() is not None
 
+    def is_rejected(self, role_name: str, project_name: str, platform: str = "aa") -> bool:
+        cursor = self.conn.execute(
+            "SELECT 1 FROM rejected_roles WHERE role_name = ? AND project_name = ? AND platform = ?",
+            (role_name, project_name, platform),
+        )
+        return cursor.fetchone() is not None
+
     def record_application(
         self, role_id: str, project_name: str, role_name: str,
         role_description: str = "", ai_reason: str = "", candidates_considered: int = 1,
