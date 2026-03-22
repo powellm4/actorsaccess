@@ -16,7 +16,7 @@ submission:
   include_size_card: true
   default_note: ""
 
-max_pages: 20
+max_pages: 5
 
 browser:
   headless: true

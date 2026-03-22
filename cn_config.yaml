@@ -2,7 +2,7 @@ credentials:
   email: "REDACTED"
   password: "REDACTED"
 
-max_pages: 20
+max_pages: 5
 
 submission:
   default_note: ""
