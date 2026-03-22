@@ -172,14 +172,6 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             logger.info(f"Filtered out: {project_name} — {role['role_name']} (UGC)")
                         continue
 
-                    if _is_voiceover(role):
-                        roles_filtered += 1
-                        if dry_run:
-                            _print_role_decision("SKIP", project_name, role, "voice over")
-                        else:
-                            logger.info(f"Filtered out: {project_name} — {role['role_name']} (voice over)")
-                        continue
-
                     if _is_court_tv(role):
                         roles_filtered += 1
                         if dry_run:

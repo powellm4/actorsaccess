@@ -104,9 +104,6 @@ def project_matches(project: dict) -> tuple[bool, str]:
     if _UGC_PATTERN.search(name):
         return False, "UGC project"
 
-    if _VO_PATTERN.search(name):
-        return False, "voice over project"
-
     if _COURT_TV_PATTERN.search(name):
         return False, "court TV project"
 
@@ -131,9 +128,6 @@ def role_matches(role: dict) -> tuple[bool, str]:
 
     if _is_background(role):
         return False, "background role"
-
-    if _is_voiceover(role):
-        return False, "voice over role"
 
     if _is_court_tv(role):
         return False, "court TV role"

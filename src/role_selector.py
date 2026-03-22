@@ -25,7 +25,7 @@ ACTOR_PROFILE = """
 - Los Angeles local with reliable transportation
 - Generally open availability
 - No demo reel currently — still apply for roles requesting one
-- No voice over / voice acting
+- Open to voice over / voice acting roles
 - No UGC
 - No background/extra work
 - No theatre/musical work

@@ -6,7 +6,7 @@ filters:
   region: "Los Angeles"
   gender: "male"
   age_range: [19, 29]
-  union_status: "nonunion_fit"
+  union_status: "fit_for_me"
   paying_only: true
   exclude_reality_tv: true
 
@@ -16,7 +16,7 @@ submission:
   include_size_card: true
   default_note: ""
 
-max_pages: 5
+max_pages: 20
 
 browser:
   headless: true
