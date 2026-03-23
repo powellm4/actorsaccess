@@ -11,8 +11,8 @@ from src.config import load_config, ConfigError
 from src.database import Database
 from src.browser import ActorsAccessBrowser
 from src.filters import role_matches, project_matches, is_sag_only
-from src.role_selector import select_best_roles, analyze_submission_requirements
-from src.calendar_check import parse_shoot_dates, check_availability
+from src.role_selector import select_best_roles, analyze_submission_requirements, check_partial_availability
+from src.calendar_check import parse_shoot_dates, check_availability, get_busy_dates
 
 logger = logging.getLogger("actorsaccess")
 
@@ -142,28 +142,53 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                 cal_ids = cfg.get("google_calendar", {}).get("calendar_ids", [])
                 logger.info(f"[CALENDAR] project_notes for {project['project_name']} (length={len(project_notes)}): {project_notes[:200]}")
                 shoot_dates = parse_shoot_dates(project_notes)
+                partial_availability = None  # set if some days free, some busy
                 if shoot_dates:
                     start_date, end_date = shoot_dates
                     logger.info(f"[CALENDAR] Shoot dates found: {start_date} to {end_date}, checking calendar...")
                     dates_available, conflicts = check_availability(start_date, end_date, cal_ids)
                     if not dates_available:
-                        conflict_list = ", ".join(conflicts[:5])
-                        flag_reason = f"Calendar conflict with shoot dates {start_date} to {end_date}: {conflict_list}"
-                        logger.info(f"[CALENDAR] Skipping entire project: {project['project_name']} — {flag_reason}")
-                        for role in roles:
-                            db.record_flagged_role(
-                                project_name=project["project_name"],
-                                project_url=project_url,
-                                role_name=role["role_name"],
-                                role_description=role.get("description", ""),
-                                flag_reason=flag_reason,
-                                run_id=run_id,
-                                platform="aa",
-                            )
-                        if dry_run:
+                        # Get per-day breakdown to check partial availability
+                        busy_dates = get_busy_dates(start_date, end_date, cal_ids)
+                        from datetime import date, timedelta
+                        start_d = date.fromisoformat(start_date)
+                        end_d = date.fromisoformat(end_date)
+                        total_days = (end_d - start_d).days + 1
+                        free_days = total_days - len(busy_dates)
+
+                        if free_days == 0:
+                            # ALL days are busy — skip entirely
+                            flag_reason = f"Calendar conflict with ALL shoot dates {start_date} to {end_date}: {', '.join(conflicts[:5])}"
+                            logger.info(f"[CALENDAR] Skipping entire project: {project['project_name']} — {flag_reason}")
                             for role in roles:
-                                _print_role_decision("FLAGGED", project["project_name"], role, flag_reason)
-                        continue
+                                db.record_flagged_role(
+                                    project_name=project["project_name"],
+                                    project_url=project_url,
+                                    role_name=role["role_name"],
+                                    role_description=role.get("description", ""),
+                                    flag_reason=flag_reason,
+                                    run_id=run_id,
+                                    platform="aa",
+                                )
+                            if dry_run:
+                                for role in roles:
+                                    _print_role_decision("FLAGGED", project["project_name"], role, flag_reason)
+                            continue
+                        else:
+                            # Some days free — let AI decide per-role if partial availability works
+                            all_dates_set = {(start_d + timedelta(days=i)).isoformat() for i in range(total_days)}
+                            free_dates = sorted(all_dates_set - set(busy_dates))
+                            partial_availability = {
+                                "shoot_range": f"{start_date} to {end_date}",
+                                "busy_dates": busy_dates,
+                                "free_dates": free_dates,
+                                "free_count": free_days,
+                                "total_days": total_days,
+                            }
+                            logger.info(
+                                f"[CALENDAR] Partial availability for {project['project_name']}: "
+                                f"{free_days}/{total_days} days free — will let AI decide per-role"
+                            )
                 else:
                     logger.info(f"[CALENDAR] No shoot dates parsed for {project['project_name']} — calendar check skipped")
 
@@ -257,8 +282,35 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                 for best, ai_reason in selected:
                     unique_id = f"{project['breakdown_id']}_{best['role_id']}"
 
-                    # Analyze submission requirements (dates already verified above)
-                    confirmed_dates = f"{shoot_dates[0]} to {shoot_dates[1]}" if shoot_dates else None
+                    # If partial availability, ask AI if this specific role works
+                    if partial_availability:
+                        pa_result = check_partial_availability(
+                            best, project["project_name"], project_notes, partial_availability,
+                        )
+                        if not pa_result["proceed"]:
+                            flag_reason = f"Calendar partial conflict — {pa_result['reason']}"
+                            db.record_flagged_role(
+                                project_name=project["project_name"],
+                                project_url=project_url,
+                                role_name=best["role_name"],
+                                role_description=best.get("description", ""),
+                                flag_reason=flag_reason,
+                                run_id=run_id,
+                                platform="aa",
+                            )
+                            logger.info(f"[CALENDAR] Skipping {best['role_name']} — {flag_reason}")
+                            if dry_run:
+                                _print_role_decision("FLAGGED", project["project_name"], best, flag_reason)
+                            continue
+
+                    # Analyze submission requirements
+                    confirmed_dates = None
+                    if shoot_dates:
+                        if partial_availability:
+                            # Only confirm the free dates
+                            confirmed_dates = ", ".join(partial_availability["free_dates"])
+                        else:
+                            confirmed_dates = f"{shoot_dates[0]} to {shoot_dates[1]}"
                     analysis = analyze_submission_requirements(best, project["project_name"], project_notes, confirmed_dates=confirmed_dates)
                     logger.info(f"[ANALYSIS] {best['role_name']}: action={analysis['action']}, note={analysis.get('note', 'N/A')}")
 

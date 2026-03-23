@@ -96,6 +96,72 @@ def check_availability(
     return len(conflicts) == 0, conflicts
 
 
+def get_busy_dates(
+    start_date: str, end_date: str, calendar_ids: list[str],
+) -> list[str]:
+    """Return a list of dates within the range that have calendar events.
+
+    Args:
+        start_date: ISO date string (e.g., "2026-03-26")
+        end_date: ISO date string (e.g., "2026-04-02")
+        calendar_ids: List of Google Calendar IDs to check.
+
+    Returns:
+        List of ISO date strings that have events (e.g., ["2026-03-28"]).
+        Returns [] if calendar service is unavailable.
+    """
+    from datetime import date, timedelta
+
+    service = get_calendar_service()
+    if service is None or not calendar_ids:
+        return []
+
+    start = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
+    total_days = (end - start).days + 1
+
+    busy_dates = set()
+    time_min = f"{start_date}T00:00:00Z"
+    time_max = f"{end_date}T23:59:59Z"
+
+    try:
+        for cal_id in calendar_ids:
+            events_result = (
+                service.events()
+                .list(
+                    calendarId=cal_id,
+                    timeMin=time_min,
+                    timeMax=time_max,
+                    singleEvents=True,
+                    orderBy="startTime",
+                )
+                .execute()
+            )
+            for event in events_result.get("items", []):
+                event_start = event.get("start", {})
+                # All-day events use 'date', timed events use 'dateTime'
+                if "date" in event_start:
+                    busy_dates.add(event_start["date"])
+                elif "dateTime" in event_start:
+                    # Extract just the date part from datetime
+                    busy_dates.add(event_start["dateTime"][:10])
+    except Exception as e:
+        logger.warning(f"[CALENDAR] API error getting busy dates: {e}")
+        return []
+
+    # Calculate free dates
+    all_dates = {(start + timedelta(days=i)).isoformat() for i in range(total_days)}
+    free_dates = sorted(all_dates - busy_dates)
+    busy_sorted = sorted(busy_dates & all_dates)
+
+    logger.info(
+        f"[CALENDAR] Date breakdown for {start_date} to {end_date}: "
+        f"{len(busy_sorted)} busy ({', '.join(busy_sorted)}), "
+        f"{len(free_dates)} free ({', '.join(free_dates)})"
+    )
+    return busy_sorted
+
+
 def parse_shoot_dates(text: str) -> tuple[str, str] | None:
     """Extract shoot dates from project notes or breakdown text.
 

@@ -249,6 +249,84 @@ def _parse_structured_response(
     return selected, rejections
 
 
+def check_partial_availability(
+    role: dict, project_name: str, project_notes: str, partial_info: dict,
+) -> dict:
+    """Ask AI if a role can work with partial date availability.
+
+    Args:
+        role: Role dict with role_name, description.
+        project_name: Name of the project.
+        project_notes: Full project notes text.
+        partial_info: Dict with keys: shoot_range, busy_dates, free_dates,
+                      free_count, total_days.
+
+    Returns:
+        {"proceed": True/False, "reason": str}
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        logger.warning("[CALENDAR] No API key for partial availability check, skipping project")
+        return {"proceed": False, "reason": "No API key for partial availability check"}
+
+    try:
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=api_key)
+
+        free_str = ", ".join(partial_info["free_dates"])
+        busy_str = ", ".join(partial_info["busy_dates"])
+
+        prompt = f"""You are a casting assistant. An actor has a partial calendar conflict with a project's shoot dates. Decide if they should still submit.
+
+PROJECT: {project_name}
+SHOOT DATE RANGE: {partial_info['shoot_range']}
+ACTOR'S BUSY DATES: {busy_str}
+ACTOR'S FREE DATES: {free_str} ({partial_info['free_count']} of {partial_info['total_days']} days)
+
+PROJECT NOTES (relevant excerpt):
+{project_notes[:1000]}
+
+ROLE: {role.get('role_name', '')}
+DESCRIPTION: {role.get('description', '')[:500]}
+
+Should the actor submit for this role given their partial availability?
+
+Consider:
+- If the role only requires 1-2 days and there are enough free days, PROCEED
+- If phrases like "1 day expected", "you may only work one day", or specific single dates appear, PROCEED
+- If the role requires ALL shoot days or most of them, SKIP
+- If the project notes say "must be available for all dates", SKIP
+- When in doubt and the actor has more free days than busy days, PROCEED
+
+Respond with exactly one line:
+PROCEED - <brief reason>
+or
+SKIP - <brief reason>"""
+
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=100,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        text = response.content[0].text.strip()
+        logger.debug(f"[CALENDAR] Partial availability AI response: {text}")
+
+        if text.upper().startswith("PROCEED"):
+            reason = text.split("-", 1)[1].strip() if "-" in text else "partial availability acceptable"
+            logger.info(f"[CALENDAR] AI says PROCEED for {role.get('role_name', '')}: {reason}")
+            return {"proceed": True, "reason": reason}
+        else:
+            reason = text.split("-", 1)[1].strip() if "-" in text else "partial availability insufficient"
+            logger.info(f"[CALENDAR] AI says SKIP for {role.get('role_name', '')}: {reason}")
+            return {"proceed": False, "reason": reason}
+
+    except Exception as e:
+        logger.warning(f"[CALENDAR] Partial availability check failed ({e}), skipping to be safe")
+        return {"proceed": False, "reason": f"AI check failed: {e}"}
+
+
 def analyze_submission_requirements(role: dict, project_name: str, project_notes: str = "", confirmed_dates: str | None = None) -> dict:
     """Analyze role description and project-level notes for submission requirements.
 
