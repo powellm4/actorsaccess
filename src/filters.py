@@ -37,6 +37,15 @@ _UNPAID_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+_SAG_ONLY_PATTERN = re.compile(
+    r"(?:only\s+submit\s+if\s+you\s+are\s+(?:paid[- ]?up\s+)?sag)"
+    r"|(?:must\s+be\s+(?:a\s+)?(?:paid[- ]?up\s+)?sag[- ]?aftra\s+member)"
+    r"|(?:sag[- ]?aftra\s+members?\s+only)"
+    r"|(?:union\s+members?\s+only)"
+    r"|(?:only\s+(?:paid[- ]?up\s+)?sag[- ]?aftra\s+members?\s+(?:should|may)\s+submit)",
+    re.IGNORECASE,
+)
+
 
 def _is_background(role: dict) -> bool:
     """Check if a role is a background/extra role."""
@@ -114,6 +123,11 @@ def project_matches(project: dict) -> tuple[bool, str]:
         return False, "scene recreation project"
 
     return True, ""
+
+
+def is_sag_only(project_notes: str) -> bool:
+    """Check if project notes indicate SAG-AFTRA members only."""
+    return bool(_SAG_ONLY_PATTERN.search(project_notes))
 
 
 def role_matches(role: dict) -> tuple[bool, str]:

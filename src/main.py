@@ -10,7 +10,7 @@ import schedule
 from src.config import load_config, ConfigError
 from src.database import Database
 from src.browser import ActorsAccessBrowser
-from src.filters import role_matches, project_matches
+from src.filters import role_matches, project_matches, is_sag_only
 from src.role_selector import select_best_roles, analyze_submission_requirements
 from src.calendar_check import parse_shoot_dates, check_availability
 
@@ -128,6 +128,45 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                 roles, project_notes = browser.scrape_roles_on_project(project["url"])
                 roles_found += len(roles)
 
+                # Build full project URL for AA
+                project_url = f"https://actorsaccess.com{project['url']}" if project.get("url") else ""
+
+                # Check for SAG-only projects (actor is non-union)
+                if is_sag_only(project_notes):
+                    logger.info(f"[FILTER] Skipping SAG-only project: {project['project_name']}")
+                    if dry_run:
+                        print(f"\n[SKIP PROJECT - SAG-AFTRA members only] {project['project_name']}")
+                    continue
+
+                # Check shoot dates against calendar BEFORE filtering/AI
+                cal_ids = cfg.get("google_calendar", {}).get("calendar_ids", [])
+                logger.info(f"[CALENDAR] project_notes for {project['project_name']} (length={len(project_notes)}): {project_notes[:200]}")
+                shoot_dates = parse_shoot_dates(project_notes)
+                if shoot_dates:
+                    start_date, end_date = shoot_dates
+                    logger.info(f"[CALENDAR] Shoot dates found: {start_date} to {end_date}, checking calendar...")
+                    dates_available, conflicts = check_availability(start_date, end_date, cal_ids)
+                    if not dates_available:
+                        conflict_list = ", ".join(conflicts[:5])
+                        flag_reason = f"Calendar conflict with shoot dates {start_date} to {end_date}: {conflict_list}"
+                        logger.info(f"[CALENDAR] Skipping entire project: {project['project_name']} — {flag_reason}")
+                        for role in roles:
+                            db.record_flagged_role(
+                                project_name=project["project_name"],
+                                project_url=project_url,
+                                role_name=role["role_name"],
+                                role_description=role.get("description", ""),
+                                flag_reason=flag_reason,
+                                run_id=run_id,
+                                platform="aa",
+                            )
+                        if dry_run:
+                            for role in roles:
+                                _print_role_decision("FLAGGED", project["project_name"], role, flag_reason)
+                        continue
+                else:
+                    logger.info(f"[CALENDAR] No shoot dates parsed for {project['project_name']} — calendar check skipped")
+
                 # Log all scraped roles with fit_for_me status
                 for role in roles:
                     fit = role.get("fit_for_me", False)
@@ -194,9 +233,6 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     f"rejected={list(rejections.keys())}"
                 )
 
-                # Build full project URL for AA
-                project_url = f"https://actorsaccess.com{project['url']}" if project.get("url") else ""
-
                 # Record rejections
                 for role in candidates:
                     if role["role_name"] in rejections:
@@ -217,35 +253,6 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                         for role in candidates:
                             _print_role_decision("SKIP", project["project_name"], role, f"AI: {ai_reason}")
                     continue
-
-                # Check shoot dates against calendar BEFORE any submissions
-                cal_ids = cfg.get("google_calendar", {}).get("calendar_ids", [])
-                logger.info(f"[CALENDAR] project_notes for {project['project_name']} (length={len(project_notes)}): {project_notes[:200]}")
-                shoot_dates = parse_shoot_dates(project_notes)
-                dates_available = True
-                if shoot_dates:
-                    start_date, end_date = shoot_dates
-                    logger.info(f"[CALENDAR] Shoot dates found: {start_date} to {end_date}, checking calendar...")
-                    dates_available, conflicts = check_availability(start_date, end_date, cal_ids)
-                    if not dates_available:
-                        conflict_list = ", ".join(conflicts[:5])
-                        flag_reason = f"Calendar conflict with shoot dates {start_date} to {end_date}: {conflict_list}"
-                        for best, ai_reason in selected:
-                            db.record_flagged_role(
-                                project_name=project["project_name"],
-                                project_url=project_url,
-                                role_name=best["role_name"],
-                                role_description=best.get("description", ""),
-                                flag_reason=flag_reason,
-                                run_id=run_id,
-                                platform="aa",
-                            )
-                            logger.info(f"Skipping {best['role_name']} — {flag_reason}")
-                            if dry_run:
-                                _print_role_decision("FLAGGED", project["project_name"], best, flag_reason)
-                        continue
-                else:
-                    logger.info(f"[CALENDAR] No shoot dates parsed for {project['project_name']} — calendar check skipped")
 
                 for best, ai_reason in selected:
                     unique_id = f"{project['breakdown_id']}_{best['role_id']}"
