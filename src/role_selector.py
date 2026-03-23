@@ -104,6 +104,7 @@ HARD DISQUALIFIERS — reject any role that requires:
 - Requires an authentic/native non-American accent (e.g., "must have authentic British accent", "native French speaker")
 - Requires a beard or facial hair (actor is clean-shaven)
 - NOT a real acting role — consumer studies, product testing, paid research studies, focus groups, medical studies, or any role where participants are selected based on personal conditions (skin conditions, health issues, etc.) rather than acting ability
+- Background/extra work disguised as a named role — roles like "MASKED AUDIENCE MEMBERS", "PARTYGOERS", "CROWD", or any role where the actor is essentially atmosphere/background with no lines or character arc
 
 NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair color, build) are EXACT requirements — any mismatch is a hard disqualifier.
 
@@ -173,6 +174,7 @@ HARD DISQUALIFIERS — SKIP if the role requires ANY of these:
 - Requires an authentic/native non-American accent (e.g., "must have authentic British accent", "native French speaker")
 - Requires a beard or facial hair (actor is clean-shaven)
 - NOT a real acting role — consumer studies, product testing, paid research studies, focus groups, medical studies, or any role where participants are selected based on personal conditions (skin conditions, health issues, etc.) rather than acting ability
+- Background/extra work disguised as a named role — roles like "MASKED AUDIENCE MEMBERS", "PARTYGOERS", "CROWD", or any role where the actor is essentially atmosphere/background with no lines or character arc
 
 NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair color, build) are EXACT requirements — any mismatch is a hard disqualifier.
 
