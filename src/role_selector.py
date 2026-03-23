@@ -288,7 +288,7 @@ ACTOR'S BUSY DATES: {busy_str}
 ACTOR'S FREE DATES: {free_str} ({partial_info['free_count']} of {partial_info['total_days']} days)
 
 PROJECT NOTES (relevant excerpt):
-{project_notes[:1000]}
+{project_notes[:2000]}
 
 ROLE: {role.get('role_name', '')}
 DESCRIPTION: {role.get('description', '')[:500]}
@@ -366,7 +366,7 @@ ACTOR PROFILE:
 PROJECT: {project_name}
 ROLE: {role.get('role_name', '')}
 DESCRIPTION: {desc[:1000]}
-{f"PROJECT-LEVEL INSTRUCTIONS: {project_notes[:1000]}" if project_notes.strip() else ""}{availability_context}
+{f"PROJECT-LEVEL INSTRUCTIONS: {project_notes[:2000]}" if project_notes.strip() else ""}{availability_context}
 
 Analyze BOTH the role description AND any project-level instructions to determine the correct action:
 

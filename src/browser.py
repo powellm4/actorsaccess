@@ -275,7 +275,7 @@ class ActorsAccessBrowser:
 
             # Scrape all text before the first role, including the page header/metadata
             # This captures shoot dates, requirements, and other project-level info
-            project_notes = self.page.evaluate("""() => {
+            raw_notes = self.page.evaluate("""() => {
                 const firstRole = document.querySelector('a.breakdown-open-add-role');
                 if (!firstRole) return '';
                 // Get all text content before the first role element
@@ -284,6 +284,20 @@ class ActorsAccessBrowser:
                 range.setEndBefore(firstRole);
                 return range.toString().trim();
             }""") or ""
+
+            # Strip website boilerplate (cookie consent, nav, copyright) from project notes
+            # The actual casting info starts after the copyright/date line
+            import re
+            # Find the last copyright line or date line — casting info follows it
+            match = re.search(
+                r"Copyright © \d{4} Breakdown Services, Ltd\. All Rights reserved\.\s*"
+                r"(?:\w+day, \w+\.? \d+, \d{4}, \d+:\d+ [AP]M Pacific\s*)?",
+                raw_notes,
+            )
+            if match:
+                project_notes = raw_notes[match.end():].strip()
+            else:
+                project_notes = raw_notes
 
             # Roles are links with class 'breakdown-open-add-role'
             # onclick="selectPhoto(5273126,885850,this);"
