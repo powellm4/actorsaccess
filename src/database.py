@@ -1,6 +1,9 @@
 # src/database.py
 import sqlite3
 from datetime import datetime, timezone
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class Database:
@@ -110,6 +113,7 @@ class Database:
         role_description: str = "", ai_reason: str = "", candidates_considered: int = 1,
         platform: str = "aa", project_url: str = "", submission_note: str = "",
     ):
+        logger.info(f"[DB] Recording application: {project_name} — {role_name} (id={role_id})")
         self.conn.execute(
             """INSERT OR IGNORE INTO applied_roles
                (role_id, project_name, role_name, role_description, ai_reason, candidates_considered, platform, project_url, applied_at, submission_note)
@@ -122,6 +126,7 @@ class Database:
         self, project_name: str, project_url: str, role_name: str,
         role_description: str, rejection_reason: str, run_id: int, platform: str = "aa",
     ):
+        logger.info(f"[DB] Recording rejection: {project_name} — {role_name} ({rejection_reason})")
         now = self._utcnow()
         self.conn.execute(
             """INSERT INTO rejected_roles
@@ -146,9 +151,11 @@ class Database:
             (self._utcnow(), platform),
         )
         self.conn.commit()
+        logger.info(f"[DB] Started run id={cursor.lastrowid} platform={platform}")
         return cursor.lastrowid
 
     def complete_run(self, run_id: int, roles_found: int, roles_applied: int, roles_skipped: int):
+        logger.info(f"[DB] Completed run id={run_id}: found={roles_found}, applied={roles_applied}, skipped={roles_skipped}")
         self.conn.execute(
             """UPDATE run_history
                SET completed_at = ?, roles_found = ?, roles_applied = ?,
@@ -159,6 +166,7 @@ class Database:
         self.conn.commit()
 
     def fail_run(self, run_id: int, error_message: str):
+        logger.info(f"[DB] Failed run id={run_id}: {error_message}")
         self.conn.execute(
             """UPDATE run_history
                SET completed_at = ?, status = 'error', error_message = ?
@@ -254,6 +262,7 @@ class Database:
         self, project_name: str, project_url: str, role_name: str,
         role_description: str, flag_reason: str, run_id: int, platform: str = "aa",
     ):
+        logger.info(f"[DB] Recording flagged role: {project_name} — {role_name} ({flag_reason})")
         now = self._utcnow()
         self.conn.execute(
             """INSERT INTO flagged_roles
