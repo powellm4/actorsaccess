@@ -133,6 +133,7 @@ REJECTED: 4 - Background/extra role, actor does not do background work"""
         )
 
         text = response.content[0].text.strip()
+        logger.debug(f"[AI] Raw response for {project_name}: {text}")
         return _parse_structured_response(text, roles, project_name)
 
     except Exception as e:
@@ -184,6 +185,7 @@ If the role is clearly not a fit, respond: SKIP - <brief reason>"""
         )
 
         text = response.content[0].text.strip()
+        logger.debug(f"[AI] Raw fitness check for {role['role_name']} on {project_name}: {text}")
         if text.upper().startswith("SKIP"):
             reason = text.split("-", 1)[1].strip() if "-" in text else text
             logger.info(f"AI skipped single role {role['role_name']} on {project_name}: {reason}")
@@ -319,6 +321,7 @@ Respond with ONLY the action line (and NOTE/REASON line if applicable). No other
     )
 
     text = response.content[0].text.strip()
+    logger.debug(f"[ANALYSIS] Raw response for {role.get('role_name', '')} on {project_name}: {text}")
     return _parse_analysis_response(text, role, project_name)
 
 
@@ -350,4 +353,5 @@ def _parse_analysis_response(text: str, role: dict, project_name: str) -> dict:
         # Couldn't parse note, fall through to SUBMIT
         logger.warning(f"SUBMIT_WITH_NOTE but no note parsed for {role.get('role_name', '')} on {project_name}")
 
+    logger.info(f"[ANALYSIS] Plain SUBMIT for {role.get('role_name', '')} on {project_name} — no specific info requested")
     return {"action": "SUBMIT", "note": None, "needs_input_reason": None}
