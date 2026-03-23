@@ -139,12 +139,26 @@ def get_busy_dates(
             )
             for event in events_result.get("items", []):
                 event_start = event.get("start", {})
-                # All-day events use 'date', timed events use 'dateTime'
+                event_end = event.get("end", {})
+                # Expand multi-day events into all constituent dates
                 if "date" in event_start:
-                    busy_dates.add(event_start["date"])
+                    # All-day events: 'date' is inclusive start, end 'date' is exclusive
+                    ev_start = date.fromisoformat(event_start["date"])
+                    ev_end = date.fromisoformat(event_end.get("date", event_start["date"]))
+                    # Google Calendar all-day event end is exclusive, so don't subtract 1
+                    current = ev_start
+                    while current < ev_end:
+                        busy_dates.add(current.isoformat())
+                        current += timedelta(days=1)
                 elif "dateTime" in event_start:
-                    # Extract just the date part from datetime
-                    busy_dates.add(event_start["dateTime"][:10])
+                    # Timed events: extract date from start and end
+                    ev_start = date.fromisoformat(event_start["dateTime"][:10])
+                    ev_end_str = event_end.get("dateTime", event_start["dateTime"])[:10]
+                    ev_end = date.fromisoformat(ev_end_str)
+                    current = ev_start
+                    while current <= ev_end:
+                        busy_dates.add(current.isoformat())
+                        current += timedelta(days=1)
     except Exception as e:
         logger.warning(f"[CALENDAR] API error getting busy dates: {e}")
         return []
