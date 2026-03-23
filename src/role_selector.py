@@ -17,6 +17,7 @@ ACTOR_PROFILE = """
 - Type: Leading man, comedic/charming; also strong as villain/antagonist/mean characters; also excels at grounded/calm/straight man/voice-of-reason roles
 - 2 years improv training at UCB and The Groundlings
 - 5+ years salsa dancing
+- Plays guitar well
 - American accent (can play accents but not authentic/native non-American accents)
 - Comfortable with physical comedy, action sequences, and 12+ hour shoot days
 - Shoe size: 9-10
@@ -97,7 +98,7 @@ HARD DISQUALIFIERS — reject any role that requires:
 - Large/heavyset/stocky/overweight build (actor is athletic, 185 lbs)
 - Female only
 - Specific ethnicity that excludes White
-- Specific hair color that is NOT brown (e.g., "blonde", "redhead", "black hair"). The actor has BROWN hair — if the role says "blonde hair", that is a rejection.
+- Specific hair color that is NOT brown ONLY when stated as a casting requirement (e.g., "must have blonde hair", "redhead required"). The actor has BROWN hair. Character descriptions like "dyed hair" or "punk vibes" are styling choices that can be achieved — these are NOT disqualifiers.
 - Age range with NO overlap with 18-35 (e.g., "40-55" is a rejection, but "30-40" is NOT because it overlaps with the actor's range)
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
 - Requires an authentic/native non-American accent (e.g., "must have authentic British accent", "native French speaker")
@@ -166,7 +167,7 @@ HARD DISQUALIFIERS — SKIP if the role requires ANY of these:
 - Large/heavyset/stocky/overweight build (actor is athletic, 185 lbs)
 - Female only
 - Specific ethnicity that excludes White
-- Specific hair color that is NOT brown (e.g., "blonde", "redhead", "black hair"). The actor has BROWN hair — if the role says "blonde hair", that is a SKIP.
+- Specific hair color that is NOT brown ONLY when stated as a casting requirement (e.g., "must have blonde hair", "redhead required"). The actor has BROWN hair. Character descriptions like "dyed hair" or "punk vibes" are styling choices that can be achieved — these are NOT disqualifiers.
 - Age range with NO overlap with 18-35 (e.g., "40-55" is a rejection, but "30-40" is NOT because it overlaps with the actor's range)
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
 - Requires an authentic/native non-American accent (e.g., "must have authentic British accent", "native French speaker")
