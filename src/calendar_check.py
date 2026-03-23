@@ -35,6 +35,7 @@ def get_calendar_service():
             sa_info, scopes=["https://www.googleapis.com/auth/calendar.readonly"]
         )
         _service_cache = build("calendar", "v3", credentials=creds)
+        logger.info("[CALENDAR] Calendar service initialized successfully")
         return _service_cache
     except Exception as e:
         logger.warning(f"Failed to build calendar service: {e}")
@@ -57,11 +58,14 @@ def check_availability(
     """
     service = get_calendar_service()
     if service is None:
+        logger.warning("[CALENDAR] Calendar service unavailable — defaulting to 'available' (dates NOT checked)")
         return True, []
 
     if not calendar_ids:
+        logger.warning("[CALENDAR] No calendar_ids configured — defaulting to 'available' (dates NOT checked)")
         return True, []
 
+    logger.info(f"[CALENDAR] Checking {start_date} to {end_date} against {len(calendar_ids)} calendar(s)")
     conflicts = []
     time_min = f"{start_date}T00:00:00Z"
     time_max = f"{end_date}T23:59:59Z"
@@ -85,6 +89,10 @@ def check_availability(
         logger.warning(f"Calendar API error: {e}")
         return True, []
 
+    if conflicts:
+        logger.info(f"[CALENDAR] CONFLICT — {len(conflicts)} event(s): {', '.join(conflicts[:5])}")
+    else:
+        logger.info(f"[CALENDAR] AVAILABLE — no conflicts found for {start_date} to {end_date}")
     return len(conflicts) == 0, conflicts
 
 
@@ -103,6 +111,7 @@ def parse_shoot_dates(text: str) -> tuple[str, str] | None:
     from datetime import datetime
 
     current_year = datetime.now().year
+    logger.info(f"[CALENDAR] parse_shoot_dates input (first 200 chars): {text[:200]}")
 
     # Pattern: "Month Day - Day, Year" (e.g., "April 12-25, 2026" or "April 12 - 25, 2026")
     match = re.search(
@@ -114,9 +123,11 @@ def parse_shoot_dates(text: str) -> tuple[str, str] | None:
         try:
             start = datetime.strptime(f"{month_str} {start_day} {year}", "%B %d %Y")
             end = datetime.strptime(f"{month_str} {end_day} {year}", "%B %d %Y")
-            return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
-        except ValueError:
-            pass
+            result = start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+            logger.info(f"[CALENDAR] Parsed shoot dates (pattern 1): {result[0]} to {result[1]}")
+            return result
+        except ValueError as e:
+            logger.warning(f"[CALENDAR] Pattern 1 matched but date parsing failed: {e} (groups={match.groups()})")
 
     # Pattern: "Month Day - Month Day, Year" (e.g., "March 28 - April 5, 2026")
     match = re.search(
@@ -128,10 +139,16 @@ def parse_shoot_dates(text: str) -> tuple[str, str] | None:
         try:
             start = datetime.strptime(f"{m1} {d1} {year}", "%B %d %Y")
             end = datetime.strptime(f"{m2} {d2} {year}", "%B %d %Y")
-            return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
-        except ValueError:
-            pass
+            result = start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+            logger.info(f"[CALENDAR] Parsed shoot dates (pattern 2): {result[0]} to {result[1]}")
+            return result
+        except ValueError as e:
+            logger.warning(f"[CALENDAR] Pattern 2 matched but date parsing failed: {e} (groups={match.groups()})")
 
+    if re.search(r'\b(January|February|March|April|May|June|July|August|September|October|November|December)\b', text):
+        logger.warning("[CALENDAR] project_notes contains month names but no date pattern matched — possible unhandled format")
+    else:
+        logger.info("[CALENDAR] No shoot dates found in project_notes")
     return None
 
 
@@ -148,12 +165,14 @@ def parse_work_dates(submission_date: str) -> tuple[str, str] | None:
     """
     import re
     from datetime import datetime
+    logger.info(f"[CALENDAR] parse_work_dates input: {submission_date[:200]}")
 
     match = re.search(
         r"Work\s+(\w+ \d+(?:,?\s*\d{4})?)\s*(?:-\s*(\w+ \d+(?:,?\s*\d{4})?))?",
         submission_date,
     )
     if not match:
+        logger.info("[CALENDAR] No 'Work ...' pattern found in submission_date")
         return None
 
     raw_start = match.group(1).strip().rstrip(",")
@@ -171,12 +190,15 @@ def parse_work_dates(submission_date: str) -> tuple[str, str] | None:
                 return dt.strftime("%Y-%m-%d")
             except ValueError:
                 continue
+        logger.warning(f"[CALENDAR] Could not parse work date: '{raw}'")
         return None
 
     start = _parse(raw_start)
     if not start:
+        logger.warning(f"[CALENDAR] Failed to parse start work date from: '{raw_start}'")
         return None
     end = _parse(raw_end) if raw_end else start
+    logger.info(f"[CALENDAR] Parsed work dates: {start} to {end}")
     return start, end
 
 
@@ -195,11 +217,13 @@ def check_work_date_conflicts(
     """
     dates = parse_work_dates(role.get("submission_date", ""))
     if not dates:
+        logger.info("[CALENDAR] No work dates found for role, skipping calendar check")
         return False, []
 
     start, end = dates
     available, conflicts = check_availability(start, end, calendar_ids)
     if not available:
-        logger.info(f"Calendar conflict for work dates {start} to {end}: {', '.join(conflicts[:5])}")
+        logger.info(f"[CALENDAR] CONFLICT for work dates {start} to {end}: {', '.join(conflicts[:5])}")
         return True, conflicts
+    logger.info(f"[CALENDAR] No conflict for work dates {start} to {end}")
     return False, []
