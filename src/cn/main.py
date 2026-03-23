@@ -73,6 +73,8 @@ def _is_cn_background(role: dict) -> bool:
 
 def run_once(cfg: dict, db: Database, dry_run: bool = False):
     run_id = db.start_run(platform="cn")
+    cal_ids = cfg.get("google_calendar", {}).get("calendar_ids", [])
+    logger.info(f"[RUN] Started CN run_id={run_id}, calendar_ids={len(cal_ids)} configured")
     roles_found = 0
     roles_applied = 0
     roles_skipped = 0
@@ -197,6 +199,11 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     break
 
                 selected, rejections = select_best_roles(candidates, project_name)
+                logger.info(
+                    f"[AI] Selection for {project_name}: "
+                    f"selected={[s[0]['role_name'] for s in selected]}, "
+                    f"rejected={list(rejections.keys())}"
+                )
 
                 # Build project URL for CN (use first candidate's URL)
                 project_url = candidates[0].get("url", "")
@@ -272,6 +279,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     confirmed_dates = None
                     if work_dates:
                         start, end = work_dates
+                        logger.info(f"[CALENDAR] Work dates found for {best['role_name']}: {start} to {end}")
                         available, conflicts = check_availability(start, end, cal_ids)
                         if not available:
                             conflict_list = ", ".join(conflicts[:5])
@@ -290,11 +298,15 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                                 _print_role_decision("FLAGGED", project_name, best, flag_reason)
                             continue
                         confirmed_dates = f"{start} to {end}"
+                    else:
+                        logger.info(f"[CALENDAR] No work dates parsed for {best['role_name']}")
 
                     analysis = analyze_submission_requirements(best, project_name, role_instructions, confirmed_dates=confirmed_dates)
+                    logger.info(f"[ANALYSIS] {best['role_name']}: action={analysis['action']}, note={analysis.get('note', 'N/A')}")
 
                     # Legacy check: work date conflicts for roles without parsed dates
                     if not work_dates and analysis["action"] in ("SUBMIT", "SUBMIT_WITH_NOTE"):
+                        logger.info(f"[CALENDAR] Running legacy work date check for {best['role_name']}")
                         has_conflict, conflicts = check_work_date_conflicts(
                             best, cal_ids
                         )
@@ -344,8 +356,10 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     if analysis["action"] == "SUBMIT_WITH_NOTE":
                         sub_cfg["default_note"] = analysis["note"]
 
+                    logger.info(f"[SUBMIT] Attempting submission: {project_name} — {best['role_name']} (id={unique_id})")
                     success = browser.submit_for_role(best, sub_cfg)
                     if success:
+                        logger.info(f"[SUBMIT] SUCCESS: {best['role_name']} on {project_name}")
                         role_url = best.get("url", "")
                         if role_url and not role_url.startswith("http"):
                             role_url = f"https://app.castingnetworks.com{role_url}"
@@ -360,7 +374,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                         )
                         roles_applied += 1
                     else:
-                        logger.warning(f"Skipping failed submission: {best['role_name']}")
+                        logger.warning(f"[SUBMIT] FAILED: {best['role_name']} on {project_name}")
 
                 # Print rejected roles in dry run
                 if dry_run and rejections:
