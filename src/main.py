@@ -343,6 +343,19 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     if analysis["action"] == "SUBMIT_WITH_NOTE":
                         sub_cfg["default_note"] = analysis["note"]
 
+                    # Re-navigate to project page to get fresh DOM element for this role
+                    # (previous submissions may have changed the page state)
+                    fresh_roles, _ = browser.scrape_roles_on_project(project["url"])
+                    fresh_match = next(
+                        (r for r in fresh_roles if r["role_id"] == best["role_id"]),
+                        None,
+                    )
+                    if fresh_match:
+                        best["element"] = fresh_match["element"]
+                    else:
+                        logger.warning(f"[SUBMIT] Could not find fresh element for {best['role_name']}, skipping")
+                        continue
+
                     logger.info(f"[SUBMIT] Attempting submission: {project['project_name']} — {best['role_name']} (id={unique_id})")
                     result = browser.submit_for_role(
                         best, project["project_name"], sub_cfg
