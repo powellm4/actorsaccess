@@ -6,6 +6,9 @@ to determine if a role should be submitted for.
 """
 
 import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 _BG_PATTERN = re.compile(
     r"\bbackground\b|\bBG\b|\b(?:EXTRA|Extra)s?\b",
