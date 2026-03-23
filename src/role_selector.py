@@ -392,6 +392,8 @@ IMPORTANT RULES:
 - If multiple requirements exist and you can answer SOME but not all, use NEEDS_INPUT — UNLESS the unanswerable item is a demo reel (apply anyway)
 - When in doubt between SUBMIT and SUBMIT_WITH_NOTE, ALWAYS prefer SUBMIT
 - Treat project-level REQUIREMENTS (e.g., "NOTE YOUR DETAILED AVAILABILITY") with the same weight as role-level requests — these apply to every role submission
+- "PLEASE INCLUDE SIZE CARDS" or "include size card" means wardrobe measurements — these are handled in the actor's Actors Access profile, NOT in submission notes. Respond with ACTION: SUBMIT
+- Do NOT combine multiple unrelated facts into one note (e.g., don't add shoe size + transportation + availability when only one thing was asked for). Answer ONLY what was explicitly requested.
 
 Respond with ONLY the action line (and NOTE/REASON line if applicable). No other text."""
 
