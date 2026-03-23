@@ -59,6 +59,8 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
     If dry_run is True, print what would be submitted without actually submitting.
     """
     run_id = db.start_run()
+    cal_ids = cfg.get("google_calendar", {}).get("calendar_ids", [])
+    logger.info(f"[RUN] Started AA run_id={run_id}, calendar_ids={len(cal_ids)} configured")
     roles_found = 0
     roles_applied = 0
     roles_skipped = 0
@@ -218,10 +220,12 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
 
                 # Check shoot dates against calendar BEFORE any submissions
                 cal_ids = cfg.get("google_calendar", {}).get("calendar_ids", [])
+                logger.info(f"[CALENDAR] project_notes for {project['project_name']} (length={len(project_notes)}): {project_notes[:200]}")
                 shoot_dates = parse_shoot_dates(project_notes)
                 dates_available = True
                 if shoot_dates:
                     start_date, end_date = shoot_dates
+                    logger.info(f"[CALENDAR] Shoot dates found: {start_date} to {end_date}, checking calendar...")
                     dates_available, conflicts = check_availability(start_date, end_date, cal_ids)
                     if not dates_available:
                         conflict_list = ", ".join(conflicts[:5])
@@ -240,6 +244,8 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             if dry_run:
                                 _print_role_decision("FLAGGED", project["project_name"], best, flag_reason)
                         continue
+                else:
+                    logger.info(f"[CALENDAR] No shoot dates parsed for {project['project_name']} — calendar check skipped")
 
                 for best, ai_reason in selected:
                     unique_id = f"{project['breakdown_id']}_{best['role_id']}"
@@ -247,6 +253,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     # Analyze submission requirements (dates already verified above)
                     confirmed_dates = f"{shoot_dates[0]} to {shoot_dates[1]}" if shoot_dates else None
                     analysis = analyze_submission_requirements(best, project["project_name"], project_notes, confirmed_dates=confirmed_dates)
+                    logger.info(f"[ANALYSIS] {best['role_name']}: action={analysis['action']}, note={analysis.get('note', 'N/A')}")
 
                     if analysis["action"] == "NEEDS_INPUT":
                         db.record_flagged_role(
@@ -277,6 +284,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     if analysis["action"] == "SUBMIT_WITH_NOTE":
                         sub_cfg["default_note"] = analysis["note"]
 
+                    logger.info(f"[SUBMIT] Attempting submission: {project['project_name']} — {best['role_name']} (id={unique_id})")
                     result = browser.submit_for_role(
                         best, project["project_name"], sub_cfg
                     )
@@ -300,10 +308,11 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             project_url=project_url,
                             submission_note=analysis.get("note") or "",
                         )
+                        logger.info(f"[SUBMIT] SUCCESS: {best['role_name']} on {project['project_name']}")
                         roles_applied += 1
                     else:
                         logger.warning(
-                            f"Skipping failed submission: {best['role_name']}"
+                            f"[SUBMIT] FAILED: {best['role_name']} on {project['project_name']}"
                         )
 
                 # Print rejected roles in dry run
