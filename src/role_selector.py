@@ -356,7 +356,7 @@ def analyze_submission_requirements(role: dict, project_name: str, project_notes
 
     availability_context = ""
     if confirmed_dates:
-        availability_context = f"\nCONFIRMED AVAILABILITY: Actor's calendar has been checked and is FREE for {confirmed_dates}. If the post asks for availability, include this in the note."
+        availability_context = f"\nCONFIRMED AVAILABILITY: Actor's calendar has been checked and is FREE for {confirmed_dates}. ONLY include this in the note if the post EXPLICITLY asks for availability (e.g., 'note your availability', 'confirm dates'). Do NOT volunteer availability if not asked."
 
     prompt = f"""You are analyzing a casting breakdown to determine if it asks for specific information in the submission or submission notes.
 
