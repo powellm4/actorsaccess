@@ -382,10 +382,11 @@ Analyze BOTH the role description AND any project-level instructions to determin
    REASON: <brief description of what info is needed>
 
 IMPORTANT RULES:
-- ONLY use SUBMIT_WITH_NOTE when the post has a clear, explicit request like "note your availability", "confirm you are local", "include your contact info", or "let us know about X experience"
+- ONLY use SUBMIT_WITH_NOTE when the post has a clear, explicit, DIRECT request for information IN the submission notes — e.g., "note your availability in your submission", "include your contact info in notes", "let us know about X experience"
+- Statements like "LOCAL SELF-REPORT TO SET", "Los Angeles Local Hire", or "must have reliable transportation" are REQUIREMENTS, not requests for notes. They describe who should apply, not what to write. Respond with ACTION: SUBMIT
 - A role description describing the character is NOT a request for info — do not respond to it
 - NEVER include acting skills, training, experience, character analysis, or why the actor is a good fit — these are NOT submission notes
-- ONLY address what the post specifically requests — do not volunteer extra information about availability, location, or transportation unless the post explicitly asks for it
+- NEVER volunteer information that was not explicitly asked for — no location, no transportation, no contact info, no availability unless the post explicitly asks you to NOTE it in the submission
 - If the post asks for availability/dates and CONFIRMED AVAILABILITY is provided above, include the specific dates in the note
 - If they ask for contact info, provide the email and phone number from the profile
 - If they ask for a demo reel or reel link, respond with ACTION: SUBMIT (apply anyway, do not mention lack of reel)
