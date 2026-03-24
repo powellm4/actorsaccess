@@ -51,8 +51,9 @@ def select_best_roles(roles: list[dict], project_name: str) -> tuple[list[tuple[
     """
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
-        logger.warning("No ANTHROPIC_API_KEY set — defaulting to first role")
-        return [(roles[0], "no API key, defaulted to first")], {}
+        logger.warning("No ANTHROPIC_API_KEY set — skipping all roles to be safe")
+        rejections = {r["role_name"]: "no API key, skipped" for r in roles}
+        return [], rejections
 
     if len(roles) == 1:
         return _check_single_role_fit(roles[0], project_name, api_key)
@@ -139,9 +140,9 @@ REJECTED: 4 - Background/extra role, actor does not do background work"""
         return _parse_structured_response(text, roles, project_name)
 
     except Exception as e:
-        logger.warning(f"AI role selection failed ({e}), defaulting to first role")
-        rejections = {r["role_name"]: f"AI failed ({e}), defaulted to first" for r in roles[1:]}
-        return [(roles[0], f"AI failed ({e}), defaulted to first")], rejections
+        logger.warning(f"AI role selection failed ({e}), skipping all to be safe")
+        rejections = {r["role_name"]: f"AI failed ({e}), skipped" for r in roles}
+        return [], rejections
 
 
 def _check_single_role_fit(
@@ -235,12 +236,12 @@ def _parse_structured_response(
             if 0 <= idx < len(roles):
                 rejections[roles[idx]["role_name"]] = reason
 
-    # Fallback: no SELECTED lines found
+    # Fallback: no SELECTED lines found — skip all rather than blindly submit
     if not selected:
-        logger.warning(f"AI returned unparseable response for {project_name}: {text[:100]}")
-        fallback_reason = "AI returned unparseable response, defaulted to first"
-        rejections = {r["role_name"]: fallback_reason for r in roles[1:]}
-        return [(roles[0], fallback_reason)], rejections
+        logger.warning(f"AI returned unparseable response for {project_name}: {text[:200]}")
+        fallback_reason = "AI returned unparseable response, skipped to be safe"
+        rejections = {r["role_name"]: fallback_reason for r in roles}
+        return [], rejections
 
     # Fill in any roles not mentioned in rejections
     selected_names = {s[0]["role_name"] for s in selected}
