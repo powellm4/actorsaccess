@@ -10,11 +10,23 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-_BG_PATTERN = re.compile(
-    r"\bbackground\s+(?:actor|performer|role|talent|work|artist|player)"
+# For project names — plain "background" is a clear signal
+_BG_PROJECT_PATTERN = re.compile(
+    r"\bbackground\b|\bBG\b|\b(?:EXTRA|Extra)s?\b",
+    re.IGNORECASE,
+)
+
+# For role descriptions — match "BACKGROUND" as a standalone label
+# (typically at end of description or after a period) but not in
+# character backstory phrases like "Latino background" or "privileged background"
+_BG_ROLE_PATTERN = re.compile(
+    r"\bFEATURED\s+BACKGROUND\b"
+    r"|\bbackground\s+(?:actor|performer|role|talent|work|artist|player)\b"
+    r"|\.\s*BACKGROUND\s*\.?\s*$"
+    r"|^\s*BACKGROUND\s*\.?\s*$"
     r"|\bBG\b"
     r"|\b(?:EXTRA|Extra)s?\b",
-    re.IGNORECASE,
+    re.IGNORECASE | re.MULTILINE,
 )
 
 _UGC_PATTERN = re.compile(r"\bUGC\b", re.IGNORECASE)
@@ -53,7 +65,7 @@ def _is_background(role: dict) -> bool:
     """Check if a role is a background/extra role."""
     name = role.get("role_name", "")
     desc = role.get("description", "")
-    return bool(_BG_PATTERN.search(name) or _BG_PATTERN.search(desc))
+    return bool(_BG_ROLE_PATTERN.search(name) or _BG_ROLE_PATTERN.search(desc))
 
 
 def _is_voiceover(role: dict) -> bool:
@@ -112,7 +124,7 @@ def project_matches(project: dict) -> tuple[bool, str]:
         return False, f"project type: {project['project_type']}"
 
     name = project.get("project_name", "")
-    if _BG_PATTERN.search(name):
+    if _BG_PROJECT_PATTERN.search(name):
         return False, "background project"
 
     if _UGC_PATTERN.search(name):
