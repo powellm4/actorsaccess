@@ -245,35 +245,8 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                         if role_instructions:
                             logger.info(f"Found submission instructions for {best['role_name']}: {role_instructions[:200]}")
 
-                    # Check for self-tape/video audition requests
-                    # Only flag if instructions ask to SUBMIT a self-tape now,
-                    # not if they just describe the audition format (e.g., "Self-taped, online audition")
-                    selftape_keywords = ["self-tape", "self tape", "selftape", "slate"]
-                    instructions_lower = role_instructions.lower()
-                    # Phrases that describe audition format, not a submission requirement
-                    format_phrases = [
-                        "self-taped audition", "self-taped, online audition",
-                        "self tape audition", "self-taped online audition",
-                        "audition instructions will be sent",
-                    ]
-                    is_format_description = any(fp in instructions_lower for fp in format_phrases)
-                    if not is_format_description and any(kw in instructions_lower for kw in selftape_keywords):
-                        flag_reason = "Self-tape/video audition requested"
-                        logger.info(f"Flagging {best['role_name']} — {flag_reason}")
-                        db.record_flagged_role(
-                            project_name=project_name,
-                            project_url=project_url,
-                            role_name=best["role_name"],
-                            role_description=best.get("description", ""),
-                            flag_reason=flag_reason,
-                            run_id=run_id,
-                            platform="cn",
-                        )
-                        if dry_run:
-                            _print_role_decision("FLAGGED", project_name, best, flag_reason)
-                        continue
-
-                    # Check calendar for work date conflicts before submitting
+                    # Check calendar for work date conflicts FIRST (before self-tape check)
+                    # If busy, skip entirely — don't bother flagging for self-tape
                     cal_ids = cfg.get("google_calendar", {}).get("calendar_ids", [])
                     work_dates = parse_work_dates(best.get("submission_date", ""))
                     confirmed_dates = None
@@ -300,6 +273,33 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                         confirmed_dates = f"{start} to {end}"
                     else:
                         logger.info(f"[CALENDAR] No work dates parsed for {best['role_name']}")
+
+                    # Check for self-tape/video audition requests
+                    # Only flag if instructions ask to SUBMIT a self-tape now,
+                    # not if they just describe the audition format
+                    selftape_keywords = ["self-tape", "self tape", "selftape", "slate"]
+                    instructions_lower = role_instructions.lower()
+                    format_phrases = [
+                        "self-taped audition", "self-taped, online audition",
+                        "self tape audition", "self-taped online audition",
+                        "audition instructions will be sent",
+                    ]
+                    is_format_description = any(fp in instructions_lower for fp in format_phrases)
+                    if not is_format_description and any(kw in instructions_lower for kw in selftape_keywords):
+                        flag_reason = "Self-tape/video audition requested"
+                        logger.info(f"Flagging {best['role_name']} — {flag_reason}")
+                        db.record_flagged_role(
+                            project_name=project_name,
+                            project_url=project_url,
+                            role_name=best["role_name"],
+                            role_description=best.get("description", ""),
+                            flag_reason=flag_reason,
+                            run_id=run_id,
+                            platform="cn",
+                        )
+                        if dry_run:
+                            _print_role_decision("FLAGGED", project_name, best, flag_reason)
+                        continue
 
                     analysis = analyze_submission_requirements(best, project_name, role_instructions, confirmed_dates=confirmed_dates)
                     logger.info(f"[ANALYSIS] {best['role_name']}: action={analysis['action']}, note={analysis.get('note', 'N/A')}")
