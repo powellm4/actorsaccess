@@ -11,7 +11,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 _BG_PATTERN = re.compile(
-    r"\bbackground\b(?!\s*:)|\bBG\b|\b(?:EXTRA|Extra)s?\b",
+    r"\bbackground\s+(?:actor|performer|role|talent|work|artist|player)"
+    r"|\bBG\b"
+    r"|\b(?:EXTRA|Extra)s?\b",
     re.IGNORECASE,
 )
 
