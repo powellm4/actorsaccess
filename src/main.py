@@ -118,8 +118,11 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
             pages_to_process = min(total_pages, region_max_pages)
             logger.info(f"Processing {pages_to_process} of {total_pages} pages for {region}")
 
+            consecutive_seen = 0
+            hit_old = False
+
             for page_num in range(1, pages_to_process + 1):
-                if hit_limit:
+                if hit_limit or hit_old:
                     break
                 if page_num > 1:
                     browser.navigate_to_breakdowns(region)
@@ -131,10 +134,24 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                 projects = browser.scrape_projects()
 
                 for project in projects:
-                    # Skip projects we've already submitted to
-                    if project["already_submitted"]:
-                        logger.debug(f"Skipping already-submitted project: {project['project_name']}")
+                    # Check if we've already seen this project (submitted on site or in our DB)
+                    already_seen = project["already_submitted"] or db.has_seen_breakdown(
+                        project["breakdown_id"]
+                    )
+                    if already_seen:
+                        consecutive_seen += 1
+                        logger.debug(
+                            f"Already seen ({consecutive_seen}): {project['project_name']}"
+                        )
+                        if consecutive_seen >= 3:
+                            logger.info(
+                                f"[REGION] Hit 3 consecutive old listings in {region}, "
+                                f"moving to next region"
+                            )
+                            hit_old = True
+                            break
                         continue
+                    consecutive_seen = 0
 
                     # Skip excluded project types (e.g., theater)
                     proj_ok, proj_reason = project_matches(project)

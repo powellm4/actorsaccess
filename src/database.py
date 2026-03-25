@@ -95,6 +95,21 @@ class Database:
             pass
         self.conn.commit()
 
+    def has_seen_breakdown(self, breakdown_id: str, platform: str = "aa") -> bool:
+        """Check if we've processed any role from this breakdown in a previous run."""
+        # Check applied_roles (role_id format: {breakdown_id}_{role_id})
+        cursor = self.conn.execute(
+            "SELECT 1 FROM applied_roles WHERE role_id LIKE ? AND platform = ?",
+            (f"{breakdown_id}_%", platform),
+        )
+        if cursor.fetchone():
+            return True
+        # Check rejected_roles and flagged_roles by project_name isn't reliable
+        # since breakdown_id isn't stored there — but applied + already_submitted
+        # covers the common cases. Also check rejected/flagged via role_id pattern
+        # stored in applied_roles is our best signal.
+        return False
+
     def is_applied(self, role_id: str) -> bool:
         cursor = self.conn.execute(
             "SELECT 1 FROM applied_roles WHERE role_id = ?", (role_id,)
