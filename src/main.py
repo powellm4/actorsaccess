@@ -80,215 +80,310 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
 
         # Navigate and filter
         filters = cfg["filters"]
-        if not browser.navigate_to_breakdowns(filters.get("region", "")):
-            raise RuntimeError("Failed to navigate to breakdowns")
-
-        browser.apply_filters(filters)
-
-        # Process breakdowns page by page
-        total_pages = browser.get_total_pages()
-        max_pages = cfg.get("max_pages", 5)  # Don't crawl all 46 pages by default
+        max_pages = cfg.get("max_pages", 5)
         max_subs = cfg.get("max_submissions")
-        pages_to_process = min(total_pages, max_pages)
-        logger.info(f"Processing {pages_to_process} of {total_pages} pages")
+
+        # Support both single region (legacy) and multiple regions
+        raw_regions = filters.get("regions") or [filters.get("region", "")]
+        # Normalize to list of dicts: {"region": name, "max_pages": N}
+        regions = []
+        for r in raw_regions:
+            if isinstance(r, str):
+                regions.append({"region": r, "max_pages": max_pages})
+            else:
+                regions.append({"region": r["region"], "max_pages": r.get("max_pages", max_pages)})
 
         if dry_run:
             print("\n=== DRY RUN — no submissions will be made ===\n")
 
         hit_limit = False
-        for page_num in range(1, pages_to_process + 1):
+        for region_cfg in regions:
             if hit_limit:
                 break
-            if page_num > 1:
-                # Navigate back to breakdowns list and go to next page
-                browser.navigate_to_breakdowns(filters.get("region", ""))
-                browser.apply_filters(filters)
-                if not browser.go_to_page(page_num):
+
+            region = region_cfg["region"]
+            region_max_pages = region_cfg["max_pages"]
+
+            logger.info(f"[REGION] Processing region: {region} (max_pages={region_max_pages})")
+            if dry_run:
+                print(f"\n--- Region: {region} ---\n")
+
+            if not browser.navigate_to_breakdowns(region):
+                logger.warning(f"Failed to navigate to breakdowns for region: {region}, skipping")
+                continue
+
+            browser.apply_filters(filters)
+
+            total_pages = browser.get_total_pages()
+            pages_to_process = min(total_pages, region_max_pages)
+            logger.info(f"Processing {pages_to_process} of {total_pages} pages for {region}")
+
+            for page_num in range(1, pages_to_process + 1):
+                if hit_limit:
                     break
+                if page_num > 1:
+                    browser.navigate_to_breakdowns(region)
+                    browser.apply_filters(filters)
+                    if not browser.go_to_page(page_num):
+                        break
 
-            # Scrape project listings on this page
-            projects = browser.scrape_projects()
+                # Scrape project listings on this page
+                projects = browser.scrape_projects()
 
-            for project in projects:
-                # Skip projects we've already submitted to
-                if project["already_submitted"]:
-                    logger.debug(f"Skipping already-submitted project: {project['project_name']}")
-                    continue
+                for project in projects:
+                    # Skip projects we've already submitted to
+                    if project["already_submitted"]:
+                        logger.debug(f"Skipping already-submitted project: {project['project_name']}")
+                        continue
 
-                # Skip excluded project types (e.g., theater)
-                proj_ok, proj_reason = project_matches(project)
-                if not proj_ok:
-                    if dry_run:
-                        print(f"\n[SKIP PROJECT - {proj_reason}] {project['project_name']}")
+                    # Skip excluded project types (e.g., theater)
+                    proj_ok, proj_reason = project_matches(project)
+                    if not proj_ok:
+                        if dry_run:
+                            print(f"\n[SKIP PROJECT - {proj_reason}] {project['project_name']}")
+                        else:
+                            logger.info(f"Skipping project: {project['project_name']} ({proj_reason})")
+                        continue
+
+                    # Navigate into the project to see individual roles
+                    roles, project_notes = browser.scrape_roles_on_project(project["url"])
+                    roles_found += len(roles)
+
+                    # Build full project URL for AA
+                    project_url = f"https://actorsaccess.com{project['url']}" if project.get("url") else ""
+
+                    # Check for SAG-only projects (actor is non-union)
+                    if is_sag_only(project_notes):
+                        logger.info(f"[FILTER] Skipping SAG-only project: {project['project_name']}")
+                        if dry_run:
+                            print(f"\n[SKIP PROJECT - SAG-AFTRA members only] {project['project_name']}")
+                        continue
+
+                    # Check shoot dates against calendar BEFORE filtering/AI
+                    cal_ids = cfg.get("google_calendar", {}).get("calendar_ids", [])
+                    logger.info(f"[CALENDAR] project_notes for {project['project_name']} (length={len(project_notes)}): {project_notes[:200]}")
+                    shoot_dates = parse_shoot_dates(project_notes)
+                    partial_availability = None  # set if some days free, some busy
+                    if shoot_dates:
+                        start_date, end_date = shoot_dates
+                        logger.info(f"[CALENDAR] Shoot dates found: {start_date} to {end_date}, checking calendar...")
+                        dates_available, conflicts = check_availability(start_date, end_date, cal_ids)
+                        if not dates_available:
+                            # Get per-day breakdown to check partial availability
+                            busy_dates = get_busy_dates(start_date, end_date, cal_ids)
+                            from datetime import date, timedelta
+                            start_d = date.fromisoformat(start_date)
+                            end_d = date.fromisoformat(end_date)
+                            total_days = (end_d - start_d).days + 1
+                            free_days = total_days - len(busy_dates)
+
+                            if free_days == 0:
+                                # ALL days are busy — skip entirely
+                                flag_reason = f"Calendar conflict with ALL shoot dates {start_date} to {end_date}: {', '.join(conflicts[:5])}"
+                                logger.info(f"[CALENDAR] Skipping entire project: {project['project_name']} — {flag_reason}")
+                                for role in roles:
+                                    db.record_flagged_role(
+                                        project_name=project["project_name"],
+                                        project_url=project_url,
+                                        role_name=role["role_name"],
+                                        role_description=role.get("description", ""),
+                                        flag_reason=flag_reason,
+                                        run_id=run_id,
+                                        platform="aa",
+                                    )
+                                if dry_run:
+                                    for role in roles:
+                                        _print_role_decision("FLAGGED", project["project_name"], role, flag_reason)
+                                continue
+                            else:
+                                # Some days free — let AI decide per-role if partial availability works
+                                all_dates_set = {(start_d + timedelta(days=i)).isoformat() for i in range(total_days)}
+                                free_dates = sorted(all_dates_set - set(busy_dates))
+                                partial_availability = {
+                                    "shoot_range": f"{start_date} to {end_date}",
+                                    "busy_dates": busy_dates,
+                                    "free_dates": free_dates,
+                                    "free_count": free_days,
+                                    "total_days": total_days,
+                                }
+                                logger.info(
+                                    f"[CALENDAR] Partial availability for {project['project_name']}: "
+                                    f"{free_days}/{total_days} days free — will let AI decide per-role"
+                                )
                     else:
-                        logger.info(f"Skipping project: {project['project_name']} ({proj_reason})")
-                    continue
+                        logger.info(f"[CALENDAR] No shoot dates parsed for {project['project_name']} — calendar check skipped")
 
-                # Navigate into the project to see individual roles
-                roles, project_notes = browser.scrape_roles_on_project(project["url"])
-                roles_found += len(roles)
+                    # Log all scraped roles with fit_for_me status
+                    for role in roles:
+                        fit = role.get("fit_for_me", False)
+                        logger.info(
+                            f"Scraped role: {project['project_name']} — "
+                            f"{role['role_name']} (fit_for_me={fit}, id={role.get('role_id', '?')})"
+                        )
 
-                # Build full project URL for AA
-                project_url = f"https://actorsaccess.com{project['url']}" if project.get("url") else ""
+                    # Filter roles and collect candidates (skip already-applied roles)
+                    candidates = []
+                    for role in roles:
+                        # Skip roles we've already applied for or rejected
+                        unique_id = f"{project['breakdown_id']}_{role['role_id']}"
+                        if db.is_applied(unique_id):
+                            roles_skipped += 1
+                            logger.info(
+                                f"Already applied: {project['project_name']} — "
+                                f"{role['role_name']} (id={unique_id})"
+                            )
+                            continue
 
-                # Check for SAG-only projects (actor is non-union)
-                if is_sag_only(project_notes):
-                    logger.info(f"[FILTER] Skipping SAG-only project: {project['project_name']}")
-                    if dry_run:
-                        print(f"\n[SKIP PROJECT - SAG-AFTRA members only] {project['project_name']}")
-                    continue
+                        if db.is_rejected(role["role_name"], project["project_name"], "aa"):
+                            roles_skipped += 1
+                            logger.info(
+                                f"Already rejected: {project['project_name']} — "
+                                f"{role['role_name']}"
+                            )
+                            continue
 
-                # Check shoot dates against calendar BEFORE filtering/AI
-                cal_ids = cfg.get("google_calendar", {}).get("calendar_ids", [])
-                logger.info(f"[CALENDAR] project_notes for {project['project_name']} (length={len(project_notes)}): {project_notes[:200]}")
-                shoot_dates = parse_shoot_dates(project_notes)
-                partial_availability = None  # set if some days free, some busy
-                if shoot_dates:
-                    start_date, end_date = shoot_dates
-                    logger.info(f"[CALENDAR] Shoot dates found: {start_date} to {end_date}, checking calendar...")
-                    dates_available, conflicts = check_availability(start_date, end_date, cal_ids)
-                    if not dates_available:
-                        # Get per-day breakdown to check partial availability
-                        busy_dates = get_busy_dates(start_date, end_date, cal_ids)
-                        from datetime import date, timedelta
-                        start_d = date.fromisoformat(start_date)
-                        end_d = date.fromisoformat(end_date)
-                        total_days = (end_d - start_d).days + 1
-                        free_days = total_days - len(busy_dates)
+                        matches, skip_reason = role_matches(role)
+                        if not matches:
+                            roles_filtered += 1
+                            if dry_run:
+                                _print_role_decision("SKIP", project["project_name"], role, skip_reason)
+                            else:
+                                logger.info(
+                                    f"Filtered out: {project['project_name']} — "
+                                    f"{role['role_name']} ({skip_reason})"
+                                )
+                            continue
 
-                        if free_days == 0:
-                            # ALL days are busy — skip entirely
-                            flag_reason = f"Calendar conflict with ALL shoot dates {start_date} to {end_date}: {', '.join(conflicts[:5])}"
-                            logger.info(f"[CALENDAR] Skipping entire project: {project['project_name']} — {flag_reason}")
-                            for role in roles:
+                        candidates.append(role)
+
+                    logger.info(
+                        f"Candidates for {project['project_name']}: "
+                        f"{[c['role_name'] for c in candidates]} "
+                        f"(from {len(roles)} scraped, {roles_skipped} already applied, {roles_filtered} filtered)"
+                    )
+
+                    if not candidates:
+                        continue
+
+                    # Check submission cap
+                    if max_subs and roles_applied >= max_subs:
+                        logger.info(f"Reached max submissions ({max_subs}), stopping")
+                        hit_limit = True
+                        break
+
+                    # Pick the best role(s) (AI selection if multiple candidates)
+                    selected, rejections = select_best_roles(candidates, project["project_name"])
+                    logger.info(
+                        f"AI selection for {project['project_name']}: "
+                        f"selected={[s[0]['role_name'] for s in selected]}, "
+                        f"rejected={list(rejections.keys())}"
+                    )
+
+                    # Record rejections
+                    for role in candidates:
+                        if role["role_name"] in rejections:
+                            db.record_rejection(
+                                project_name=project["project_name"],
+                                project_url=project_url,
+                                role_name=role["role_name"],
+                                role_description=role.get("description", ""),
+                                rejection_reason=rejections[role["role_name"]],
+                                run_id=run_id,
+                                platform="aa",
+                            )
+
+                    if not selected:
+                        ai_reason = next(iter(rejections.values()), "AI skipped")
+                        logger.info(f"AI skipped project: {project['project_name']} — {ai_reason}")
+                        if dry_run:
+                            for role in candidates:
+                                _print_role_decision("SKIP", project["project_name"], role, f"AI: {ai_reason}")
+                        continue
+
+                    for best, ai_reason in selected:
+                        unique_id = f"{project['breakdown_id']}_{best['role_id']}"
+
+                        # If partial availability, ask AI if this specific role works
+                        if partial_availability:
+                            pa_result = check_partial_availability(
+                                best, project["project_name"], project_notes, partial_availability,
+                            )
+                            if not pa_result["proceed"]:
+                                flag_reason = f"Calendar partial conflict — {pa_result['reason']}"
                                 db.record_flagged_role(
                                     project_name=project["project_name"],
                                     project_url=project_url,
-                                    role_name=role["role_name"],
-                                    role_description=role.get("description", ""),
+                                    role_name=best["role_name"],
+                                    role_description=best.get("description", ""),
                                     flag_reason=flag_reason,
                                     run_id=run_id,
                                     platform="aa",
                                 )
+                                logger.info(f"[CALENDAR] Skipping {best['role_name']} — {flag_reason}")
+                                if dry_run:
+                                    _print_role_decision("FLAGGED", project["project_name"], best, flag_reason)
+                                continue
+
+                        # Analyze submission requirements
+                        confirmed_dates = None
+                        if shoot_dates:
+                            if partial_availability:
+                                # Only confirm the free dates
+                                confirmed_dates = ", ".join(partial_availability["free_dates"])
+                            else:
+                                confirmed_dates = f"{shoot_dates[0]} to {shoot_dates[1]}"
+                        analysis = analyze_submission_requirements(best, project["project_name"], project_notes, confirmed_dates=confirmed_dates)
+                        logger.info(f"[ANALYSIS] {best['role_name']}: action={analysis['action']}, note={analysis.get('note', 'N/A')}")
+
+                        if analysis["action"] == "NEEDS_INPUT":
+                            db.record_flagged_role(
+                                project_name=project["project_name"],
+                                project_url=project_url,
+                                role_name=best["role_name"],
+                                role_description=best.get("description", ""),
+                                flag_reason=analysis["needs_input_reason"],
+                                run_id=run_id,
+                                platform="aa",
+                            )
+                            logger.info(f"Flagged for review: {best['role_name']} — {analysis['needs_input_reason']}")
                             if dry_run:
-                                for role in roles:
-                                    _print_role_decision("FLAGGED", project["project_name"], role, flag_reason)
+                                _print_role_decision("FLAGGED", project["project_name"], best, analysis["needs_input_reason"])
                             continue
-                        else:
-                            # Some days free — let AI decide per-role if partial availability works
-                            all_dates_set = {(start_d + timedelta(days=i)).isoformat() for i in range(total_days)}
-                            free_dates = sorted(all_dates_set - set(busy_dates))
-                            partial_availability = {
-                                "shoot_range": f"{start_date} to {end_date}",
-                                "busy_dates": busy_dates,
-                                "free_dates": free_dates,
-                                "free_count": free_days,
-                                "total_days": total_days,
-                            }
-                            logger.info(
-                                f"[CALENDAR] Partial availability for {project['project_name']}: "
-                                f"{free_days}/{total_days} days free — will let AI decide per-role"
-                            )
-                else:
-                    logger.info(f"[CALENDAR] No shoot dates parsed for {project['project_name']} — calendar check skipped")
 
-                # Log all scraped roles with fit_for_me status
-                for role in roles:
-                    fit = role.get("fit_for_me", False)
-                    logger.info(
-                        f"Scraped role: {project['project_name']} — "
-                        f"{role['role_name']} (fit_for_me={fit}, id={role.get('role_id', '?')})"
-                    )
-
-                # Filter roles and collect candidates (skip already-applied roles)
-                candidates = []
-                for role in roles:
-                    # Skip roles we've already applied for or rejected
-                    unique_id = f"{project['breakdown_id']}_{role['role_id']}"
-                    if db.is_applied(unique_id):
-                        roles_skipped += 1
-                        logger.info(
-                            f"Already applied: {project['project_name']} — "
-                            f"{role['role_name']} (id={unique_id})"
-                        )
-                        continue
-
-                    if db.is_rejected(role["role_name"], project["project_name"], "aa"):
-                        roles_skipped += 1
-                        logger.info(
-                            f"Already rejected: {project['project_name']} — "
-                            f"{role['role_name']}"
-                        )
-                        continue
-
-                    matches, skip_reason = role_matches(role)
-                    if not matches:
-                        roles_filtered += 1
                         if dry_run:
-                            _print_role_decision("SKIP", project["project_name"], role, skip_reason)
+                            tag = "SUBMIT (AI pick)" if len(candidates) > 1 else "SUBMIT"
+                            _print_role_decision(tag, project["project_name"], best)
+                            if len(candidates) > 1:
+                                print(f"  AI reason: {ai_reason}")
+                            if analysis["action"] == "SUBMIT_WITH_NOTE":
+                                print(f"  Note: {analysis['note']}")
+                            roles_applied += 1
+                            continue
+
+                        sub_cfg = cfg["submission"].copy()
+                        if analysis["action"] == "SUBMIT_WITH_NOTE":
+                            sub_cfg["default_note"] = analysis["note"]
+
+                        # Re-navigate to project page to get fresh DOM element for this role
+                        # (previous submissions may have changed the page state)
+                        fresh_roles, _ = browser.scrape_roles_on_project(project["url"])
+                        fresh_match = next(
+                            (r for r in fresh_roles if r["role_id"] == best["role_id"]),
+                            None,
+                        )
+                        if fresh_match:
+                            best["element"] = fresh_match["element"]
                         else:
-                            logger.info(
-                                f"Filtered out: {project['project_name']} — "
-                                f"{role['role_name']} ({skip_reason})"
-                            )
-                        continue
+                            logger.warning(f"[SUBMIT] Could not find fresh element for {best['role_name']}, skipping")
+                            continue
 
-                    candidates.append(role)
-
-                logger.info(
-                    f"Candidates for {project['project_name']}: "
-                    f"{[c['role_name'] for c in candidates]} "
-                    f"(from {len(roles)} scraped, {roles_skipped} already applied, {roles_filtered} filtered)"
-                )
-
-                if not candidates:
-                    continue
-
-                # Check submission cap
-                if max_subs and roles_applied >= max_subs:
-                    logger.info(f"Reached max submissions ({max_subs}), stopping")
-                    hit_limit = True
-                    break
-
-                # Pick the best role(s) (AI selection if multiple candidates)
-                selected, rejections = select_best_roles(candidates, project["project_name"])
-                logger.info(
-                    f"AI selection for {project['project_name']}: "
-                    f"selected={[s[0]['role_name'] for s in selected]}, "
-                    f"rejected={list(rejections.keys())}"
-                )
-
-                # Record rejections
-                for role in candidates:
-                    if role["role_name"] in rejections:
-                        db.record_rejection(
-                            project_name=project["project_name"],
-                            project_url=project_url,
-                            role_name=role["role_name"],
-                            role_description=role.get("description", ""),
-                            rejection_reason=rejections[role["role_name"]],
-                            run_id=run_id,
-                            platform="aa",
+                        logger.info(f"[SUBMIT] Attempting submission: {project['project_name']} — {best['role_name']} (id={unique_id})")
+                        result = browser.submit_for_role(
+                            best, project["project_name"], sub_cfg
                         )
-
-                if not selected:
-                    ai_reason = next(iter(rejections.values()), "AI skipped")
-                    logger.info(f"AI skipped project: {project['project_name']} — {ai_reason}")
-                    if dry_run:
-                        for role in candidates:
-                            _print_role_decision("SKIP", project["project_name"], role, f"AI: {ai_reason}")
-                    continue
-
-                for best, ai_reason in selected:
-                    unique_id = f"{project['breakdown_id']}_{best['role_id']}"
-
-                    # If partial availability, ask AI if this specific role works
-                    if partial_availability:
-                        pa_result = check_partial_availability(
-                            best, project["project_name"], project_notes, partial_availability,
-                        )
-                        if not pa_result["proceed"]:
-                            flag_reason = f"Calendar partial conflict — {pa_result['reason']}"
+                        if isinstance(result, str) and result.startswith("NEEDS_SELFTAPE:"):
+                            flag_reason = "Self-tape/video audition requested"
+                            logger.info(f"Flagging {best['role_name']} — {flag_reason}")
                             db.record_flagged_role(
                                 project_name=project["project_name"],
                                 project_url=project_url,
@@ -296,102 +391,28 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                                 role_description=best.get("description", ""),
                                 flag_reason=flag_reason,
                                 run_id=run_id,
-                                platform="aa",
                             )
-                            logger.info(f"[CALENDAR] Skipping {best['role_name']} — {flag_reason}")
-                            if dry_run:
-                                _print_role_decision("FLAGGED", project["project_name"], best, flag_reason)
-                            continue
-
-                    # Analyze submission requirements
-                    confirmed_dates = None
-                    if shoot_dates:
-                        if partial_availability:
-                            # Only confirm the free dates
-                            confirmed_dates = ", ".join(partial_availability["free_dates"])
+                        elif result:
+                            db.record_application(
+                                unique_id, project["project_name"], best["role_name"],
+                                role_description=best.get("description", ""),
+                                ai_reason=ai_reason,
+                                candidates_considered=len(candidates),
+                                project_url=project_url,
+                                submission_note=analysis.get("note") or "",
+                            )
+                            logger.info(f"[SUBMIT] SUCCESS: {best['role_name']} on {project['project_name']}")
+                            roles_applied += 1
                         else:
-                            confirmed_dates = f"{shoot_dates[0]} to {shoot_dates[1]}"
-                    analysis = analyze_submission_requirements(best, project["project_name"], project_notes, confirmed_dates=confirmed_dates)
-                    logger.info(f"[ANALYSIS] {best['role_name']}: action={analysis['action']}, note={analysis.get('note', 'N/A')}")
+                            logger.warning(
+                                f"[SUBMIT] FAILED: {best['role_name']} on {project['project_name']}"
+                            )
 
-                    if analysis["action"] == "NEEDS_INPUT":
-                        db.record_flagged_role(
-                            project_name=project["project_name"],
-                            project_url=project_url,
-                            role_name=best["role_name"],
-                            role_description=best.get("description", ""),
-                            flag_reason=analysis["needs_input_reason"],
-                            run_id=run_id,
-                            platform="aa",
-                        )
-                        logger.info(f"Flagged for review: {best['role_name']} — {analysis['needs_input_reason']}")
-                        if dry_run:
-                            _print_role_decision("FLAGGED", project["project_name"], best, analysis["needs_input_reason"])
-                        continue
-
-                    if dry_run:
-                        tag = "SUBMIT (AI pick)" if len(candidates) > 1 else "SUBMIT"
-                        _print_role_decision(tag, project["project_name"], best)
-                        if len(candidates) > 1:
-                            print(f"  AI reason: {ai_reason}")
-                        if analysis["action"] == "SUBMIT_WITH_NOTE":
-                            print(f"  Note: {analysis['note']}")
-                        roles_applied += 1
-                        continue
-
-                    sub_cfg = cfg["submission"].copy()
-                    if analysis["action"] == "SUBMIT_WITH_NOTE":
-                        sub_cfg["default_note"] = analysis["note"]
-
-                    # Re-navigate to project page to get fresh DOM element for this role
-                    # (previous submissions may have changed the page state)
-                    fresh_roles, _ = browser.scrape_roles_on_project(project["url"])
-                    fresh_match = next(
-                        (r for r in fresh_roles if r["role_id"] == best["role_id"]),
-                        None,
-                    )
-                    if fresh_match:
-                        best["element"] = fresh_match["element"]
-                    else:
-                        logger.warning(f"[SUBMIT] Could not find fresh element for {best['role_name']}, skipping")
-                        continue
-
-                    logger.info(f"[SUBMIT] Attempting submission: {project['project_name']} — {best['role_name']} (id={unique_id})")
-                    result = browser.submit_for_role(
-                        best, project["project_name"], sub_cfg
-                    )
-                    if isinstance(result, str) and result.startswith("NEEDS_SELFTAPE:"):
-                        flag_reason = "Self-tape/video audition requested"
-                        logger.info(f"Flagging {best['role_name']} — {flag_reason}")
-                        db.record_flagged_role(
-                            project_name=project["project_name"],
-                            project_url=project_url,
-                            role_name=best["role_name"],
-                            role_description=best.get("description", ""),
-                            flag_reason=flag_reason,
-                            run_id=run_id,
-                        )
-                    elif result:
-                        db.record_application(
-                            unique_id, project["project_name"], best["role_name"],
-                            role_description=best.get("description", ""),
-                            ai_reason=ai_reason,
-                            candidates_considered=len(candidates),
-                            project_url=project_url,
-                            submission_note=analysis.get("note") or "",
-                        )
-                        logger.info(f"[SUBMIT] SUCCESS: {best['role_name']} on {project['project_name']}")
-                        roles_applied += 1
-                    else:
-                        logger.warning(
-                            f"[SUBMIT] FAILED: {best['role_name']} on {project['project_name']}"
-                        )
-
-                # Print rejected roles in dry run
-                if dry_run and rejections:
-                    for role in candidates:
-                        if role["role_name"] in rejections:
-                            _print_role_decision("SKIP", project["project_name"], role, rejections[role["role_name"]])
+                    # Print rejected roles in dry run
+                    if dry_run and rejections:
+                        for role in candidates:
+                            if role["role_name"] in rejections:
+                                _print_role_decision("SKIP", project["project_name"], role, rejections[role["role_name"]])
 
         db.complete_run(run_id, roles_found, roles_applied, roles_skipped)
 
