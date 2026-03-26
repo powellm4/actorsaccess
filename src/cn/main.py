@@ -190,6 +190,20 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             logger.info(f"Filtered out: {project_name} — {role['role_name']} (past deadline)")
                         continue
 
+                    # Enrich description with pay and project context so AI
+                    # can apply travel pay rules
+                    extra_context = []
+                    if role.get("pay"):
+                        extra_context.append(f"PAY: {role['pay']}")
+                    if role.get("location"):
+                        extra_context.append(f"SHOOT LOCATION: {role['location']}")
+                    if role.get("project_type"):
+                        extra_context.append(f"PROJECT TYPE: {role['project_type']}")
+                    if extra_context:
+                        role["description"] = (
+                            role.get("description", "") + "\n" + "\n".join(extra_context)
+                        )
+
                     candidates.append(role)
 
                 if not candidates:

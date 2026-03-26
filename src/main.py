@@ -271,6 +271,14 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                                 )
                             continue
 
+                        # Enrich description with project context so AI
+                        # can apply travel pay rules
+                        if project_notes:
+                            role["description"] = (
+                                role.get("description", "") + "\n"
+                                f"PROJECT NOTES: {project_notes[:500]}"
+                            )
+
                         candidates.append(role)
 
                     logger.info(

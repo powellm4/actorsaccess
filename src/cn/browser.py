@@ -122,6 +122,7 @@ class CastingNetworksBrowser:
                     return {
                         projectName: get(projectCard, "casting-billboard-project-name-link"),
                         projectType: get(projectCard, "casting-billboard-project-type"),
+                        location: get(projectCard, "casting-billboard-project-location") || get(projectCard, "casting-billboard-project-work-location"),
                         roleType: get(roleCard, "casting-billboard-role-header-type-name"),
                         ageRange: get(roleCard, "casting-billboard-role-header-age-range"),
                         gender: get(roleCard, "casting-billboard-role-header-gender-appearance"),
@@ -138,6 +139,7 @@ class CastingNetworksBrowser:
                     "role_name": role_name,
                     "project_name": card_data.get("projectName", ""),
                     "project_type": card_data.get("projectType", ""),
+                    "location": card_data.get("location", ""),
                     "role_type": card_data.get("roleType", ""),
                     "age_range": card_data.get("ageRange", ""),
                     "gender": card_data.get("gender", ""),
