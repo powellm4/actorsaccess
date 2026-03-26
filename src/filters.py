@@ -108,11 +108,6 @@ def _is_ugc(project_name: str, role: dict) -> bool:
 
 _SKIP_PROJECT_TYPES = {"theater", "theatre", "musical"}
 
-_THEATER_NAME_PATTERN = re.compile(
-    r"\bthe\s+musical\b|\bmusical\b|\bstage\s+play\b|\btheatre\b|\btheater\s+production\b",
-    re.IGNORECASE,
-)
-
 
 def project_matches(project: dict) -> tuple[bool, str]:
     """Check if a project should be considered.
@@ -129,9 +124,6 @@ def project_matches(project: dict) -> tuple[bool, str]:
         return False, f"project type: {project['project_type']}"
 
     name = project.get("project_name", "")
-
-    if _THEATER_NAME_PATTERN.search(name):
-        return False, "theater/musical project"
     if _BG_PROJECT_PATTERN.search(name):
         return False, "background project"
 
