@@ -106,7 +106,7 @@ def _is_ugc(project_name: str, role: dict) -> bool:
     )
 
 
-_SKIP_PROJECT_TYPES = {"theater", "theatre", "musical"}
+_SKIP_PROJECT_TYPES = {"theater", "theatre", "musical", "staged reading"}
 
 
 def project_matches(project: dict) -> tuple[bool, str]:
