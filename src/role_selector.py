@@ -23,7 +23,7 @@ ACTOR_PROFILE = """
 - Shoe size: 9-10
 - Non-union
 - Email: REDACTED | Phone: REDACTED
-- Los Angeles local with reliable transportation
+- Based in Los Angeles with reliable transportation; willing to travel to other cities for shoots
 - Generally open availability
 - No demo reel currently — still apply for roles requesting one
 - Open to voice over / voice acting roles
@@ -389,6 +389,7 @@ Analyze BOTH the role description AND any project-level instructions to determin
 IMPORTANT RULES:
 - ONLY use SUBMIT_WITH_NOTE when the post has a clear, explicit, DIRECT request for information IN the submission notes — e.g., "note your availability in your submission", "include your contact info in notes", "let us know about X experience"
 - Statements like "LOCAL SELF-REPORT TO SET", "Los Angeles Local Hire", or "must have reliable transportation" are REQUIREMENTS, not requests for notes. They describe who should apply, not what to write. Respond with ACTION: SUBMIT
+- If the post asks "are you local hire?" or "note if you are local" for a NON-Los Angeles location (e.g., NYC, Atlanta, Chicago), respond that you are willing to travel / available to work on location. Do NOT say "LA local" — say you can travel to that city. Example: "Available to work in NYC for the shoot dates." Never claim to be local to a city you're not in.
 - A role description describing the character is NOT a request for info — do not respond to it
 - NEVER include acting skills, training, experience, character analysis, or why the actor is a good fit — these are NOT submission notes
 - NEVER volunteer information that was not explicitly asked for — no location, no transportation, no contact info, no availability unless the post explicitly asks you to NOTE it in the submission
