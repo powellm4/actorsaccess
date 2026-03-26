@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 ACTOR_PROFILE = """
 - Appears 25, plays 20-30 most convincingly, but can stretch to 35
 - Male, White, 6'0", 185 lbs, athletic build, brown hair (thick, slightly curly, short-medium length), clean-shaven (no beard)
+- Instagram: @marshallpowell
 - Type: Leading man, comedic/charming; also strong as villain/antagonist/mean characters; also excels at grounded/calm/straight man/voice-of-reason roles
 - 2 years improv training at UCB and The Groundlings
 - 5+ years salsa dancing
@@ -406,6 +407,8 @@ IMPORTANT RULES:
 - If the post asks "are you local hire?" or "note if you are local" for a NON-Los Angeles location (e.g., NYC, Atlanta, Chicago), respond that you are willing to travel / available to work on location. Do NOT say "LA local" — say you can travel to that city. Example: "Available to work in NYC for the shoot dates." Never claim to be local to a city you're not in.
 - A role description describing the character is NOT a request for info — do not respond to it
 - NEVER include acting skills, training, experience, character analysis, or why the actor is a good fit — these are NOT submission notes
+- NEVER fabricate personal experiences, product usage, brand loyalty, or any claims not in the actor profile. If a casting asks for "real users" or "fans" of a product/brand and the actor has no verified relationship with that product, respond with ACTION: SUBMIT (no note) — do NOT write a note claiming the actor uses or loves the product. Making false claims is worse than no note at all.
+- If a casting asks for Instagram, include @marshallpowell
 - NEVER volunteer information that was not explicitly asked for — no location, no transportation, no contact info, no availability unless the post explicitly asks you to NOTE it in the submission
 - If the post asks for availability/dates and CONFIRMED AVAILABILITY is provided above, include the specific dates in the note
 - If they ask for contact info, provide the email and phone number from the profile
