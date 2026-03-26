@@ -68,6 +68,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload db-storage data/applied.db --clobber
 
+      - name: Run Backstage auto-apply
+        env:
+          BACKSTAGE_EMAIL: ${{ secrets.BACKSTAGE_EMAIL }}
+          BACKSTAGE_PASSWORD: ${{ secrets.BACKSTAGE_PASSWORD }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_CALENDAR_SA_KEY: ${{ secrets.GOOGLE_CALENDAR_SA_KEY }}
+        run: python -m src.backstage.main --once
+
+      - name: Upload database (after Backstage)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload db-storage data/applied.db --clobber
+
       - name: Send digest email
         env:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}

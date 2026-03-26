@@ -170,8 +170,10 @@ def _empty_digest_html(runs: list[dict]) -> str:
 
 
 def _platform_badge(platform: str) -> str:
-    color = "#1565c0" if platform == "aa" else "#6a1b9a"
-    label = "AA" if platform == "aa" else "CN"
+    colors = {"aa": "#1565c0", "cn": "#6a1b9a", "backstage": "#e65100"}
+    labels = {"aa": "AA", "cn": "CN", "backstage": "BS"}
+    color = colors.get(platform, "#666")
+    label = labels.get(platform, platform.upper())
     return f'<span style="background:{color};color:white;padding:2px 6px;border-radius:3px;font-size:12px;">{label}</span>'
 
 

@@ -1,0 +1,22 @@
+credentials:
+  email: "REDACTED"
+  password: "REDACTED"
+
+max_pages: 1
+max_submissions: 10
+saved_search: "acting"
+
+submission:
+  default_note: ""
+
+browser:
+  headless: false
+
+google_calendar:
+  calendar_ids:
+    - "c50f22709de5e666863424cdec435d33cea633a53fe6cd2f34af591825251187@group.calendar.google.com"
+    - "4589f6dc4692352bd5b7c8c39c1f90722f093c1846e3c6185f4b0cf317658d5f@group.calendar.google.com"
+
+logging:
+  level: "INFO"
+  file: "logs/backstage_auto_apply.log"

@@ -225,7 +225,55 @@ def parse_shoot_dates(text: str) -> tuple[str, str] | None:
         except ValueError as e:
             logger.warning(f"[CALENDAR] Pattern 2 matched but date parsing failed: {e} (groups={match.groups()})")
 
-    if re.search(r'\b(January|February|March|April|May|June|July|August|September|October|November|December)\b', text):
+    # Pattern 3: "Month Day-Day" or "Month Day - Month Day" range without year
+    # (e.g., "March 30-April 3 in L.A.", "May 23-25 in LA")
+    # Check BEFORE single-date pattern so ranges aren't misread as singles
+    match = re.search(
+        r"(\w+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?\s*[-–]\s*(?:(\w+)\.?\s+)?(\d{1,2})(?:st|nd|rd|th)?",
+        text,
+    )
+    if match:
+        m1, d1, m2, d2 = match.groups()
+        m1 = m1.rstrip(".")
+        if m2:
+            m2 = m2.rstrip(".")
+        else:
+            m2 = m1  # same month range
+        try:
+            for fmt in ("%B %d %Y", "%b %d %Y"):
+                try:
+                    start = datetime.strptime(f"{m1} {d1} {current_year}", fmt)
+                    end = datetime.strptime(f"{m2} {d2} {current_year}", fmt)
+                    result = start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+                    logger.info(f"[CALENDAR] Parsed shoot dates (pattern 3 - range no year): {result[0]} to {result[1]}")
+                    return result
+                except ValueError:
+                    continue
+        except ValueError:
+            pass
+
+    # Pattern 4: "Month Day" single date without year (e.g., "Shoots April 15 in LA")
+    # Also handles abbreviated months (Apr., Mar., etc.)
+    match = re.search(
+        r"(\w+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b(?!\s*[-–])",
+        text,
+    )
+    if match:
+        month_str, day = match.groups()
+        month_str = month_str.rstrip(".")
+        try:
+            for fmt in ("%B %d %Y", "%b %d %Y"):
+                try:
+                    dt = datetime.strptime(f"{month_str} {day} {current_year}", fmt)
+                    result = dt.strftime("%Y-%m-%d"), dt.strftime("%Y-%m-%d")
+                    logger.info(f"[CALENDAR] Parsed shoot dates (pattern 4 - single date): {result[0]}")
+                    return result
+                except ValueError:
+                    continue
+        except ValueError:
+            pass
+
+    if re.search(r'\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b', text):
         logger.warning("[CALENDAR] project_notes contains month names but no date pattern matched — possible unhandled format")
     else:
         logger.info("[CALENDAR] No shoot dates found in project_notes")
