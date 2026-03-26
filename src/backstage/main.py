@@ -224,11 +224,14 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     if not available:
                         conflict_list = ", ".join(conflicts[:5])
                         flag_reason = f"Calendar conflict: {conflict_list}"
+                        cal_proj_url = production.get("url", "")
+                        if not cal_proj_url.startswith("http"):
+                            cal_proj_url = f"https://www.backstage.com{cal_proj_url}"
                         for r in production.get("roles", []):
                             role = _normalize_role(r, production)
                             db.record_flagged_role(
                                 project_name=project_name,
-                                project_url=f"https://www.backstage.com{production.get('url', '')}",
+                                project_url=cal_proj_url,
                                 role_name=role["role_name"],
                                 role_description=role["description"],
                                 flag_reason=flag_reason,
@@ -311,7 +314,8 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     f"rejected={list(rejections.keys())}"
                 )
 
-                project_url = f"https://www.backstage.com{production.get('url', '')}"
+                prod_url = production.get("url", "")
+                project_url = prod_url if prod_url.startswith("http") else f"https://www.backstage.com{prod_url}"
 
                 # Record rejections
                 for role in candidates:
