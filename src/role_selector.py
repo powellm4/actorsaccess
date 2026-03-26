@@ -111,6 +111,13 @@ HARD DISQUALIFIERS — reject any role that requires:
 
 NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair color, build) are EXACT requirements — any mismatch is a hard disqualifier.
 
+TRAVEL PAY MINIMUMS — the actor is based in Los Angeles. Apply these rules based on the shoot location mentioned in the role or project description:
+- LA area (Los Angeles, Burbank, Pasadena, Long Beach, Orange County, etc.): any pay is fine
+- Drivable Southwest (San Diego, San Francisco, Las Vegas, Phoenix, Tucson, Palm Springs, Santa Barbara, Bakersfield — roughly CA/NV/AZ): SKIP if total pay is under $200
+- Fly-to locations (New York, Atlanta, Chicago, Vancouver, or anywhere requiring air travel): SKIP if total pay is under $500
+- If the shoot location is not mentioned or unclear, do NOT reject based on pay
+- "Total pay" means the full amount for the job, not per day. If the listing says "$200/day" for a 3-day shoot, total pay is $600 — that passes the $500 fly-to threshold
+
 Also consider (but these are NOT reasons to reject — only to rank):
 1. Physical match (age, build, height, ethnicity)
 2. Type match (leading man, comedic/charming)
@@ -182,6 +189,13 @@ HARD DISQUALIFIERS — SKIP if the role requires ANY of these:
 - Requires the actor to OWN something specific that is not a standard wardrobe/prop item — e.g., "must have a dog", "must own a motorcycle", "bring your own surfboard", "real couples only". If the casting post requires the actor to personally possess something (pet, vehicle, relationship, property) as a condition of the role, SKIP it. Standard wardrobe items (suit, business casual, etc.) are NOT disqualifiers.
 
 NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair color, build) are EXACT requirements — any mismatch is a hard disqualifier.
+
+TRAVEL PAY MINIMUMS — the actor is based in Los Angeles. Apply these rules based on the shoot location mentioned in the role or project description:
+- LA area (Los Angeles, Burbank, Pasadena, Long Beach, Orange County, etc.): any pay is fine
+- Drivable Southwest (San Diego, San Francisco, Las Vegas, Phoenix, Tucson, Palm Springs, Santa Barbara, Bakersfield — roughly CA/NV/AZ): SKIP if total pay is under $200
+- Fly-to locations (New York, Atlanta, Chicago, Vancouver, or anywhere requiring air travel): SKIP if total pay is under $500
+- If the shoot location is not mentioned or unclear, do NOT reject based on pay
+- "Total pay" means the full amount for the job, not per day. If the listing says "$200/day" for a 3-day shoot, total pay is $600 — that passes the $500 fly-to threshold
 
 If the role is a fit or ambiguous, respond: FIT - <brief reason>
 If the role is clearly not a fit, respond: SKIP - <brief reason>"""
