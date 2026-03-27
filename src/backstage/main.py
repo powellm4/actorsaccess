@@ -61,7 +61,10 @@ def _normalize_role(api_role: dict, production: dict) -> dict:
     role_desc = api_role.get("description", "")
     prod_desc = production.get("description", "")
     prod_info = production.get("production_info", "")
+    rate_display = api_role.get("rate_display") or api_role.get("total_pay_display", "")
     parts = [role_desc]
+    if rate_display:
+        parts.append(f"PAY: {rate_display}")
     if prod_desc:
         parts.append(f"PROJECT DESCRIPTION: {prod_desc}")
     if prod_info:
@@ -345,9 +348,11 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     unique_id = f"backstage_{best['project_id']}_{best['role_id']}"
 
                     # Programmatic travel pay check (overrides AI)
+                    # Include pay field since Backstage stores pay as structured metadata
+                    pay_text = best.get("pay", "")
                     tp_ok, tp_reason = check_travel_pay(
                         project_name,
-                        best.get("description", ""),
+                        f"{best.get('description', '')} Pay: {pay_text}" if pay_text else best.get("description", ""),
                         production.get("project_notes", ""),
                     )
                     if not tp_ok:
