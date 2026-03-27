@@ -12,7 +12,7 @@ import re
 logger = logging.getLogger(__name__)
 
 ACTOR_PROFILE = """
-- Appears 25, plays 20-30 most convincingly, but can stretch to 35
+- Appears 25, plays 18-30 most convincingly, but can stretch to 35
 - Male, White, 6'0", 185 lbs, athletic build, brown hair (thick, slightly curly, short-medium length), clean-shaven (no beard)
 - Instagram: @marshallpowell
 - Type: Leading man, comedic/charming; also strong as villain/antagonist/mean characters; also excels at grounded/calm/straight man/voice-of-reason roles
@@ -221,7 +221,7 @@ HARD DISQUALIFIERS — reject any role that requires:
 - Requires a beard or facial hair (actor is clean-shaven)
 - NOT a real acting or modeling role — consumer studies, product testing, paid research studies, focus groups, medical studies, or any role where participants are selected based on personal conditions (skin conditions, health issues, etc.) rather than acting/modeling ability. IMPORTANT: Modeling gigs, lifestyle content shoots, brand campaigns, fitness shoots, and photo/video commercial work ARE legitimate — do NOT reject these. The actor wants modeling work. Only reject actual research studies, focus groups, and medical studies.
 - Background/extra work disguised as a named role — roles like "MASKED AUDIENCE MEMBERS", "PARTYGOERS", "CROWD", or any role where the actor is essentially atmosphere/background with no lines or character arc
-- "Must look" or "play younger" age requirements below 18 — the actor appears 25 and can play 20-30. He CANNOT convincingly look like a teenager (13-17) regardless of "18+ to play younger" casting language. If the role needs someone who looks like a minor (child, teen, high schooler), SKIP it.
+- "Must look" or "play younger" age requirements UNDER 18 — the actor appears 25 and can play 18-30. He CAN play 18 but CANNOT convincingly look like a minor (under 18, i.e., 13-17). "Plays age 18" is fine — 18 is an adult. Only SKIP if the role explicitly needs someone who looks like a child or young teenager (under 18).
 - Requires the actor to OWN something specific that is not a standard wardrobe/prop item — e.g., "must have a dog", "must own a motorcycle", "bring your own surfboard", "real couples only". If the casting post requires the actor to personally possess something (pet, vehicle, relationship, property) as a condition of the role, SKIP it. Standard wardrobe items (suit, business casual, etc.) are NOT disqualifiers.
 
 NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair color, build) are EXACT requirements — any mismatch is a hard disqualifier.
@@ -301,7 +301,7 @@ HARD DISQUALIFIERS — SKIP if the role requires ANY of these:
 - Requires a beard or facial hair (actor is clean-shaven)
 - NOT a real acting or modeling role — consumer studies, product testing, paid research studies, focus groups, medical studies, or any role where participants are selected based on personal conditions (skin conditions, health issues, etc.) rather than acting/modeling ability. IMPORTANT: Modeling gigs, lifestyle content shoots, brand campaigns, fitness shoots, and photo/video commercial work ARE legitimate — do NOT reject these. The actor wants modeling work. Only reject actual research studies, focus groups, and medical studies.
 - Background/extra work disguised as a named role — roles like "MASKED AUDIENCE MEMBERS", "PARTYGOERS", "CROWD", or any role where the actor is essentially atmosphere/background with no lines or character arc
-- "Must look" or "play younger" age requirements below 18 — the actor appears 25 and can play 20-30. He CANNOT convincingly look like a teenager (13-17) regardless of "18+ to play younger" casting language. If the role needs someone who looks like a minor (child, teen, high schooler), SKIP it.
+- "Must look" or "play younger" age requirements UNDER 18 — the actor appears 25 and can play 18-30. He CAN play 18 but CANNOT convincingly look like a minor (under 18, i.e., 13-17). "Plays age 18" is fine — 18 is an adult. Only SKIP if the role explicitly needs someone who looks like a child or young teenager (under 18).
 - Requires the actor to OWN something specific that is not a standard wardrobe/prop item — e.g., "must have a dog", "must own a motorcycle", "bring your own surfboard", "real couples only". If the casting post requires the actor to personally possess something (pet, vehicle, relationship, property) as a condition of the role, SKIP it. Standard wardrobe items (suit, business casual, etc.) are NOT disqualifiers.
 
 NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair color, build) are EXACT requirements — any mismatch is a hard disqualifier.
