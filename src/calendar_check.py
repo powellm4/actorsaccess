@@ -274,7 +274,7 @@ def parse_shoot_dates(text: str) -> tuple[str, str] | None:
             pass
 
     if re.search(r'\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b', text):
-        logger.warning("[CALENDAR] project_notes contains month names but no date pattern matched — possible unhandled format")
+        logger.info("[CALENDAR] Month name found but no specific dates — skipping calendar check (role will proceed)")
     else:
         logger.info("[CALENDAR] No shoot dates found in project_notes")
     return None

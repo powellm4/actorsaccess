@@ -118,7 +118,7 @@ TRAVEL PAY MINIMUMS — the actor is based in Los Angeles. Apply these rules bas
 - Medium drive (Las Vegas, San Francisco, Phoenix, Tucson, Arizona generally, NV/AZ): SKIP if total pay is under $500
 - Fly-to locations (New York, Atlanta, Chicago, Vancouver, or anywhere requiring air travel): SKIP if total pay is under $1000
 - If the shoot location is not mentioned or unclear, do NOT reject based on pay
-- "Total pay" means the full amount for the job, not per day. If the listing says "$200/day" for a 3-day shoot, total pay is $600 — that passes the $500 medium-drive threshold
+- "Total pay" means the full amount for the job, not per day. If the listing says "$200/day" for a 3-day shoot, total pay is $600 — that passes the $500 medium-drive threshold. For hourly rates, assume an 8-hour day (e.g., "$150/hour" = $1,200/day). If the total pay clearly exceeds the threshold, do NOT reject
 
 Also consider (but these are NOT reasons to reject — only to rank):
 1. Physical match (age, build, height, ethnicity)
@@ -198,7 +198,7 @@ TRAVEL PAY MINIMUMS — the actor is based in Los Angeles. Apply these rules bas
 - Medium drive (Las Vegas, San Francisco, Phoenix, Tucson, Arizona generally, NV/AZ): SKIP if total pay is under $500
 - Fly-to locations (New York, Atlanta, Chicago, Vancouver, or anywhere requiring air travel): SKIP if total pay is under $1000
 - If the shoot location is not mentioned or unclear, do NOT reject based on pay
-- "Total pay" means the full amount for the job, not per day. If the listing says "$200/day" for a 3-day shoot, total pay is $600 — that passes the $500 medium-drive threshold
+- "Total pay" means the full amount for the job, not per day. If the listing says "$200/day" for a 3-day shoot, total pay is $600 — that passes the $500 medium-drive threshold. For hourly rates, assume an 8-hour day (e.g., "$150/hour" = $1,200/day). If the total pay clearly exceeds the threshold, do NOT reject
 
 If the role is a fit or ambiguous, respond: FIT - <brief reason>
 If the role is clearly not a fit, respond: SKIP - <brief reason>"""

@@ -450,7 +450,19 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     logger.info(f"[SUBMIT] Attempting: {project_name} — {best['role_name']} (id={unique_id})")
                     result = client.submit_for_role(best["role_id"], note=note)
 
-                    if result:
+                    if isinstance(result, dict) and result.get("_rejected"):
+                        reason = result.get("reason", "Unknown rejection")
+                        logger.warning(f"[SUBMIT] REJECTED by Backstage: {best['role_name']} on {project_name} — {reason}")
+                        db.record_flagged_role(
+                            project_name=project_name,
+                            project_url=project_url,
+                            role_name=best["role_name"],
+                            role_description=best.get("description", ""),
+                            flag_reason=f"Backstage rejected: {reason}",
+                            run_id=run_id,
+                            platform="backstage",
+                        )
+                    elif result:
                         logger.info(f"[SUBMIT] SUCCESS: {best['role_name']} on {project_name}")
                         role_url = best.get("url", "")
                         if role_url and not role_url.startswith("http"):

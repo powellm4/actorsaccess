@@ -88,6 +88,13 @@ class BackstageClient:
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8", errors="replace")[:200]
             logger.error(f"HTTP {e.code} for {url}: {body}")
+            # Return structured error for 400s so callers can inspect the reason
+            if e.code == 400:
+                try:
+                    error_data = json.loads(body)
+                    return {"_error": True, "code": 400, "detail": error_data}
+                except (json.JSONDecodeError, ValueError):
+                    pass
             return None
         except Exception as e:
             logger.error(f"Request error for {url}: {e}")
@@ -215,6 +222,12 @@ class BackstageClient:
         # Step 1: Create draft
         _random_delay(1, 3)
         app = self._request(APPLICATION_URL, data={"role": role_id})
+        if isinstance(app, dict) and app.get("_error"):
+            detail = app.get("detail", {})
+            errors = detail.get("non_field_errors", [])
+            reason = "; ".join(errors) if errors else str(detail)
+            logger.error(f"Draft creation rejected for role {role_id}: {reason}")
+            return {"_rejected": True, "reason": reason}
         if not isinstance(app, dict) or not app.get("id"):
             logger.error(f"Draft creation failed for role {role_id}: {app}")
             return None
@@ -230,7 +243,13 @@ class BackstageClient:
 
         submit_url = f"{APPLICATION_URL}{app_id}/"
         result = self._request(submit_url, data=submit_data, method="PUT")
-        if isinstance(result, dict):
+        if isinstance(result, dict) and result.get("_error"):
+            detail = result.get("detail", {})
+            errors = detail.get("non_field_errors", [])
+            reason = "; ".join(errors) if errors else str(detail)
+            logger.error(f"Submission rejected for app {app_id}: {reason}")
+            return {"_rejected": True, "reason": reason}
+        if isinstance(result, dict) and not result.get("_error"):
             logger.info(f"Application {app_id} submitted successfully")
             return result
         logger.error(f"Submission failed for app {app_id}: {result}")
