@@ -33,6 +33,120 @@ ACTOR_PROFILE = """
 - No theatre/musical work
 """
 
+# Location keywords → pay tier (case-insensitive matching against project name + description + project notes)
+_LA_AREA_KEYWORDS = [
+    "los angeles", "l.a.", "burbank", "pasadena", "long beach", "orange county",
+    "glendale", "culver city", "hollywood", "santa monica", "west hollywood",
+    "studio city", "van nuys", "north hollywood", "encino", "sherman oaks",
+    "woodland hills", "chatsworth", "northridge", "anaheim", "irvine",
+    "palos verdes", "el segundo", "marina del rey", "downtown la", "dtla",
+    "socal", "so cal", "southern california",
+]
+_SHORT_DRIVE_KEYWORDS = ["san diego", "palm springs", "santa barbara", "bakersfield"]
+_MEDIUM_DRIVE_KEYWORDS = [
+    "las vegas", "vegas", "san francisco", "phoenix", "tucson", "arizona",
+    "scottsdale", "tempe", "mesa, az", "reno",
+]
+_FLY_TO_KEYWORDS = [
+    "new york", "nyc", "atlanta", "chicago", "vancouver", "toronto",
+    "miami", "dallas", "houston", "boston", "seattle", "portland, or",
+    "philadelphia", "detroit", "denver", "nashville", "new orleans",
+    "wilmington, nc", "wilmington nc", "pittsburgh", "minneapolis",
+    "washington, dc", "d.c.", "st. louis", "charlotte", "orlando",
+    "savannah", "albuquerque", "salt lake", "honolulu", "hawaii",
+    "italy", "china", "london", "paris", "australia", "canada",
+    "mexico", "spain", "germany", "japan", "korea", "india",
+    "bari, italy", "beijing",
+]
+
+
+def _extract_total_pay(text: str) -> float | None:
+    """Try to extract a numeric pay amount from text. Returns estimated total or None."""
+    text_lower = text.lower()
+
+    # Look for per-day rates: "$X/day", "$X per day"
+    m = re.search(r'\$[\s]*([\d,]+(?:\.\d+)?)\s*(?:/|per)\s*day', text_lower)
+    if m:
+        per_day = float(m.group(1).replace(",", ""))
+        # Try to find number of days
+        days_m = re.search(r'(\d+)\s*(?:days?|shoot days?)', text_lower)
+        if days_m:
+            return per_day * int(days_m.group(1))
+        return per_day  # conservative: assume 1 day
+
+    # Look for hourly rates: "$X/hour", "$X/hr", "$X per hour"
+    m = re.search(r'\$[\s]*([\d,]+(?:\.\d+)?)\s*(?:/|per)\s*(?:hour|hr)', text_lower)
+    if m:
+        per_hour = float(m.group(1).replace(",", ""))
+        return per_hour * 8  # assume 8-hour day
+
+    # Look for flat amounts: "$X", "$X total"
+    amounts = re.findall(r'\$([\d,]+(?:\.\d+)?)', text)
+    if amounts:
+        return max(float(a.replace(",", "")) for a in amounts)
+
+    return None
+
+
+def check_travel_pay(project_name: str, role_description: str = "", project_notes: str = "") -> tuple[bool, str | None]:
+    """Programmatic travel pay check. Returns (should_apply, rejection_reason).
+
+    Returns (True, None) if the role passes or location/pay can't be determined.
+    Returns (False, reason) if the role clearly violates travel pay minimums.
+    """
+    combined = f"{project_name} {role_description} {project_notes}".lower()
+
+    # Determine location tier
+    tier = None
+    matched_location = None
+
+    for kw in _LA_AREA_KEYWORDS:
+        if kw in combined:
+            tier = "la"
+            matched_location = kw
+            break
+
+    if tier is None:
+        for kw in _FLY_TO_KEYWORDS:
+            if kw in combined:
+                tier = "fly"
+                matched_location = kw
+                break
+
+    if tier is None:
+        for kw in _MEDIUM_DRIVE_KEYWORDS:
+            if kw in combined:
+                tier = "medium"
+                matched_location = kw
+                break
+
+    if tier is None:
+        for kw in _SHORT_DRIVE_KEYWORDS:
+            if kw in combined:
+                tier = "short"
+                matched_location = kw
+                break
+
+    # If we can't determine location, don't reject
+    if tier is None or tier == "la":
+        return True, None
+
+    # Try to extract pay
+    pay = _extract_total_pay(f"{role_description} {project_notes}")
+    if pay is None:
+        return True, None  # can't determine pay, don't reject
+
+    thresholds = {"short": 250, "medium": 500, "fly": 1000}
+    threshold = thresholds[tier]
+
+    if pay < threshold:
+        tier_label = {"short": "short drive", "medium": "medium drive", "fly": "fly-to"}[tier]
+        reason = f"Travel pay too low: ${pay:.0f} for {tier_label} location ({matched_location}), minimum ${threshold}"
+        logger.info(f"[TRAVEL PAY] Rejecting: {reason}")
+        return False, reason
+
+    return True, None
+
 
 def select_best_roles(roles: list[dict], project_name: str) -> tuple[list[tuple[dict, str]], dict[str, str]]:
     """Pick the best role(s) from a list of matching roles.
@@ -113,7 +227,7 @@ HARD DISQUALIFIERS — reject any role that requires:
 NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair color, build) are EXACT requirements — any mismatch is a hard disqualifier.
 
 TRAVEL PAY MINIMUMS — the actor is based in Los Angeles. Apply these rules based on the shoot location mentioned in the role or project description:
-- LA area (Los Angeles, Burbank, Pasadena, Long Beach, Orange County, etc.): any pay is fine
+- LA area (Los Angeles, Burbank, Pasadena, Long Beach, Orange County, etc.): any pay is fine — NEVER reject an LA role for low pay, even $50
 - Short drive (San Diego, Palm Springs, Santa Barbara, Bakersfield): SKIP if total pay is under $250
 - Medium drive (Las Vegas, San Francisco, Phoenix, Tucson, Arizona generally, NV/AZ): SKIP if total pay is under $500
 - Fly-to locations (New York, Atlanta, Chicago, Vancouver, or anywhere requiring air travel): SKIP if total pay is under $1000
@@ -193,7 +307,7 @@ HARD DISQUALIFIERS — SKIP if the role requires ANY of these:
 NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair color, build) are EXACT requirements — any mismatch is a hard disqualifier.
 
 TRAVEL PAY MINIMUMS — the actor is based in Los Angeles. Apply these rules based on the shoot location mentioned in the role or project description:
-- LA area (Los Angeles, Burbank, Pasadena, Long Beach, Orange County, etc.): any pay is fine
+- LA area (Los Angeles, Burbank, Pasadena, Long Beach, Orange County, etc.): any pay is fine — NEVER reject an LA role for low pay, even $50
 - Short drive (San Diego, Palm Springs, Santa Barbara, Bakersfield): SKIP if total pay is under $250
 - Medium drive (Las Vegas, San Francisco, Phoenix, Tucson, Arizona generally, NV/AZ): SKIP if total pay is under $500
 - Fly-to locations (New York, Atlanta, Chicago, Vancouver, or anywhere requiring air travel): SKIP if total pay is under $1000

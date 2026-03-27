@@ -17,7 +17,7 @@ from src.backstage.client import BackstageClient
 from src.database import Database
 from src.calendar_check import check_availability, parse_shoot_dates
 from src.filters import _is_background, _is_court_tv, _is_ugc, _is_unpaid, _COURT_TV_PATTERN
-from src.role_selector import select_best_roles, analyze_submission_requirements
+from src.role_selector import select_best_roles, analyze_submission_requirements, check_travel_pay
 
 logger = logging.getLogger("backstage")
 
@@ -343,6 +343,28 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
 
                 for best, ai_reason in selected:
                     unique_id = f"backstage_{best['project_id']}_{best['role_id']}"
+
+                    # Programmatic travel pay check (overrides AI)
+                    tp_ok, tp_reason = check_travel_pay(
+                        project_name,
+                        best.get("description", ""),
+                        production.get("project_notes", ""),
+                    )
+                    if not tp_ok:
+                        logger.info(f"[TRAVEL PAY] Skipping {best['role_name']} on {project_name}: {tp_reason}")
+                        role_url = best.get("url", "")
+                        if role_url and not role_url.startswith("http"):
+                            role_url = f"https://www.backstage.com{role_url}"
+                        db.record_rejection(
+                            project_name=project_name,
+                            project_url=role_url or project_url,
+                            role_name=best["role_name"],
+                            role_description=best.get("description", ""),
+                            rejection_reason=tp_reason,
+                            run_id=run_id,
+                            platform="backstage",
+                        )
+                        continue
 
                     # Fetch role detail page for full data (prescreen, attachments, etc.)
                     role_url = best.get("url", "")

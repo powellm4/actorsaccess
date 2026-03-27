@@ -11,7 +11,7 @@ from src.config import load_config, ConfigError
 from src.database import Database
 from src.browser import ActorsAccessBrowser
 from src.filters import role_matches, project_matches, is_sag_only
-from src.role_selector import select_best_roles, analyze_submission_requirements, check_partial_availability
+from src.role_selector import select_best_roles, analyze_submission_requirements, check_partial_availability, check_travel_pay
 from src.calendar_check import parse_shoot_dates, check_availability, get_busy_dates
 
 logger = logging.getLogger("actorsaccess")
@@ -327,6 +327,25 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
 
                     for best, ai_reason in selected:
                         unique_id = f"{project['breakdown_id']}_{best['role_id']}"
+
+                        # Programmatic travel pay check (overrides AI)
+                        tp_ok, tp_reason = check_travel_pay(
+                            project["project_name"],
+                            best.get("description", ""),
+                            project_notes,
+                        )
+                        if not tp_ok:
+                            logger.info(f"[TRAVEL PAY] Skipping {best['role_name']} on {project['project_name']}: {tp_reason}")
+                            db.record_rejection(
+                                project_name=project["project_name"],
+                                project_url=project_url,
+                                role_name=best["role_name"],
+                                role_description=best.get("description", ""),
+                                rejection_reason=tp_reason,
+                                run_id=run_id,
+                                platform="aa",
+                            )
+                            continue
 
                         # If partial availability, ask AI if this specific role works
                         if partial_availability:
