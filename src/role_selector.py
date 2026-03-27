@@ -255,7 +255,7 @@ REJECTED: 2 - Requires heavyset build, actor is athletic
 REJECTED: 4 - Background/extra role, actor does not do background work"""
 
         response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-sonnet-4-6",
             max_tokens=1000,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -318,7 +318,7 @@ If the role is a fit or ambiguous, respond: FIT - <brief reason>
 If the role is clearly not a fit, respond: SKIP - <brief reason>"""
 
         response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-sonnet-4-6",
             max_tokens=200,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -444,7 +444,7 @@ or
 SKIP - <brief reason>"""
 
         response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-sonnet-4-6",
             max_tokens=100,
             messages=[{"role": "user", "content": prompt}],
         )
