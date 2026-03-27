@@ -114,10 +114,11 @@ NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair col
 
 TRAVEL PAY MINIMUMS — the actor is based in Los Angeles. Apply these rules based on the shoot location mentioned in the role or project description:
 - LA area (Los Angeles, Burbank, Pasadena, Long Beach, Orange County, etc.): any pay is fine
-- Drivable Southwest (San Diego, San Francisco, Las Vegas, Phoenix, Tucson, Palm Springs, Santa Barbara, Bakersfield — roughly CA/NV/AZ): SKIP if total pay is under $200
-- Fly-to locations (New York, Atlanta, Chicago, Vancouver, or anywhere requiring air travel): SKIP if total pay is under $500
+- Short drive (San Diego, Palm Springs, Santa Barbara, Bakersfield): SKIP if total pay is under $250
+- Medium drive (Las Vegas, San Francisco, Phoenix, Tucson, Arizona generally, NV/AZ): SKIP if total pay is under $500
+- Fly-to locations (New York, Atlanta, Chicago, Vancouver, or anywhere requiring air travel): SKIP if total pay is under $1000
 - If the shoot location is not mentioned or unclear, do NOT reject based on pay
-- "Total pay" means the full amount for the job, not per day. If the listing says "$200/day" for a 3-day shoot, total pay is $600 — that passes the $500 fly-to threshold
+- "Total pay" means the full amount for the job, not per day. If the listing says "$200/day" for a 3-day shoot, total pay is $600 — that passes the $500 medium-drive threshold
 
 Also consider (but these are NOT reasons to reject — only to rank):
 1. Physical match (age, build, height, ethnicity)
@@ -193,10 +194,11 @@ NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair col
 
 TRAVEL PAY MINIMUMS — the actor is based in Los Angeles. Apply these rules based on the shoot location mentioned in the role or project description:
 - LA area (Los Angeles, Burbank, Pasadena, Long Beach, Orange County, etc.): any pay is fine
-- Drivable Southwest (San Diego, San Francisco, Las Vegas, Phoenix, Tucson, Palm Springs, Santa Barbara, Bakersfield — roughly CA/NV/AZ): SKIP if total pay is under $200
-- Fly-to locations (New York, Atlanta, Chicago, Vancouver, or anywhere requiring air travel): SKIP if total pay is under $500
+- Short drive (San Diego, Palm Springs, Santa Barbara, Bakersfield): SKIP if total pay is under $250
+- Medium drive (Las Vegas, San Francisco, Phoenix, Tucson, Arizona generally, NV/AZ): SKIP if total pay is under $500
+- Fly-to locations (New York, Atlanta, Chicago, Vancouver, or anywhere requiring air travel): SKIP if total pay is under $1000
 - If the shoot location is not mentioned or unclear, do NOT reject based on pay
-- "Total pay" means the full amount for the job, not per day. If the listing says "$200/day" for a 3-day shoot, total pay is $600 — that passes the $500 fly-to threshold
+- "Total pay" means the full amount for the job, not per day. If the listing says "$200/day" for a 3-day shoot, total pay is $600 — that passes the $500 medium-drive threshold
 
 If the role is a fit or ambiguous, respond: FIT - <brief reason>
 If the role is clearly not a fit, respond: SKIP - <brief reason>"""
@@ -423,14 +425,58 @@ IMPORTANT RULES:
 Respond with ONLY the action line (and NOTE/REASON line if applicable). No other text."""
 
     response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+        model="claude-sonnet-4-6-20250514",
         max_tokens=200,
         messages=[{"role": "user", "content": prompt}],
     )
 
     text = response.content[0].text.strip()
     logger.debug(f"[ANALYSIS] Raw response for {role.get('role_name', '')} on {project_name}: {text}")
-    return _parse_analysis_response(text, role, project_name)
+    result = _parse_analysis_response(text, role, project_name)
+
+    # Validate note quality before allowing submission with note
+    if result["action"] == "SUBMIT_WITH_NOTE" and result["note"]:
+        if not _validate_note(result["note"], role, project_name):
+            result["action"] = "SUBMIT"
+            result["note"] = None
+
+    return result
+
+
+def _validate_note(note: str, role: dict, project_name: str) -> bool:
+    """Validate a generated note before submission. Returns False if the note is bad."""
+    import re
+
+    # Reject bracket placeholders like [partner's name], [your name], etc.
+    if re.search(r'\[.*?\]', note):
+        logger.warning(f"Rejected note with placeholder brackets for {role.get('role_name', '')} on {project_name}: {note}")
+        return False
+
+    # Reject curly brace placeholders like {name}, {{name}}
+    if re.search(r'\{.*?\}', note):
+        logger.warning(f"Rejected note with curly brace placeholder for {role.get('role_name', '')} on {project_name}: {note}")
+        return False
+
+    # Reject template/filler language
+    filler_patterns = [
+        r'\b(TBD|TBA|N/?A|TODO|FIXME)\b',
+        r'\b(insert|fill in|replace with|your .* here)\b',
+    ]
+    for pattern in filler_patterns:
+        if re.search(pattern, note, re.IGNORECASE):
+            logger.warning(f"Rejected note with filler language for {role.get('role_name', '')} on {project_name}: {note}")
+            return False
+
+    # Reject notes that mention training/skills (prompt already forbids this)
+    skill_patterns = [
+        r'\b(UCB|Groundlings|improv|salsa|guitar)\b',
+    ]
+    for pattern in skill_patterns:
+        if re.search(pattern, note, re.IGNORECASE):
+            logger.warning(f"Rejected note mentioning training/skills for {role.get('role_name', '')} on {project_name}: {note}")
+            return False
+
+    return True
 
 
 def _parse_analysis_response(text: str, role: dict, project_name: str) -> dict:
