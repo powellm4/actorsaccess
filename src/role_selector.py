@@ -64,14 +64,18 @@ def _extract_total_pay(text: str) -> float | None:
     """Try to extract a numeric pay amount from text. Returns estimated total or None."""
     text_lower = text.lower()
 
-    # Look for per-day rates: "$X/day", "$X per day"
-    m = re.search(r'\$[\s]*([\d,]+(?:\.\d+)?)\s*(?:/|per)\s*day', text_lower)
+    # Helper: find number of days mentioned in text
+    def _find_days() -> int | None:
+        days_m = re.search(r'(?:approx\.?\s*)?(\d+)\s*(?:days?|shoot days?)\s*(?:of work)?', text_lower)
+        return int(days_m.group(1)) if days_m else None
+
+    # Look for per-day rates: "$X/day", "$X per day", "$X/12hr day", "$X / day"
+    m = re.search(r'\$[\s]*([\d,]+(?:\.\d+)?)\s*(?:/|per)\s*(?:\d+\s*hr?\s*)?day', text_lower)
     if m:
         per_day = float(m.group(1).replace(",", ""))
-        # Try to find number of days
-        days_m = re.search(r'(\d+)\s*(?:days?|shoot days?)', text_lower)
-        if days_m:
-            return per_day * int(days_m.group(1))
+        days = _find_days()
+        if days:
+            return per_day * days
         return per_day  # conservative: assume 1 day
 
     # Look for hourly rates: "$X/hour", "$X/hr", "$X per hour"
