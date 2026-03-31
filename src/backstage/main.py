@@ -474,8 +474,9 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
 
                     # Actually submit
                     note = analysis.get("note", "") if analysis["action"] == "SUBMIT_WITH_NOTE" else ""
-                    logger.info(f"[SUBMIT] Attempting: {project_name} — {best['role_name']} (id={unique_id})")
-                    result = client.submit_for_role(best["role_id"], note=note)
+                    video_reel_ids = cfg.get("submission", {}).get("video_reel_ids", [])
+                    logger.info(f"[SUBMIT] Attempting: {project_name} — {best['role_name']} (id={unique_id}), video_reels={video_reel_ids}")
+                    result = client.submit_for_role(best["role_id"], note=note, media_ids=video_reel_ids)
 
                     if isinstance(result, dict) and result.get("_rejected"):
                         reason = result.get("reason", "Unknown rejection")

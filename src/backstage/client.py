@@ -212,12 +212,57 @@ class BackstageClient:
             logger.warning(f"Failed to parse role detail JSON: {e}")
             return None
 
-    def submit_for_role(self, role_id: int, note: str = "") -> dict | None:
+    def attach_media(self, app_id: int, media_ids: list[int]) -> bool:
+        """Attach media (video reels, etc.) to a draft application.
+
+        Uses POST /medialocker/async/shares/ with an array of share objects.
+        Each share links a medialocker asset to the application.
+
+        Returns True if all media were attached successfully.
+        """
+        if not media_ids:
+            return True
+
+        # Get existing shared_assets to determine ordering offset
+        existing = self._request(f"{APPLICATION_URL}{app_id}/")
+        existing_count = len(existing.get("shared_assets", [])) if isinstance(existing, dict) else 0
+        existing_ids = set()
+        if isinstance(existing, dict):
+            existing_ids = {a["asset"]["id"] for a in existing.get("shared_assets", []) if "asset" in a}
+
+        # Filter out media already attached
+        new_ids = [mid for mid in media_ids if mid not in existing_ids]
+        if not new_ids:
+            logger.info(f"All {len(media_ids)} media already attached to app {app_id}")
+            return True
+
+        shares = [
+            {
+                "asset_id": mid,
+                "object_id": app_id,
+                "content_type": "applicant",
+                "is_primary": False,
+                "featured": False,
+                "ordering": existing_count + i,
+            }
+            for i, mid in enumerate(new_ids)
+        ]
+
+        _random_delay(1, 2)
+        result = self._request(f"{BASE_URL}/medialocker/async/shares/", data=shares)
+        if isinstance(result, list):
+            logger.info(f"Attached {len(new_ids)} media to app {app_id}: {new_ids}")
+            return True
+        logger.warning(f"Failed to attach media to app {app_id}: {result}")
+        return False
+
+    def submit_for_role(self, role_id: int, note: str = "", media_ids: list[int] | None = None) -> dict | None:
         """Submit an application for a role.
 
-        Two-step process:
+        Three-step process:
         1. POST /talent_application/async/ with {role: id} → creates draft
-        2. PUT /talent_application/async/{app_id}/ with {applicant_status: "C"} → submits
+        2. Attach video reels via /medialocker/async/shares/ (if media_ids provided)
+        3. PUT /talent_application/async/{app_id}/ with {applicant_status: "C"} → submits
         """
         # Step 1: Create draft
         _random_delay(1, 3)
@@ -235,7 +280,15 @@ class BackstageClient:
         app_id = app["id"]
         logger.info(f"Created draft application {app_id} for role {role_id}")
 
-        # Step 2: Submit via PUT (change status from Draft "I" to Submitted "C")
+        # Step 2: Attach video reels
+        if media_ids:
+            logger.info(f"Attaching {len(media_ids)} video reels to app {app_id}: {media_ids}")
+            if not self.attach_media(app_id, media_ids):
+                logger.warning(f"Failed to attach media to app {app_id}, submitting without videos")
+        else:
+            logger.info(f"No media_ids provided for app {app_id}, skipping video attachment")
+
+        # Step 3: Submit via PUT (change status from Draft "I" to Submitted "C")
         _random_delay(2, 4)
         submit_data = {"applicant_status": "C"}
         if note:
