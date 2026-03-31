@@ -12,7 +12,7 @@ import re
 logger = logging.getLogger(__name__)
 
 ACTOR_PROFILE = """
-- Appears 25, plays 18-30 most convincingly, but can stretch to 35
+- Appears 25, plays 17-30 most convincingly, but can stretch to 35
 - Male, White, 6'0", 185 lbs, athletic build, brown hair (thick, slightly curly, short-medium length), clean-shaven (no beard)
 - Instagram: @marshallpowell
 - Type: Leading man, comedic/charming; also strong as villain/antagonist/mean characters; also excels at grounded/calm/straight man/voice-of-reason roles
@@ -219,13 +219,13 @@ HARD DISQUALIFIERS — reject any role that requires:
 - Female only
 - Specific ethnicity that excludes White
 - Specific hair color that is NOT brown ONLY when stated as a casting requirement (e.g., "must have blonde hair", "redhead required"). The actor has BROWN hair. Character descriptions like "dyed hair" or "punk vibes" are styling choices that can be achieved — these are NOT disqualifiers.
-- Age range with NO overlap with 18-35 (e.g., "40-55" is a rejection, but "30-40" is NOT because it overlaps with the actor's range)
+- Age range with NO overlap with 17-35 (e.g., "40-55" is a rejection, but "30-40" is NOT because it overlaps with the actor's range)
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
 - Requires an authentic/native non-American accent (e.g., "must have authentic British accent", "native French speaker")
 - Requires a beard or facial hair (actor is clean-shaven)
 - NOT a real acting or modeling role — consumer studies, product testing, paid research studies, focus groups, medical studies, or any role where participants are selected based on personal conditions (skin conditions, health issues, etc.) rather than acting/modeling ability. IMPORTANT: Modeling gigs, lifestyle content shoots, brand campaigns, fitness shoots, and photo/video commercial work ARE legitimate — do NOT reject these. The actor wants modeling work. Only reject actual research studies, focus groups, and medical studies.
 - Background/extra work disguised as a named role — roles like "MASKED AUDIENCE MEMBERS", "PARTYGOERS", "CROWD", or any role where the actor is essentially atmosphere/background with no lines or character arc
-- "Must look" or "play younger" age requirements UNDER 18 — the actor appears 25 and can play 18-30. He CAN play 18 but CANNOT convincingly look like a minor (under 18, i.e., 13-17). "Plays age 18" is fine — 18 is an adult. Only SKIP if the role explicitly needs someone who looks like a child or young teenager (under 18).
+- "Must look" or "play younger" age requirements UNDER 17 — the actor appears 25 and can play 17-30. He CAN play down to 17 but CANNOT convincingly look younger than that (under 17, i.e., 13-16). "Plays age 17" or "plays age 18" is fine. Only SKIP if the role explicitly needs someone who looks like a child or young teenager (under 17).
 - Requires the actor to OWN something specific that is not a standard wardrobe/prop item — e.g., "must have a dog", "must own a motorcycle", "bring your own surfboard", "real couples only". If the casting post requires the actor to personally possess something (pet, vehicle, relationship, property) as a condition of the role, SKIP it. Standard wardrobe items (suit, business casual, etc.) are NOT disqualifiers.
 
 NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair color, build) are EXACT requirements — any mismatch is a hard disqualifier.
@@ -265,7 +265,7 @@ REJECTED: 4 - Background/extra role, actor does not do background work"""
         )
 
         text = response.content[0].text.strip()
-        logger.debug(f"[AI] Raw response for {project_name}: {text}")
+        logger.info(f"[AI] Raw response for {project_name}: {text}")
         return _parse_structured_response(text, roles, project_name)
 
     except Exception as e:
@@ -299,13 +299,13 @@ HARD DISQUALIFIERS — SKIP if the role requires ANY of these:
 - Female only
 - Specific ethnicity that excludes White
 - Specific hair color that is NOT brown ONLY when stated as a casting requirement (e.g., "must have blonde hair", "redhead required"). The actor has BROWN hair. Character descriptions like "dyed hair" or "punk vibes" are styling choices that can be achieved — these are NOT disqualifiers.
-- Age range with NO overlap with 18-35 (e.g., "40-55" is a rejection, but "30-40" is NOT because it overlaps with the actor's range)
+- Age range with NO overlap with 17-35 (e.g., "40-55" is a rejection, but "30-40" is NOT because it overlaps with the actor's range)
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
 - Requires an authentic/native non-American accent (e.g., "must have authentic British accent", "native French speaker")
 - Requires a beard or facial hair (actor is clean-shaven)
 - NOT a real acting or modeling role — consumer studies, product testing, paid research studies, focus groups, medical studies, or any role where participants are selected based on personal conditions (skin conditions, health issues, etc.) rather than acting/modeling ability. IMPORTANT: Modeling gigs, lifestyle content shoots, brand campaigns, fitness shoots, and photo/video commercial work ARE legitimate — do NOT reject these. The actor wants modeling work. Only reject actual research studies, focus groups, and medical studies.
 - Background/extra work disguised as a named role — roles like "MASKED AUDIENCE MEMBERS", "PARTYGOERS", "CROWD", or any role where the actor is essentially atmosphere/background with no lines or character arc
-- "Must look" or "play younger" age requirements UNDER 18 — the actor appears 25 and can play 18-30. He CAN play 18 but CANNOT convincingly look like a minor (under 18, i.e., 13-17). "Plays age 18" is fine — 18 is an adult. Only SKIP if the role explicitly needs someone who looks like a child or young teenager (under 18).
+- "Must look" or "play younger" age requirements UNDER 17 — the actor appears 25 and can play 17-30. He CAN play down to 17 but CANNOT convincingly look younger than that (under 17, i.e., 13-16). "Plays age 17" or "plays age 18" is fine. Only SKIP if the role explicitly needs someone who looks like a child or young teenager (under 17).
 - Requires the actor to OWN something specific that is not a standard wardrobe/prop item — e.g., "must have a dog", "must own a motorcycle", "bring your own surfboard", "real couples only". If the casting post requires the actor to personally possess something (pet, vehicle, relationship, property) as a condition of the role, SKIP it. Standard wardrobe items (suit, business casual, etc.) are NOT disqualifiers.
 
 NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair color, build) are EXACT requirements — any mismatch is a hard disqualifier.
@@ -348,17 +348,20 @@ def _parse_structured_response(
     """Parse the structured SELECTED/REJECTED response from the AI."""
     lines = text.strip().split("\n")
 
-    # Check for SKIP
-    if lines[0].strip().upper().startswith("SKIP"):
-        skip_reason = lines[0].split("-", 1)[1].strip() if "-" in lines[0] else lines[0].strip()
-        rejections = {r["role_name"]: skip_reason for r in roles}
-        logger.info(f"AI skipped project {project_name}: {skip_reason}")
-        return [], rejections
+    # Check for SKIP — must be "SKIP" alone or "SKIP - reason" (may appear after AI preamble)
+    skip_re = re.compile(r"^SKIP\s*(?:[-–—]\s*(.*))?$", re.IGNORECASE)
+    for line in lines:
+        m = skip_re.match(line.strip())
+        if m:
+            skip_reason = (m.group(1) or "").strip() or line.strip()
+            rejections = {r["role_name"]: skip_reason for r in roles}
+            logger.info(f"AI skipped project {project_name}: {skip_reason}")
+            return [], rejections
 
     selected = []
     rejections = {}
-    selected_re = re.compile(r"SELECTED:\s*(\d+)\s*-\s*(.*)", re.IGNORECASE)
-    rejected_re = re.compile(r"REJECTED:\s*(\d+)\s*-\s*(.*)", re.IGNORECASE)
+    selected_re = re.compile(r"SELECTED:\s*(\d+)\s*[-–—]\s*(.*)", re.IGNORECASE)
+    rejected_re = re.compile(r"REJECTED:\s*(\d+)\s*[-–—]\s*(.*)", re.IGNORECASE)
 
     for line in lines:
         m = selected_re.match(line.strip())
@@ -375,7 +378,12 @@ def _parse_structured_response(
             if 0 <= idx < len(roles):
                 rejections[roles[idx]["role_name"]] = reason
 
-    # Fallback: no SELECTED lines found — skip all rather than blindly submit
+    # If we found REJECTED lines but no SELECTED lines, the AI legitimately rejected all roles
+    if not selected and rejections:
+        logger.info(f"AI rejected all {len(rejections)} role(s) for {project_name}")
+        return [], rejections
+
+    # Fallback: no SELECTED or REJECTED lines found — truly unparseable
     if not selected:
         logger.warning(f"AI returned unparseable response for {project_name}: {text[:200]}")
         fallback_reason = "AI returned unparseable response, skipped to be safe"
@@ -528,6 +536,7 @@ IMPORTANT RULES:
 - A role description describing the character is NOT a request for info — do not respond to it
 - ABSOLUTELY NEVER include acting skills, improv training, UCB, Groundlings, dance experience, guitar, or ANY training/experience in submission notes. These are NEVER relevant to submission notes regardless of what the casting asks. If a casting says "let us know about your experience" — respond with ACTION: SUBMIT (no note). The actor's profile/resume already covers this.
 - ABSOLUTELY NEVER fabricate ANY claims not explicitly stated in the actor profile above. This includes: product usage, brand loyalty, past roles, past projects, acting credits, specific experience (e.g., "I've played a lead in a micro-series"), personal stories, or hobbies. If a casting asks "have you done X?" or "let us know if you've done X" and the answer is not in the actor profile, respond with ACTION: SUBMIT (no note). Making false claims is worse than no note at all. The ONLY facts you may state are those listed in the actor profile above.
+- If the post asks about SPECIFIC TYPES OF EXPERIENCE (e.g., vertical experience, stunt experience, hosting experience, combat experience, mocap experience, etc.) that are NOT listed in the actor profile above, respond with ACTION: SUBMIT. Do NOT write "I have [X] experience" (fabrication) or "I do not have [X] experience" (volunteering a negative). BOTH responses are wrong. Simply submit with no note.
 - BAD note examples (NEVER do these): "I have improv training from UCB", "I'm a devoted TheraBreath user", "I've played lead roles in micro-series", "I have 5+ years of dance experience". These are all WRONG — either fabricated or volunteering unrequested info.
 - If a casting asks for Instagram, include @marshallpowell
 - NEVER volunteer information that was not explicitly asked for — no location, no transportation, no contact info, no availability unless the post explicitly asks you to NOTE it in the submission
@@ -593,6 +602,13 @@ def _validate_note(note: str, role: dict, project_name: str) -> bool:
         if re.search(pattern, note, re.IGNORECASE):
             logger.warning(f"Rejected note mentioning training/skills for {role.get('role_name', '')} on {project_name}: {note}")
             return False
+
+    # Reject notes that claim or deny experience (fabrication/negative-volunteering risk)
+    # No legitimate submission note should mention "experience" — actor skills are already
+    # forbidden above, and any other experience claim risks fabrication or volunteering negatives.
+    if re.search(r'\bexperience\b', note, re.IGNORECASE):
+        logger.warning(f"Rejected note mentioning experience for {role.get('role_name', '')} on {project_name}: {note}")
+        return False
 
     return True
 
