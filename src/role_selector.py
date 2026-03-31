@@ -84,10 +84,21 @@ def _extract_total_pay(text: str) -> float | None:
         per_hour = float(m.group(1).replace(",", ""))
         return per_hour * 8  # assume 8-hour day
 
-    # Look for flat amounts: "$X", "$X total"
+    # Look for "$XK" shorthand (e.g., "$1K total", "$2.5K")
+    m = re.search(r'\$([\d,]+(?:\.\d+)?)\s*[kK]\b', text)
+    if m:
+        return float(m.group(1).replace(",", "")) * 1000
+
+    # Look for explicit "total" amount: "$X total"
+    m = re.search(r'\$([\d,]+(?:\.\d+)?)\s*total', text_lower)
+    if m:
+        return float(m.group(1).replace(",", ""))
+
+    # Sum all dollar amounts (e.g., "$300 session + $700 usage" = $1000)
     amounts = re.findall(r'\$([\d,]+(?:\.\d+)?)', text)
     if amounts:
-        return max(float(a.replace(",", "")) for a in amounts)
+        values = [float(a.replace(",", "")) for a in amounts]
+        return sum(values)
 
     return None
 
