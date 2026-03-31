@@ -66,8 +66,25 @@ def _extract_total_pay(text: str) -> float | None:
 
     # Helper: find number of days mentioned in text
     def _find_days() -> int | None:
+        # Explicit "X days" format
         days_m = re.search(r'(?:approx\.?\s*)?(\d+)\s*(?:days?|shoot days?)\s*(?:of work)?', text_lower)
-        return int(days_m.group(1)) if days_m else None
+        if days_m:
+            return int(days_m.group(1))
+        # Date range: "Month D - Month D" or "Month D - D"
+        from datetime import datetime
+        range_m = re.search(
+            r'(\w+ \d{1,2})\s*[-–—]\s*(\w+ \d{1,2}),?\s*(\d{4})',
+            text,
+        )
+        if range_m:
+            try:
+                year = range_m.group(3)
+                start = datetime.strptime(f"{range_m.group(1)} {year}", "%B %d %Y")
+                end = datetime.strptime(f"{range_m.group(2)} {year}", "%B %d %Y")
+                return max(1, (end - start).days + 1)
+            except ValueError:
+                pass
+        return None
 
     # Look for per-day rates: "$X/day", "$X per day", "$X/12hr day", "$X / day"
     m = re.search(r'\$[\s]*([\d,]+(?:\.\d+)?)\s*(?:/|per)\s*(?:\d+\s*hr?\s*)?day', text_lower)
@@ -145,6 +162,18 @@ def check_travel_pay(project_name: str, role_description: str = "", project_note
     # If we can't determine location, don't reject
     if tier is None or tier == "la":
         return True, None
+
+    # If travel/lodging is provided, pay threshold doesn't apply
+    travel_provided_patterns = [
+        r'travel\s+(?:and\s+)?(?:lodging|housing|accommodations?)\s+(?:will be\s+)?provided',
+        r'(?:lodging|housing|accommodations?)\s+(?:and\s+)?travel\s+(?:will be\s+)?provided',
+        r'travel\s+(?:is\s+)?(?:covered|included|paid)',
+        r'(?:we|production)\s+(?:will\s+)?(?:cover|provide|pay\s+for)\s+travel',
+    ]
+    for pattern in travel_provided_patterns:
+        if re.search(pattern, combined):
+            logger.info(f"[TRAVEL PAY] Travel provided for {tier} location ({matched_location}), skipping pay check")
+            return True, None
 
     # Try to extract pay
     pay = _extract_total_pay(f"{role_description} {project_notes}")
