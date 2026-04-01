@@ -8,6 +8,10 @@ saved_search: "acting"
 
 submission:
   default_note: ""
+  video_reel_ids:
+    - 49385977  # IMG_5975
+    - 49379289  # IMG_5964
+    - 49275576  # IMG_5721
 
 browser:
   headless: false
