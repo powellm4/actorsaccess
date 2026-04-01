@@ -273,7 +273,7 @@ HARD DISQUALIFIERS — reject any role that requires:
 
 NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair color, build) are EXACT requirements — any mismatch is a hard disqualifier.
 
-TRAVEL PAY MINIMUMS — the actor is based in Los Angeles. Apply these rules based on the shoot location mentioned in the role or project description:
+TRAVEL PAY MINIMUMS — the actor is based in Los Angeles but is willing to work as "local hire" ANYWHERE as long as the pay meets the threshold. "Must be local hire to [city]", "local to [city]", or "must be based in [city]" are NOT disqualifiers — the actor will travel at his own expense if the total pay is high enough. Apply these rules:
 - LA area (Los Angeles, Burbank, Pasadena, Long Beach, Orange County, etc.): any pay is fine — NEVER reject an LA role for low pay, even $50
 - Short drive (San Diego, Palm Springs, Santa Barbara, Bakersfield): SKIP if total pay is under $250
 - Medium drive (Las Vegas, San Francisco, Phoenix, Tucson, Arizona generally, NV/AZ): SKIP if total pay is under $500
@@ -355,7 +355,7 @@ HARD DISQUALIFIERS — SKIP if the role requires ANY of these:
 
 NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair color, build) are EXACT requirements — any mismatch is a hard disqualifier.
 
-TRAVEL PAY MINIMUMS — the actor is based in Los Angeles. Apply these rules based on the shoot location mentioned in the role or project description:
+TRAVEL PAY MINIMUMS — the actor is based in Los Angeles but is willing to work as "local hire" ANYWHERE as long as the pay meets the threshold. "Must be local hire to [city]", "local to [city]", or "must be based in [city]" are NOT disqualifiers — the actor will travel at his own expense if the total pay is high enough. Apply these rules:
 - LA area (Los Angeles, Burbank, Pasadena, Long Beach, Orange County, etc.): any pay is fine — NEVER reject an LA role for low pay, even $50
 - Short drive (San Diego, Palm Springs, Santa Barbara, Bakersfield): SKIP if total pay is under $250
 - Medium drive (Las Vegas, San Francisco, Phoenix, Tucson, Arizona generally, NV/AZ): SKIP if total pay is under $500
