@@ -69,8 +69,10 @@ def _extract_total_pay(text: str) -> float | None:
 
     # Helper: find number of days mentioned in text
     def _find_days() -> int | None:
-        # Explicit "X days" format
-        days_m = re.search(r'(?:approx\.?\s*)?(\d+)\s*(?:days?|shoot days?)\s*(?:of work)?', text_lower)
+        # Explicit "X days" or "Shoot Days: X" format
+        days_m = re.search(r'(?:approx\.?\s*)?(?:shoot\s*)?days?(?:\s*(?:of work))?[:\s]+(\d+)', text_lower)
+        if not days_m:
+            days_m = re.search(r'(?:approx\.?\s*)?(\d+)\s*(?:days?|shoot\s*days?)\s*(?:of work)?', text_lower)
         if days_m:
             return int(days_m.group(1))
         # Date range: "Month D - Month D" or "Month D - D"
@@ -89,8 +91,8 @@ def _extract_total_pay(text: str) -> float | None:
                 pass
         return None
 
-    # Look for per-day rates: "$X/day", "$X per day", "$X/12hr day", "$X / day"
-    m = re.search(r'\$[\s]*([\d,]+(?:\.\d+)?)\s*(?:/|per)\s*(?:\d+\s*hr?\s*)?day', text_lower)
+    # Look for per-day rates: "$X/day", "$X per day", "$X/12hr day", "$X + 10 per shoot day"
+    m = re.search(r'\$[\s]*([\d,]+(?:\.\d+)?)\s*(?:\+\s*\d+\s*)?(?:/|per)\s*(?:\d+\s*hr?\s*)?(?:shoot\s*)?day', text_lower)
     if m:
         per_day = float(m.group(1).replace(",", ""))
         days = _find_days()
