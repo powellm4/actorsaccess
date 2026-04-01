@@ -284,9 +284,11 @@ Also consider (but these are NOT reasons to reject — only to rank):
 
 If NONE of the roles are a good fit, respond with SKIP on the first line and explain why.
 
-Respond with this exact format (one line per role):
+Respond with ONLY this exact format (one line per role, no preamble, no reasoning, no explanation before the lines):
 SELECTED: <number> - <explain WHY this role is a good fit>
 REJECTED: <number> - <explain WHY this role is not a fit>
+
+CRITICAL: Your response must start IMMEDIATELY with SELECTED, REJECTED, or SKIP. Do NOT write any reasoning, analysis, or thinking before the structured lines. No "Let me check...", no "I need to evaluate...", no "The travel pay rule...". Just the structured lines.
 
 IMPORTANT: The reason must explain WHY, not just restate the role name. Bad: "HARRISON". Good: "Age and type match for athletic leading man".
 
