@@ -25,6 +25,7 @@ ACTOR_PROFILE = """
 - Non-union
 - Email: REDACTED | Phone: REDACTED
 - Based in Los Angeles with reliable transportation; willing to travel to other cities for shoots
+- Has a current/valid US passport
 - Generally open availability
 - No demo reel currently — still apply for roles requesting one
 - Open to voice over / voice acting roles
