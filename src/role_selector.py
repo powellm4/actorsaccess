@@ -12,7 +12,7 @@ import re
 logger = logging.getLogger(__name__)
 
 ACTOR_PROFILE = """
-- Appears 25, plays 17-30 most convincingly, but can stretch to 35
+- Appears 25 but people often think he's younger; plays 17-30 convincingly (yes, including 17-22 college-aged roles), can stretch to 35
 - Male, White, 6'0", 185 lbs, athletic build, brown hair (thick, slightly curly, short-medium length), clean-shaven (no beard)
 - Instagram: @marshallpowell
 - Type: Leading man, comedic/charming; also strong as villain/antagonist/mean characters; also excels at grounded/calm/straight man/voice-of-reason roles
