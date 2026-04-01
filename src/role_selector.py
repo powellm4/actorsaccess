@@ -48,7 +48,8 @@ _MEDIUM_DRIVE_KEYWORDS = [
     "scottsdale", "tempe", "mesa, az", "reno",
 ]
 _FLY_TO_KEYWORDS = [
-    "new york", "nyc", "atlanta", "chicago", "vancouver", "toronto",
+    "new york", "nyc", "brooklyn", "manhattan", "queens", "bronx",
+    "staten island", "atlanta", "chicago", "vancouver", "toronto",
     "miami", "dallas", "houston", "boston", "seattle", "portland, or",
     "philadelphia", "detroit", "denver", "nashville", "new orleans",
     "wilmington, nc", "wilmington nc", "pittsburgh", "minneapolis",
