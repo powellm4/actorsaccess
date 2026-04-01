@@ -128,36 +128,34 @@ def check_travel_pay(project_name: str, role_description: str = "", project_note
     """
     combined = f"{project_name} {role_description} {project_notes}".lower()
 
-    # Determine location tier
+    def _match_location(keywords: list[str]) -> str | None:
+        """Match location keywords using word boundaries to avoid substring false positives."""
+        for kw in keywords:
+            # Use word boundaries so "paris" doesn't match inside "comparisons"
+            if re.search(r'\b' + re.escape(kw) + r'\b', combined):
+                return kw
+        return None
+
+    # Determine location tier (check LA first — LA always passes)
     tier = None
-    matched_location = None
-
-    for kw in _LA_AREA_KEYWORDS:
-        if kw in combined:
-            tier = "la"
-            matched_location = kw
-            break
+    matched_location = _match_location(_LA_AREA_KEYWORDS)
+    if matched_location:
+        tier = "la"
 
     if tier is None:
-        for kw in _FLY_TO_KEYWORDS:
-            if kw in combined:
-                tier = "fly"
-                matched_location = kw
-                break
+        matched_location = _match_location(_FLY_TO_KEYWORDS)
+        if matched_location:
+            tier = "fly"
 
     if tier is None:
-        for kw in _MEDIUM_DRIVE_KEYWORDS:
-            if kw in combined:
-                tier = "medium"
-                matched_location = kw
-                break
+        matched_location = _match_location(_MEDIUM_DRIVE_KEYWORDS)
+        if matched_location:
+            tier = "medium"
 
     if tier is None:
-        for kw in _SHORT_DRIVE_KEYWORDS:
-            if kw in combined:
-                tier = "short"
-                matched_location = kw
-                break
+        matched_location = _match_location(_SHORT_DRIVE_KEYWORDS)
+        if matched_location:
+            tier = "short"
 
     # If we can't determine location, don't reject
     if tier is None or tier == "la":
