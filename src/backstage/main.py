@@ -372,7 +372,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                         continue
 
                     # Fetch role detail page for full data (prescreen, attachments, etc.)
-                    role_url = best.get("url", "")
+                    role_url = best.get("url", "") or prod_url
                     if role_url:
                         logger.info(f"Fetching detail page for {best['role_name']}...")
                         detail = client.fetch_role_detail(role_url)
@@ -397,6 +397,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     prescreen_type = best.get("prescreen_type", "")
                     prescreen_msg = best.get("prescreen_message", "")
                     prescreen_questions = best.get("prescreen_questions", [])
+                    logger.info(f"[PRESCREEN] {best['role_name']}: type={prescreen_type!r}, msg={prescreen_msg[:50]!r if prescreen_msg else ''!r}, questions={len(prescreen_questions)}")
                     if prescreen_type == "V" or prescreen_msg or prescreen_questions:
                         if prescreen_questions:
                             q_texts = [q.get("text", "") for q in prescreen_questions[:3]]
