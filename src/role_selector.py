@@ -98,7 +98,7 @@ def _extract_total_pay(text: str) -> float | None:
         days = _find_days()
         if days:
             return per_day * days
-        return per_day  # conservative: assume 1 day
+        return per_day * 2  # per-day rates imply multi-day work; assume at least 2 days
 
     # Look for hourly rates: "$X/hour", "$X/hr", "$X per hour"
     m = re.search(r'\$[\s]*([\d,]+(?:\.\d+)?)\s*(?:/|per)\s*(?:hour|hr)', text_lower)
