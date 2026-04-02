@@ -435,8 +435,13 @@ def _parse_structured_response(
         rejections = {r["role_name"]: fallback_reason for r in roles}
         return [], rejections
 
-    # Fill in any roles not mentioned in rejections
+    # If a role appears in both SELECTED and REJECTED, selected wins
     selected_names = {s[0]["role_name"] for s in selected}
+    for name in list(rejections):
+        if name in selected_names:
+            del rejections[name]
+
+    # Fill in any roles not mentioned in rejections
     for role in roles:
         if role["role_name"] not in selected_names and role["role_name"] not in rejections:
             rejections[role["role_name"]] = "not mentioned by AI"
