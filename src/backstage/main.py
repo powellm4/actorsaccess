@@ -397,7 +397,8 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     prescreen_type = best.get("prescreen_type", "")
                     prescreen_msg = best.get("prescreen_message", "")
                     prescreen_questions = best.get("prescreen_questions", [])
-                    logger.info(f"[PRESCREEN] {best['role_name']}: type={prescreen_type!r}, msg={prescreen_msg[:50]!r if prescreen_msg else ''!r}, questions={len(prescreen_questions)}")
+                    msg_preview = repr(prescreen_msg[:50]) if prescreen_msg else "''"
+                    logger.info(f"[PRESCREEN] {best['role_name']}: type={prescreen_type!r}, msg={msg_preview}, questions={len(prescreen_questions)}")
                     if prescreen_type == "V" or prescreen_msg or prescreen_questions:
                         if prescreen_questions:
                             q_texts = [q.get("text", "") for q in prescreen_questions[:3]]
