@@ -67,6 +67,12 @@ def _extract_total_pay(text: str) -> float | None:
     """Try to extract a numeric pay amount from text. Returns estimated total or None."""
     text_lower = text.lower()
 
+    # Treat vague/empty pay as $0 (not unknown) so travel guard can reject
+    vague_pay_patterns = ["see below", "see above", "see details", "see role", "tbd", "tbr", "n/a", "negotiable", "deferred", "no pay", "unpaid", "copy/credit"]
+    if any(p in text_lower for p in vague_pay_patterns):
+        if not re.search(r'\$\d', text):  # no actual dollar amount alongside
+            return 0
+
     # Helper: find number of days mentioned in text
     def _find_days() -> int | None:
         # Explicit "X days" or "Shoot Days: X" format
