@@ -160,6 +160,9 @@ def role_matches(role: dict) -> tuple[bool, str]:
     if _is_background(role):
         return False, "background role"
 
+    if _is_voiceover(role):
+        return False, "voiceover role"
+
     if _is_unpaid(role):
         return False, "unpaid role"
 

@@ -166,6 +166,14 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             logger.info(f"Filtered out: {project_name} — {role['role_name']} (unpaid)")
                         continue
 
+                    if _is_voiceover(role):
+                        roles_filtered += 1
+                        if dry_run:
+                            _print_role_decision("SKIP", project_name, role, "voiceover")
+                        else:
+                            logger.info(f"Filtered out: {project_name} — {role['role_name']} (voiceover)")
+                        continue
+
                     if _is_ugc(project_name, role):
                         roles_filtered += 1
                         if dry_run:

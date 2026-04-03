@@ -29,7 +29,7 @@ ACTOR_PROFILE = """
 - Has a current/valid US passport
 - Generally open availability
 - No demo reel currently — still apply for roles requesting one
-- Open to voice over / voice acting roles
+- No voice over / voice acting roles
 - No UGC
 - No background/extra work
 - No theatre/musical work
