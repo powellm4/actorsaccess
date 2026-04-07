@@ -263,7 +263,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     tp_ok, tp_reason = check_travel_pay(
                         project_name,
                         best.get("description", ""),
-                        best.get("submission_date", ""),
+                        f"{best.get('submission_date', '')} {best.get('location', '')}",
                     )
                     if not tp_ok:
                         logger.info(f"[TRAVEL PAY] Skipping {best['role_name']} on {project_name}: {tp_reason}")
