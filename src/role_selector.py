@@ -62,6 +62,26 @@ _FLY_TO_KEYWORDS = [
     "bari, italy", "beijing",
 ]
 
+# US states that are fly-to from LA (excludes CA, NV, AZ which are handled above).
+# Full names matched as substrings; codes matched only in clear state-reference context
+# (e.g., "Greenville, SC") to avoid false positives like "SC" appearing inside random text.
+_FLY_TO_US_STATES = {
+    "alabama": "AL", "alaska": "AK", "arkansas": "AR", "colorado": "CO",
+    "connecticut": "CT", "delaware": "DE", "florida": "FL", "georgia": "GA",
+    "hawaii": "HI", "idaho": "ID", "illinois": "IL", "indiana": "IN",
+    "iowa": "IA", "kansas": "KS", "kentucky": "KY", "louisiana": "LA",
+    "maine": "ME", "maryland": "MD", "massachusetts": "MA", "michigan": "MI",
+    "minnesota": "MN", "mississippi": "MS", "missouri": "MO", "montana": "MT",
+    "nebraska": "NE", "new hampshire": "NH", "new jersey": "NJ",
+    "new mexico": "NM", "new york": "NY", "north carolina": "NC",
+    "north dakota": "ND", "ohio": "OH", "oklahoma": "OK", "oregon": "OR",
+    "pennsylvania": "PA", "rhode island": "RI", "south carolina": "SC",
+    "south dakota": "SD", "tennessee": "TN", "texas": "TX", "utah": "UT",
+    "vermont": "VT", "virginia": "VA", "washington": "WA",
+    "west virginia": "WV", "wisconsin": "WI", "wyoming": "WY",
+    "district of columbia": "DC",
+}
+
 
 def _extract_total_pay(text: str) -> float | None:
     """Try to extract a numeric pay amount from text. Returns estimated total or None."""
@@ -167,6 +187,20 @@ def check_travel_pay(project_name: str, role_description: str = "", project_note
         matched_location = _match_location(_SHORT_DRIVE_KEYWORDS)
         if matched_location:
             tier = "short"
+
+    if tier is None:
+        # Fallback: any US state outside CA/NV/AZ counts as fly-to
+        for full_name, code in _FLY_TO_US_STATES.items():
+            if full_name in combined:
+                tier = "fly"
+                matched_location = full_name
+                break
+            # Match codes only in clear state-reference context (avoid false positives
+            # like "LA" inside "lay" or "SC" inside random text)
+            if re.search(rf'(?:,\s*|location[:\s]+|\bin\s+){code}\b', combined, re.IGNORECASE):
+                tier = "fly"
+                matched_location = code
+                break
 
     # If we can't determine location, don't reject
     if tier is None or tier == "la":
