@@ -195,9 +195,9 @@ def check_travel_pay(project_name: str, role_description: str = "", project_note
                 tier = "fly"
                 matched_location = full_name
                 break
-            # Match codes only in clear state-reference context (avoid false positives
-            # like "LA" inside "lay" or "SC" inside random text)
-            if re.search(rf'(?:,\s*|location[:\s]+|\bin\s+){code}\b', combined, re.IGNORECASE):
+            # Match codes ONLY in unambiguous "City, ST" form (comma-prefixed) to avoid
+            # false positives like "shoot in LA" being read as Louisiana.
+            if re.search(rf',\s*{code}\b', combined, re.IGNORECASE):
                 tier = "fly"
                 matched_location = code
                 break
