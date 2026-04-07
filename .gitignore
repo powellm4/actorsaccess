@@ -8,3 +8,4 @@ venv/
 debug_*
 docs/
 .claude/
+.worktrees/
