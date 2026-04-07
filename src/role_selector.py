@@ -380,17 +380,27 @@ If the role is clearly not a fit, respond: SKIP - <brief reason>"""
 
         text = response.content[0].text.strip()
         logger.debug(f"[AI] Raw fitness check for {role['role_name']} on {project_name}: {text}")
-        if text.upper().startswith("SKIP"):
+
+        upper = text.upper()
+        first_line = upper.splitlines()[0] if upper else ""
+        if "SKIP" in first_line:
             reason = text.split("-", 1)[1].strip() if "-" in text else text
             logger.info(f"AI skipped single role {role['role_name']} on {project_name}: {reason}")
             return [], {role["role_name"]: reason}
 
-        reason = text.split("-", 1)[1].strip() if "-" in text else "only matching role"
-        return [(role, reason)], {}
+        if upper.startswith("FIT"):
+            reason = text.split("-", 1)[1].strip() if "-" in text else "only matching role"
+            return [(role, reason)], {}
+
+        logger.warning(
+            f"AI fitness check returned unrecognized format for {role['role_name']} on {project_name}; "
+            f"defaulting to SKIP. Raw: {text!r}"
+        )
+        return [], {role["role_name"]: f"AI response unrecognized: {text[:200]}"}
 
     except Exception as e:
-        logger.warning(f"AI fitness check failed ({e}), applying anyway")
-        return [(role, "only matching role (AI check failed)")], {}
+        logger.warning(f"AI fitness check failed ({e}), skipping role")
+        return [], {role["role_name"]: f"AI check failed: {e}"}
 
 
 def _parse_structured_response(
