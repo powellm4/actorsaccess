@@ -415,14 +415,16 @@ If the role is clearly not a fit, respond: SKIP - <brief reason>"""
         text = response.content[0].text.strip()
         logger.debug(f"[AI] Raw fitness check for {role['role_name']} on {project_name}: {text}")
 
-        upper = text.upper()
-        first_line = upper.splitlines()[0] if upper else ""
-        if "SKIP" in first_line:
+        first_line = text.splitlines()[0] if text else ""
+        # Strip leading markdown/punctuation/whitespace (e.g., "**FIT**", "- SKIP", "> FIT")
+        stripped = re.sub(r'^[\W_]+', '', first_line).upper()
+
+        if stripped.startswith("SKIP"):
             reason = text.split("-", 1)[1].strip() if "-" in text else text
             logger.info(f"AI skipped single role {role['role_name']} on {project_name}: {reason}")
             return [], {role["role_name"]: reason}
 
-        if upper.startswith("FIT"):
+        if stripped.startswith("FIT"):
             reason = text.split("-", 1)[1].strip() if "-" in text else "only matching role"
             return [(role, reason)], {}
 
