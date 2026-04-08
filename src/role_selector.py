@@ -28,6 +28,8 @@ ACTOR_PROFILE = """
 - Has a valid driver's license
 - Has a current/valid US passport
 - Generally open availability
+- Comfortable and willing to play LGBTQ+ characters of any orientation or gender identity
+- Comfortable with on-screen kissing, intimacy, and nudity (any gender of scene partner)
 - No demo reel currently — still apply for roles requesting one
 - No voice over / voice acting roles
 - No UGC
@@ -578,6 +580,154 @@ SKIP - <brief reason>"""
     except Exception as e:
         logger.warning(f"[CALENDAR] Partial availability check failed ({e}), skipping to be safe")
         return {"proceed": False, "reason": f"AI check failed: {e}"}
+
+
+def answer_prescreen_questions(
+    questions: list[dict],
+    role: dict,
+    project_name: str,
+    confirmed_dates: str | None = None,
+) -> dict:
+    """Use Claude to answer Backstage applicant prescreen questions from the actor profile + calendar.
+
+    Each question is a dict like:
+        {"id": int, "text": str, "type": "YES_NO" | "SHORT_ANSWER",
+         "answer_options": [{"id": int, "text": "Yes"|"No"}, ...]}
+
+    Returns:
+        {"answers": [{"question_id": int, "selected_answer_id": int|None, "answer_text": str|None}, ...]}
+            — only when ALL questions could be answered confidently from profile/calendar.
+        {"needs_input": "<reason mentioning the unanswerable question>"}
+            — if any question cannot be answered (subjective, open-ended pitch, missing info).
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY not set — cannot answer prescreen questions")
+
+    if not questions:
+        return {"answers": []}
+
+    import anthropic
+    import json as _json
+
+    client = anthropic.Anthropic(api_key=api_key)
+
+    availability_context = ""
+    if confirmed_dates:
+        availability_context = (
+            f"\nCONFIRMED AVAILABILITY: The actor's calendar has been checked and is FREE for "
+            f"{confirmed_dates}. For any availability question that falls within these dates, answer Yes."
+        )
+
+    # Build a compact question list for the prompt
+    q_lines = []
+    for q in questions:
+        opts = q.get("answer_options") or []
+        opts_str = ", ".join(f'{o.get("id")}={o.get("text")}' for o in opts) if opts else "(free text)"
+        q_lines.append(
+            f'- id={q.get("id")} type={q.get("type")} options=[{opts_str}] text="{q.get("text", "")}"'
+        )
+    q_block = "\n".join(q_lines)
+
+    prompt = f"""You are answering applicant questions on a casting submission on behalf of an actor.
+
+ACTOR PROFILE:
+{ACTOR_PROFILE}
+
+PROJECT: {project_name}
+ROLE: {role.get('role_name', '')}
+ROLE DESCRIPTION: {role.get('description', '')[:800]}
+{availability_context}
+
+QUESTIONS:
+{q_block}
+
+For EACH question, decide if it can be answered confidently and truthfully from the actor profile or confirmed availability above.
+
+ANSWERABLE (respond with the answer):
+- Availability questions on dates within CONFIRMED AVAILABILITY → "Yes"
+- Identity/comfort/willingness questions where the profile EXPLICITLY states the position (LGBTQ+, intimacy/nudity, travel, long shoot days, driver's license, passport, accents, physical comedy, action sequences) → answer per profile
+- Biographical facts in the profile (height, weight, build, hair, location, age range, contact, shoe size, union status) → answer with the fact
+- Questions about specific listed skills (improv, salsa, guitar) → answer Yes ONLY if that exact skill is listed
+
+NOT ANSWERABLE → respond NEEDS_INPUT for that question:
+- Open-ended pitch questions ("Why are you right for this role?", "Tell us about yourself", "What draws you to this project?")
+- Skills/experience NOT listed in the profile (do NOT fabricate, do NOT volunteer "no")
+- Questions requiring judgment about the script, the character, or personal opinions
+- Anything ambiguous, subjective, or where the profile is silent
+- Availability questions for dates NOT covered by CONFIRMED AVAILABILITY
+
+Output STRICT JSON only, no prose, no markdown fences. Schema:
+{{
+  "answers": [
+    {{"question_id": <int>, "type": "YES_NO"|"SHORT_ANSWER", "selected_answer_id": <int or null>, "answer_text": <string or null>, "reasoning": "<one short sentence>"}}
+  ],
+  "needs_input": <null, or a short reason string if ANY question is unanswerable>
+}}
+
+Rules:
+- For YES_NO: set selected_answer_id to the option id matching your answer (Yes or No), and set answer_text to null.
+- For SHORT_ANSWER: set answer_text to a concise factual answer (max 25 words, first person), and set selected_answer_id to null.
+- If ANY question is unanswerable, set "needs_input" to a short reason naming which question and why, AND still include best-effort entries (or skip them) in answers — the caller will discard answers when needs_input is set.
+- Never fabricate. If unsure, mark needs_input.
+"""
+
+    try:
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=600,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = response.content[0].text.strip()
+        logger.debug(f"[PRESCREEN-AI] Raw response for {role.get('role_name', '')}: {text}")
+
+        # Strip accidental code fences
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\s*", "", text)
+            text = re.sub(r"\s*```$", "", text)
+
+        parsed = _json.loads(text)
+    except Exception as e:
+        logger.warning(f"[PRESCREEN-AI] Failed to parse AI response for {role.get('role_name', '')}: {e}")
+        return {"needs_input": f"AI prescreen check failed: {e}"}
+
+    if parsed.get("needs_input"):
+        reason = parsed["needs_input"]
+        logger.info(f"[PRESCREEN-AI] needs_input for {role.get('role_name', '')}: {reason}")
+        return {"needs_input": f"Applicant question needs manual answer: {reason}"}
+
+    raw_answers = parsed.get("answers") or []
+    if len(raw_answers) != len(questions):
+        return {"needs_input": f"AI did not answer all {len(questions)} prescreen questions"}
+
+    # Validate every answer matches its question and has a usable value
+    by_id = {q.get("id"): q for q in questions}
+    out: list[dict] = []
+    for a in raw_answers:
+        qid = a.get("question_id")
+        q = by_id.get(qid)
+        if not q:
+            return {"needs_input": f"AI returned answer for unknown question id {qid}"}
+
+        qtype = q.get("type")
+        if qtype == "YES_NO":
+            sel = a.get("selected_answer_id")
+            valid_ids = {o.get("id") for o in (q.get("answer_options") or [])}
+            if sel not in valid_ids:
+                return {"needs_input": f"AI returned invalid selected_answer_id for question {qid}"}
+            out.append({"question_id": qid, "selected_answer_id": sel, "answer_text": None})
+        elif qtype == "SHORT_ANSWER":
+            txt = (a.get("answer_text") or "").strip()
+            if not txt:
+                return {"needs_input": f"AI returned empty short_answer for question {qid}"}
+            out.append({"question_id": qid, "selected_answer_id": None, "answer_text": txt})
+        else:
+            return {"needs_input": f"Unsupported prescreen question type {qtype!r} for question {qid}"}
+
+    logger.info(
+        f"[PRESCREEN-AI] Answered {len(out)} prescreen question(s) for {role.get('role_name', '')}"
+    )
+    return {"answers": out}
 
 
 def analyze_submission_requirements(role: dict, project_name: str, project_notes: str = "", confirmed_dates: str | None = None) -> dict:
