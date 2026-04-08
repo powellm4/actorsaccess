@@ -17,7 +17,12 @@ from src.backstage.client import BackstageClient
 from src.database import Database
 from src.calendar_check import check_availability, parse_shoot_dates
 from src.filters import _is_background, _is_court_tv, _is_ugc, _is_unpaid, _COURT_TV_PATTERN
-from src.role_selector import select_best_roles, analyze_submission_requirements, check_travel_pay
+from src.role_selector import (
+    select_best_roles,
+    analyze_submission_requirements,
+    answer_prescreen_questions,
+    check_travel_pay,
+)
 
 logger = logging.getLogger("backstage")
 
@@ -399,14 +404,12 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     prescreen_questions = best.get("prescreen_questions", [])
                     msg_preview = repr(prescreen_msg[:50]) if prescreen_msg else "''"
                     logger.info(f"[PRESCREEN] {best['role_name']}: type={prescreen_type!r}, msg={msg_preview}, questions={len(prescreen_questions)}")
-                    if prescreen_type == "V" or prescreen_msg or prescreen_questions:
-                        if prescreen_questions:
-                            q_texts = [q.get("text", "") for q in prescreen_questions[:3]]
-                            flag_reason = f"Applicant questions: {'; '.join(q_texts)}"
-                        elif prescreen_msg:
-                            flag_reason = f"Prescreen required: {prescreen_msg[:100]}"
-                        else:
-                            flag_reason = "Video prescreen required"
+                    # Video prescreen / free-text self-tape: still flag (we can't auto-tape)
+                    if prescreen_type == "V" or prescreen_msg:
+                        flag_reason = (
+                            f"Prescreen required: {prescreen_msg[:100]}" if prescreen_msg
+                            else "Video prescreen required"
+                        )
                         db.record_flagged_role(
                             project_name=project_name,
                             project_url=project_url,
@@ -419,6 +422,37 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                         if dry_run:
                             _print_role_decision("FLAGGED", project_name, best, flag_reason)
                         continue
+
+                    # Applicant questions (YES_NO / SHORT_ANSWER): try AI first
+                    prescreen_answers: list[dict] | None = None
+                    if prescreen_questions:
+                        ai_result = answer_prescreen_questions(
+                            prescreen_questions,
+                            best,
+                            project_name,
+                            confirmed_dates=confirmed_dates,
+                        )
+                        if ai_result.get("needs_input"):
+                            q_texts = [q.get("text", "") for q in prescreen_questions[:3]]
+                            flag_reason = (
+                                f"{ai_result['needs_input']} | Questions: {'; '.join(q_texts)}"
+                            )
+                            db.record_flagged_role(
+                                project_name=project_name,
+                                project_url=project_url,
+                                role_name=best["role_name"],
+                                role_description=best.get("description", ""),
+                                flag_reason=flag_reason,
+                                run_id=run_id,
+                                platform="backstage",
+                            )
+                            if dry_run:
+                                _print_role_decision("FLAGGED", project_name, best, flag_reason)
+                            continue
+                        prescreen_answers = ai_result.get("answers") or []
+                        logger.info(
+                            f"[PRESCREEN] AI answered {len(prescreen_answers)} question(s) for {best['role_name']}"
+                        )
 
                     # Also check description for self-tape submission requests
                     desc_lower = best.get("description", "").lower()
@@ -471,6 +505,8 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             print(f"  AI reason: {ai_reason}")
                         if analysis["action"] == "SUBMIT_WITH_NOTE":
                             print(f"  Note: {analysis['note']}")
+                        if prescreen_answers:
+                            print(f"  Prescreen answers: {prescreen_answers}")
                         roles_applied += 1
                         continue
 
@@ -481,8 +517,17 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     resume_id = submission_cfg.get("resume_id")
                     if resume_id:
                         media_ids.append(resume_id)
-                    logger.info(f"[SUBMIT] Attempting: {project_name} — {best['role_name']} (id={unique_id}), media={media_ids}")
-                    result = client.submit_for_role(best["role_id"], note=note, media_ids=media_ids)
+                    if prescreen_answers:
+                        # Roles with applicant questions submit via the prescreen endpoint instead
+                        # of the standard draft/media/PUT flow.
+                        logger.info(
+                            f"[SUBMIT] Attempting prescreen: {project_name} — {best['role_name']} "
+                            f"(id={unique_id}), answers={prescreen_answers}"
+                        )
+                        result = client.submit_prescreen(best["role_id"], prescreen_answers)
+                    else:
+                        logger.info(f"[SUBMIT] Attempting: {project_name} — {best['role_name']} (id={unique_id}), media={media_ids}")
+                        result = client.submit_for_role(best["role_id"], note=note, media_ids=media_ids)
 
                     if isinstance(result, dict) and result.get("_rejected"):
                         reason = result.get("reason", "Unknown rejection")

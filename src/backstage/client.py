@@ -256,6 +256,38 @@ class BackstageClient:
         logger.warning(f"Failed to attach media to app {app_id}: {result}")
         return False
 
+    def submit_prescreen(self, role_id: int, answers: list[dict]) -> dict | None:
+        """Submit applicant prescreen answers for a role.
+
+        Endpoint: POST /talent_application/async/prescreen/{role_id}/
+        Body: list of answer dicts, each:
+            {"question_id": <int>, "selected_answer_id": <int or null>, "answer_text": <str or null>}
+
+        Backstage treats prescreen submission as the entire application for roles
+        that have applicant questions — no separate draft/PUT step is needed.
+
+        Returns the response dict on success (HTTP 201), or {"_rejected": True, "reason": ...}
+        on a 400 rejection, or None on other failure.
+        """
+        url = f"{APPLICATION_URL}prescreen/{role_id}/"
+        _random_delay(1, 3)
+        result = self._request(url, data=answers)
+        if isinstance(result, dict) and result.get("_error"):
+            detail = result.get("detail", {})
+            errors = detail.get("non_field_errors", []) if isinstance(detail, dict) else []
+            reason = "; ".join(errors) if errors else str(detail)
+            logger.error(f"Prescreen submission rejected for role {role_id}: {reason}")
+            return {"_rejected": True, "reason": reason}
+        if result is None:
+            logger.error(f"Prescreen submission failed for role {role_id}")
+            return None
+        if isinstance(result, dict):
+            logger.info(f"Prescreen submission accepted for role {role_id}")
+            return result
+        # Empty / non-JSON 2xx body — also treat as success
+        logger.info(f"Prescreen submission accepted (non-JSON response) for role {role_id}")
+        return {"ok": True}
+
     def submit_for_role(self, role_id: int, note: str = "", media_ids: list[int] | None = None) -> dict | None:
         """Submit an application for a role.
 
