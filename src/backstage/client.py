@@ -193,23 +193,15 @@ class BackstageClient:
             logger.warning(f"No embedded JSON found on {full_url}")
             return None
 
-        # Parse balanced braces from match start
+        # Parse JSON from the match. raw_decode is string-literal aware,
+        # unlike a hand-rolled brace counter (which miscounts { / } that
+        # appear inside JSON strings and silently returns nothing).
         text = html[match.start():]
-        depth = 0
-        end = 0
-        for i, c in enumerate(text[:50000]):
-            if c == "{":
-                depth += 1
-            elif c == "}":
-                depth -= 1
-            if depth == 0:
-                end = i + 1
-                break
-
         try:
-            return json.loads(text[:end])
+            obj, _end = json.JSONDecoder().raw_decode(text)
+            return obj
         except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse role detail JSON: {e}")
+            logger.warning(f"Failed to parse role detail JSON at {full_url}: {e}")
             return None
 
     def attach_media(self, app_id: int, media_ids: list[int]) -> bool:
