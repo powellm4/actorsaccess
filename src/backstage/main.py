@@ -378,6 +378,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
 
                     # Fetch role detail page for full data (prescreen, attachments, etc.)
                     role_url = best.get("url", "") or prod_url
+                    detail_enriched = False
                     if role_url:
                         logger.info(f"Fetching detail page for {best['role_name']}...")
                         detail = client.fetch_role_detail(role_url)
@@ -392,7 +393,28 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                                     detail_desc = detail_role.get("description", "")
                                     if len(detail_desc) > len(best.get("description", "")):
                                         best["description"] = detail_desc
+                                    detail_enriched = True
                                     break
+
+                    # If we couldn't enrich the role from the detail page, we don't
+                    # know the prescreen state — flag rather than submit blind.
+                    if not detail_enriched:
+                        flag_reason = "Could not fetch role detail — prescreen state unknown"
+                        logger.warning(
+                            f"[DETAIL] Enrichment failed for {best['role_name']} at {role_url} — flagging"
+                        )
+                        db.record_flagged_role(
+                            project_name=project_name,
+                            project_url=project_url,
+                            role_name=best["role_name"],
+                            role_description=best.get("description", ""),
+                            flag_reason=flag_reason,
+                            run_id=run_id,
+                            platform="backstage",
+                        )
+                        if dry_run:
+                            _print_role_decision("FLAGGED", project_name, best, flag_reason)
+                        continue
 
                     # Check for prescreen/self-tape requirements
                     # Backstage roles can have:
@@ -403,7 +425,10 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     prescreen_msg = best.get("prescreen_message", "")
                     prescreen_questions = best.get("prescreen_questions", [])
                     msg_preview = repr(prescreen_msg[:50]) if prescreen_msg else "''"
-                    logger.info(f"[PRESCREEN] {best['role_name']}: type={prescreen_type!r}, msg={msg_preview}, questions={len(prescreen_questions)}")
+                    logger.info(
+                        f"[PRESCREEN] {best['role_name']}: type={prescreen_type!r}, "
+                        f"msg={msg_preview}, questions={len(prescreen_questions)}, enriched={detail_enriched}"
+                    )
                     # Video prescreen / free-text self-tape: still flag (we can't auto-tape)
                     if prescreen_type == "V" or prescreen_msg:
                         flag_reason = (
