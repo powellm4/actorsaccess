@@ -389,6 +389,8 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                                     best["prescreen_type"] = detail_role.get("prescreen_type", "")
                                     best["prescreen_message"] = detail_role.get("prescreen_message", "")
                                     best["prescreen_questions"] = detail_role.get("prescreen_questions", [])
+                                    best["submission_requires"] = detail_role.get("submission_requires", []) or []
+                                    best["submission_requires_display"] = detail_role.get("submission_requires_display", "") or ""
                                     # Use the full description from detail if longer
                                     detail_desc = detail_role.get("description", "")
                                     if len(detail_desc) > len(best.get("description", "")):
@@ -403,6 +405,28 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                         logger.warning(
                             f"[DETAIL] Enrichment failed for {best['role_name']} at {role_url} — flagging"
                         )
+                        db.record_flagged_role(
+                            project_name=project_name,
+                            project_url=project_url,
+                            role_name=best["role_name"],
+                            role_description=best.get("description", ""),
+                            flag_reason=flag_reason,
+                            run_id=run_id,
+                            platform="backstage",
+                        )
+                        if dry_run:
+                            _print_role_decision("FLAGGED", project_name, best, flag_reason)
+                        continue
+
+                    # Backstage submission_requires codes: "0"=Headshot, "1"=Video Reel,
+                    # "4"=Resume, "5"=Cover Letter. We auto-attach headshot/reel/resume,
+                    # but we don't generate cover letters — flag those for manual review.
+                    submission_requires = best.get("submission_requires", []) or []
+                    if "5" in submission_requires:
+                        flag_reason = (
+                            f"Cover letter required ({best.get('submission_requires_display', '')})"
+                        )
+                        logger.info(f"[REQUIRES] {best['role_name']}: {flag_reason}")
                         db.record_flagged_role(
                             project_name=project_name,
                             project_url=project_url,
