@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 ACTOR_PROFILE = """
 - Appears 25 but people often think he's younger; plays 17-30 convincingly (yes, including 17-22 college-aged roles), can stretch to 35
-- Male, White, 6'0", 185 lbs, athletic build, brown hair (thick, slightly curly, short-medium length), clean-shaven (no beard)
+- Male, White / Latino, 6'0", 185 lbs, athletic build, brown hair (thick, slightly curly, short-medium length), clean-shaven (no beard)
 - Instagram: @marshallpowell
 - Type: Leading man, comedic/charming; also strong as villain/antagonist/mean characters; also excels at grounded/calm/straight man/voice-of-reason roles
 - 2 years improv training at UCB and The Groundlings
@@ -302,7 +302,7 @@ HARD DISQUALIFIERS — reject any role that requires:
 - Height outside 5'10"–6'1" (e.g., "must be 6'3"+", "under 5'6"")
 - Large/heavyset/stocky/overweight build (actor is athletic, 185 lbs)
 - Female only
-- Specific ethnicity that excludes White
+- Specific ethnicity that excludes both White AND Latino/Hispanic (e.g., "Black only", "Asian only" — reject. But "Hispanic", "Latino", "White" — accept)
 - Specific hair color that is NOT brown ONLY when stated as a casting requirement (e.g., "must have blonde hair", "redhead required"). The actor has BROWN hair. Character descriptions like "dyed hair" or "punk vibes" are styling choices that can be achieved — these are NOT disqualifiers.
 - Age range with NO overlap with 17-35 (e.g., "40-55" is a rejection, but "30-40" is NOT because it overlaps with the actor's range)
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
@@ -384,7 +384,7 @@ HARD DISQUALIFIERS — SKIP if the role requires ANY of these:
 - Height outside 5'10"–6'1" (e.g., "must be 6'3"+", "under 5'6"")
 - Large/heavyset/stocky/overweight build (actor is athletic, 185 lbs)
 - Female only
-- Specific ethnicity that excludes White
+- Specific ethnicity that excludes both White AND Latino/Hispanic (e.g., "Black only", "Asian only" — reject. But "Hispanic", "Latino", "White" — accept)
 - Specific hair color that is NOT brown ONLY when stated as a casting requirement (e.g., "must have blonde hair", "redhead required"). The actor has BROWN hair. Character descriptions like "dyed hair" or "punk vibes" are styling choices that can be achieved — these are NOT disqualifiers.
 - Age range with NO overlap with 17-35 (e.g., "40-55" is a rejection, but "30-40" is NOT because it overlaps with the actor's range)
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
@@ -794,8 +794,8 @@ IMPORTANT RULES:
 - NEVER volunteer information that was not explicitly asked for — no location, no transportation, no contact info, no availability unless the post explicitly asks you to NOTE it in the submission
 - If the post asks for availability/dates and CONFIRMED AVAILABILITY is provided above, include the specific dates in the note
 - If they ask for contact info, provide the email and phone number from the profile
-- If they ask for a demo reel or reel link, respond with ACTION: SUBMIT (apply anyway, do not mention lack of reel)
-- If multiple requirements exist and you can answer SOME but not all, use NEEDS_INPUT — UNLESS the unanswerable item is a demo reel (apply anyway)
+- If they ask for a demo reel, reel link, demo clips, online clips, video clips, footage, sample work, or any variant thereof, respond with ACTION: SUBMIT (apply anyway, do not mention lack of reel). The standard submission process attaches whatever clips are in the actor's profile automatically — this is never a blocker.
+- If multiple requirements exist and you can answer SOME but not all, use NEEDS_INPUT — UNLESS the unanswerable item is a demo reel / demo clips / reel link / video samples (apply anyway)
 - When in doubt between SUBMIT and SUBMIT_WITH_NOTE, ALWAYS prefer SUBMIT
 - Treat project-level REQUIREMENTS (e.g., "NOTE YOUR DETAILED AVAILABILITY") with the same weight as role-level requests — these apply to every role submission
 - "PLEASE INCLUDE SIZE CARDS" or "include size card" means wardrobe measurements — these are handled in the actor's Actors Access profile, NOT in submission notes. Respond with ACTION: SUBMIT
