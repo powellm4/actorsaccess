@@ -93,12 +93,12 @@ _PAID_TRAVEL_PAY_BLOCK = """TRAVEL PAY MINIMUMS — the actor is based in Los An
 - If the shoot location is not mentioned or unclear, do NOT reject based on pay
 - "Total pay" means the full amount for the job, not per day. If the listing says "$200/day" for a 3-day shoot, total pay is $600 — that passes the $500 medium-drive threshold. For hourly rates, assume an 8-hour day (e.g., "$150/hour" = $1,200/day). If the total pay clearly exceeds the threshold, do NOT reject"""
 
-_UNPAID_LOCATION_BLOCK = """LOCATION POLICY (UNPAID MODE) — the platform's saved search has already filtered for acceptable locations. Do NOT reject based on location. Any role that reached this prompt is in-scope on location grounds, even if the description mentions a specific non-LA-proper city (e.g. Santa Clarita, Burbank, Long Beach, LA metro suburbs). Trust the saved search."""
+_UNPAID_TRAVEL_BLOCK = """TRAVEL/LOCATION — the actor is based in Los Angeles. Do NOT reject based on location; the platform filter has already narrowed the pool. If the role is shooting locally in LA or LA metro (including Santa Clarita, Burbank, Long Beach, etc.), accept it."""
 
 
 def _travel_pay_block(mode: str) -> str:
     """Return the travel/location guidance block for the given mode."""
-    return _UNPAID_LOCATION_BLOCK if mode == "unpaid" else _PAID_TRAVEL_PAY_BLOCK
+    return _UNPAID_TRAVEL_BLOCK if mode == "unpaid" else _PAID_TRAVEL_PAY_BLOCK
 
 
 def _extract_total_pay(text: str) -> float | None:
@@ -321,11 +321,11 @@ def select_best_roles(
 
         if mode == "unpaid":
             scope_line = (
-                "STRICT UNPAID POLICY: This is an unpaid submission. Only Lead, Supporting, "
-                "Principal, Series Regular, or Recurring roles are acceptable. REJECT Day Player, "
-                "Featured, Co-Star, single-scene, or background-adjacent roles. If the role "
-                "prominence is ambiguous or unstated, REJECT. Unpaid work is only worth doing "
-                "for meaningful screen time."
+                "Select ALL roles that are a reasonable fit for this actor. Only reject roles "
+                "that have a genuine disqualifier. ROLE-TYPE RULE: only Lead, Supporting, "
+                "Principal, Series Regular, or Recurring roles are acceptable — reject Day Player, "
+                "Featured, Co-Star, or single-scene roles. Pay is NOT a reason to reject — any "
+                "role, paid or unpaid, is fine as long as the role-type rule is satisfied."
             )
         else:
             scope_line = (
@@ -418,10 +418,10 @@ def _check_single_role_fit(
 
         if mode == "unpaid":
             unpaid_line = (
-                "STRICT UNPAID POLICY: This is an unpaid submission. Only Lead, Supporting, "
-                "Principal, Series Regular, or Recurring roles are acceptable. SKIP if this is "
-                "a Day Player, Featured, Co-Star, or background-adjacent role. If the role "
-                "prominence is ambiguous or unstated, SKIP.\n\n"
+                "ROLE-TYPE RULE: only Lead, Supporting, Principal, Series Regular, or "
+                "Recurring roles are acceptable. SKIP if this is a Day Player, Featured, "
+                "Co-Star, or single-scene role. Pay is NOT a reason to skip — any role, "
+                "paid or unpaid, is fine as long as the role-type rule is satisfied.\n\n"
             )
         else:
             unpaid_line = ""

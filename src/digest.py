@@ -184,13 +184,14 @@ def _platform_badge(platform: str) -> str:
 
 def _wrap_html(body: str, mode: str | None = None) -> str:
     if mode == "unpaid":
-        title = "Daily Casting Digest — UNPAID"
+        title = "Daily Casting Digest — Extended"
         accent = "#7c4dff"  # purple
         banner = (
             '<div style="background:#ede7f6;border-left:4px solid #7c4dff;'
             'padding:12px;margin-bottom:16px;border-radius:4px;color:#4a148c;">'
-            '<strong>UNPAID MODE</strong> — LA-local Lead/Supporting/Principal only. '
-            'Cover letter attached to Backstage self-tape requests.'
+            '<strong>EXTENDED SEARCH</strong> — extended role pool via the '
+            '"unpaid" saved searches. Lead/Supporting/Principal/Series Regular/'
+            'Recurring role types only.'
             '</div>'
         )
     elif mode == "paid":
