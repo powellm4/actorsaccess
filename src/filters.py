@@ -212,20 +212,26 @@ def role_matches(role: dict, mode: str = "paid") -> tuple[bool, str]:
 
     Args:
         role: Dict with keys fit_for_me (bool), role_name, description.
-        mode: "paid" (default) or "unpaid". In unpaid mode:
-            - We skip the AA site-level fit_for_me check. That flag is
-              per-role-element on the breakdowns page and is False on most
-              roles once we open up with paying_only=false, which would
-              kill ~80% of candidates before they reach the role-type +
-              AI layers. The AI is trusted to make fit decisions instead.
-            - We skip the text-based _is_unpaid check; the platform saved
-              search handles paid-vs-unpaid categorization.
+        mode: "paid" (default) or "unpaid".
+
+    Notes on fit_for_me and mode:
+        - The AA site-level "breakdowns fit for me" dropdown is applied in
+          both modes via config. It narrows the BREAKDOWN list to listings
+          that have at least one role matching the actor profile.
+        - Within a fit breakdown, individual roles can still be off (e.g.
+          a project with both a male lead and a female senator — the
+          breakdown is "fit" but the senator role is not). The per-role
+          fit_for_me check below catches those. We keep it enabled in
+          both paid and unpaid mode — otherwise unpaid runs submit to
+          obviously-wrong roles like female-only or out-of-age-range.
+        - We skip the text-based _is_unpaid check in unpaid mode; the
+          platform saved search handles paid-vs-unpaid categorization.
 
     Returns:
         (True, "") if the role passes all filters, or
         (False, reason) explaining why it was skipped.
     """
-    if mode != "unpaid" and not role.get("fit_for_me"):
+    if not role.get("fit_for_me"):
         return False, "not fit for me"
 
     if _is_background(role):
