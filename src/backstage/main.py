@@ -293,18 +293,12 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                         continue
 
                     if mode == "unpaid":
-                        # Unpaid mode: keep only unpaid roles. Backstage roles
-                        # scraped via the unpaid saved search should already
-                        # all be unpaid, but double-check via the pay field.
-                        pay = role.get("pay", "").strip()
-                        if pay and not _is_unpaid(role):
-                            roles_filtered += 1
-                            if dry_run:
-                                _print_role_decision("SKIP", project_name, role, "paid role (unpaid mode)")
-                            else:
-                                logger.info(f"Filtered: {project_name} — {role['role_name']} (paid in unpaid mode)")
-                            continue
-                        # Require Lead/Supporting/Principal/Series Regular/Recurring
+                        # Trust the "unpaid" saved search for the pay filter.
+                        # The pay/rate text field can contain rate strings even
+                        # when the role is categorized unpaid on the site, so
+                        # our text _is_unpaid() check would reject things it
+                        # shouldn't. Saved search is the source of truth.
+                        # Still require Lead/Supporting/Principal/Series Regular/Recurring.
                         lead_ok, lead_reason = is_lead_or_supporting(role, "backstage")
                         if not lead_ok:
                             roles_filtered += 1

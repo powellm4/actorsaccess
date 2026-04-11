@@ -212,8 +212,13 @@ def role_matches(role: dict, mode: str = "paid") -> tuple[bool, str]:
 
     Args:
         role: Dict with keys fit_for_me (bool), role_name, description.
-        mode: "paid" (default) or "unpaid". In unpaid mode the _is_unpaid
-            check is inverted — paid roles are rejected, unpaid are kept.
+        mode: "paid" (default) or "unpaid". In unpaid mode we trust the
+            platform's saved search (or AA's paying_only=false config) to
+            handle paid-vs-unpaid categorization and skip the text-based
+            _is_unpaid check — the pay text field is unreliable because
+            saved-search-categorized "unpaid" roles often still carry a
+            rate string in that field. The lead/supporting gate + the AI
+            narrow things further.
 
     Returns:
         (True, "") if the role passes all filters, or
@@ -228,16 +233,8 @@ def role_matches(role: dict, mode: str = "paid") -> tuple[bool, str]:
     if _is_voiceover(role):
         return False, "voiceover role"
 
-    if mode == "unpaid":
-        # Unpaid mode: only keep roles explicitly marked as unpaid. AA's pay
-        # field is often absent, so if pay is blank we let it through and
-        # rely on the lead/supporting gate + the AI to sanity-check.
-        pay = role.get("pay", "").strip()
-        if pay and not _is_unpaid(role):
-            return False, "paid role (unpaid mode)"
-    else:
-        if _is_unpaid(role):
-            return False, "unpaid role"
+    if mode != "unpaid" and _is_unpaid(role):
+        return False, "unpaid role"
 
     if _is_court_tv(role):
         return False, "court TV role"

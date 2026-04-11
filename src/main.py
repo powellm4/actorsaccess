@@ -136,10 +136,22 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                 projects = browser.scrape_projects()
 
                 for project in projects:
-                    # Check if we've already seen this project (submitted on site or in our DB)
-                    already_seen = project["already_submitted"] or db.has_seen_breakdown(
-                        project["breakdown_id"]
-                    )
+                    # Check if we've already seen this project.
+                    # Paid mode: use the site's "already_submitted" flag and
+                    # DB dedup (mode-agnostic — matches historical behavior).
+                    # Unpaid mode: only count DB rows tagged mode='unpaid'.
+                    # Paid mode has already chewed through the LA page once,
+                    # so the site flag + mode-agnostic DB check would trip
+                    # the consecutive-seen guard almost immediately and cut
+                    # the unpaid run off after one project.
+                    if mode == "unpaid":
+                        already_seen = db.has_seen_breakdown(
+                            project["breakdown_id"], mode="unpaid"
+                        )
+                    else:
+                        already_seen = project["already_submitted"] or db.has_seen_breakdown(
+                            project["breakdown_id"]
+                        )
                     if already_seen:
                         consecutive_seen += 1
                         logger.debug(

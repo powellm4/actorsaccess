@@ -114,19 +114,27 @@ class Database:
             pass
         self.conn.commit()
 
-    def has_seen_breakdown(self, breakdown_id: str, platform: str = "aa") -> bool:
-        """Check if we've processed any role from this breakdown in a previous run."""
+    def has_seen_breakdown(self, breakdown_id: str, platform: str = "aa", mode: str | None = None) -> bool:
+        """Check if we've processed any role from this breakdown in a previous run.
+
+        If mode is provided, only count rows with a matching mode column.
+        Unpaid mode should pass mode='unpaid' so it doesn't inherit paid
+        mode's already-processed pool — otherwise unpaid mode's early-exit
+        "consecutive seen listings" guard trips immediately on AA.
+        """
         # Check applied_roles (role_id format: {breakdown_id}_{role_id})
-        cursor = self.conn.execute(
-            "SELECT 1 FROM applied_roles WHERE role_id LIKE ? AND platform = ?",
-            (f"{breakdown_id}_%", platform),
-        )
+        if mode is None:
+            cursor = self.conn.execute(
+                "SELECT 1 FROM applied_roles WHERE role_id LIKE ? AND platform = ?",
+                (f"{breakdown_id}_%", platform),
+            )
+        else:
+            cursor = self.conn.execute(
+                "SELECT 1 FROM applied_roles WHERE role_id LIKE ? AND platform = ? AND mode = ?",
+                (f"{breakdown_id}_%", platform, mode),
+            )
         if cursor.fetchone():
             return True
-        # Check rejected_roles and flagged_roles by project_name isn't reliable
-        # since breakdown_id isn't stored there — but applied + already_submitted
-        # covers the common cases. Also check rejected/flagged via role_id pattern
-        # stored in applied_roles is our best signal.
         return False
 
     def is_applied(self, role_id: str) -> bool:

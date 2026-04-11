@@ -178,15 +178,14 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                         continue
 
                     if mode == "unpaid":
-                        # Unpaid mode: keep only roles explicitly marked unpaid
-                        if not _is_unpaid(role):
-                            roles_filtered += 1
-                            if dry_run:
-                                _print_role_decision("SKIP", project_name, role, "paid role (unpaid mode)")
-                            else:
-                                logger.info(f"Filtered out: {project_name} — {role['role_name']} (paid in unpaid mode)")
-                            continue
-                        # And the role must be Lead/Supporting/Principal/Series Regular/Recurring
+                        # Trust the "unpaid" saved search for the pay filter.
+                        # CN populates role["pay"] with rate strings even when
+                        # the Pay Preferences category is "unpaid", so our text
+                        # _is_unpaid() check rejects everything it shouldn't.
+                        # Just enforce the role-type whitelist (CN's saved
+                        # search only filters at the coarse principal/background
+                        # level, so we still need to narrow to Lead/Supporting/
+                        # Principal/Series Regular/Recurring here).
                         lead_ok, lead_reason = is_lead_or_supporting(role, "cn")
                         if not lead_ok:
                             roles_filtered += 1
