@@ -5,6 +5,11 @@ on:
     # 9am PT (UTC-7) once daily
     - cron: "0 16 * * *"
   workflow_dispatch:
+    inputs:
+      max_submissions:
+        description: "Override max submissions per platform (leave blank to use config default)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -50,7 +55,9 @@ jobs:
           AA_PASSWORD: ${{ secrets.AA_PASSWORD }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_CALENDAR_SA_KEY: ${{ secrets.GOOGLE_CALENDAR_SA_KEY }}
-        run: python -m src.main --once --mode unpaid
+        run: |
+          python -m src.main --once --mode unpaid \
+            ${{ inputs.max_submissions && format('--max-submissions {0}', inputs.max_submissions) || '' }}
 
       - name: Upload database (after AA)
         env:
@@ -63,7 +70,9 @@ jobs:
           CN_PASSWORD: ${{ secrets.CN_PASSWORD }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_CALENDAR_SA_KEY: ${{ secrets.GOOGLE_CALENDAR_SA_KEY }}
-        run: xvfb-run --auto-servernum python -m src.cn.main --once --mode unpaid
+        run: |
+          xvfb-run --auto-servernum python -m src.cn.main --once --mode unpaid \
+            ${{ inputs.max_submissions && format('--max-submissions {0}', inputs.max_submissions) || '' }}
 
       - name: Upload database (after CN)
         env:
@@ -76,15 +85,24 @@ jobs:
           BACKSTAGE_PASSWORD: ${{ secrets.BACKSTAGE_PASSWORD }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_CALENDAR_SA_KEY: ${{ secrets.GOOGLE_CALENDAR_SA_KEY }}
-        run: python -m src.backstage.main --once --mode unpaid
+        run: |
+          python -m src.backstage.main --once --mode unpaid \
+            ${{ inputs.max_submissions && format('--max-submissions {0}', inputs.max_submissions) || '' }}
 
       - name: Upload database (after Backstage)
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload db-storage data/applied.db --clobber
 
-      # No digest step here — the paid workflow sends the daily digest
-      # and will pick up unpaid rows via the shared DB.
+      - name: Send digest email (unpaid)
+        env:
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: python -m src.digest --mode unpaid
+
+      - name: Upload database (after digest)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload db-storage data/applied.db --clobber
 
       - name: Upload logs
         if: always()

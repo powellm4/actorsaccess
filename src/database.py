@@ -235,63 +235,66 @@ class Database:
             return last
         return "datetime('now', '-24 hours')"
 
-    def get_daily_applications(self) -> list[dict]:
+    def get_daily_applications(self, mode: str | None = None) -> list[dict]:
         since = self.get_last_digest_time()
+        mode_clause = " AND mode = ?" if mode else ""
+        mode_params = (mode,) if mode else ()
         if since:
-            query = """SELECT project_name, role_name, role_description, ai_reason,
-                              candidates_considered, platform, project_url, applied_at, submission_note
+            query = f"""SELECT project_name, role_name, role_description, ai_reason,
+                              candidates_considered, platform, project_url, applied_at, submission_note, mode
                        FROM applied_roles
-                       WHERE applied_at > ?
+                       WHERE applied_at > ?{mode_clause}
                        ORDER BY applied_at DESC"""
-            cursor = self.conn.execute(query, (since,))
+            cursor = self.conn.execute(query, (since,) + mode_params)
         else:
-            cursor = self.conn.execute(
-                """SELECT project_name, role_name, role_description, ai_reason,
-                          candidates_considered, platform, project_url, applied_at, submission_note
+            query = f"""SELECT project_name, role_name, role_description, ai_reason,
+                          candidates_considered, platform, project_url, applied_at, submission_note, mode
                    FROM applied_roles
-                   WHERE applied_at >= datetime('now', '-24 hours')
+                   WHERE applied_at >= datetime('now', '-24 hours'){mode_clause}
                    ORDER BY applied_at DESC"""
-            )
+            cursor = self.conn.execute(query, mode_params)
         columns = [desc[0] for desc in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-    def get_daily_rejections(self) -> list[dict]:
+    def get_daily_rejections(self, mode: str | None = None) -> list[dict]:
         since = self.get_last_digest_time()
+        mode_clause = " AND mode = ?" if mode else ""
+        mode_params = (mode,) if mode else ()
         if since:
-            query = """SELECT project_name, role_name, role_description, rejection_reason,
-                              platform, project_url, rejected_at
+            query = f"""SELECT project_name, role_name, role_description, rejection_reason,
+                              platform, project_url, rejected_at, mode
                        FROM rejected_roles
-                       WHERE rejected_at > ?
+                       WHERE rejected_at > ?{mode_clause}
                        ORDER BY rejected_at DESC"""
-            cursor = self.conn.execute(query, (since,))
+            cursor = self.conn.execute(query, (since,) + mode_params)
         else:
-            cursor = self.conn.execute(
-                """SELECT project_name, role_name, role_description, rejection_reason,
-                          platform, project_url, rejected_at
+            query = f"""SELECT project_name, role_name, role_description, rejection_reason,
+                          platform, project_url, rejected_at, mode
                    FROM rejected_roles
-                   WHERE rejected_at >= datetime('now', '-24 hours')
+                   WHERE rejected_at >= datetime('now', '-24 hours'){mode_clause}
                    ORDER BY rejected_at DESC"""
-            )
+            cursor = self.conn.execute(query, mode_params)
         columns = [desc[0] for desc in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-    def get_daily_run_summary(self) -> list[dict]:
+    def get_daily_run_summary(self, mode: str | None = None) -> list[dict]:
         since = self.get_last_digest_time()
+        mode_clause = " AND mode = ?" if mode else ""
+        mode_params = (mode,) if mode else ()
         if since:
-            query = """SELECT platform, status, roles_found, roles_applied, roles_skipped,
-                              error_message, started_at, completed_at
+            query = f"""SELECT platform, status, roles_found, roles_applied, roles_skipped,
+                              error_message, started_at, completed_at, mode
                        FROM run_history
-                       WHERE started_at > ?
+                       WHERE started_at > ?{mode_clause}
                        ORDER BY started_at DESC"""
-            cursor = self.conn.execute(query, (since,))
+            cursor = self.conn.execute(query, (since,) + mode_params)
         else:
-            cursor = self.conn.execute(
-                """SELECT platform, status, roles_found, roles_applied, roles_skipped,
-                          error_message, started_at, completed_at
+            query = f"""SELECT platform, status, roles_found, roles_applied, roles_skipped,
+                          error_message, started_at, completed_at, mode
                    FROM run_history
-                   WHERE started_at >= datetime('now', '-24 hours')
+                   WHERE started_at >= datetime('now', '-24 hours'){mode_clause}
                    ORDER BY started_at DESC"""
-            )
+            cursor = self.conn.execute(query, mode_params)
         columns = [desc[0] for desc in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
@@ -317,23 +320,24 @@ class Database:
         )
         self.conn.commit()
 
-    def get_daily_flagged(self) -> list[dict]:
+    def get_daily_flagged(self, mode: str | None = None) -> list[dict]:
         since = self.get_last_digest_time()
+        mode_clause = " AND mode = ?" if mode else ""
+        mode_params = (mode,) if mode else ()
         if since:
-            query = """SELECT project_name, role_name, role_description, flag_reason,
-                              platform, project_url, flagged_at
+            query = f"""SELECT project_name, role_name, role_description, flag_reason,
+                              platform, project_url, flagged_at, mode
                        FROM flagged_roles
-                       WHERE flagged_at > ?
+                       WHERE flagged_at > ?{mode_clause}
                        ORDER BY flagged_at DESC"""
-            cursor = self.conn.execute(query, (since,))
+            cursor = self.conn.execute(query, (since,) + mode_params)
         else:
-            cursor = self.conn.execute(
-                """SELECT project_name, role_name, role_description, flag_reason,
-                          platform, project_url, flagged_at
+            query = f"""SELECT project_name, role_name, role_description, flag_reason,
+                          platform, project_url, flagged_at, mode
                    FROM flagged_roles
-                   WHERE flagged_at >= datetime('now', '-24 hours')
+                   WHERE flagged_at >= datetime('now', '-24 hours'){mode_clause}
                    ORDER BY flagged_at DESC"""
-            )
+            cursor = self.conn.execute(query, mode_params)
         columns = [desc[0] for desc in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
