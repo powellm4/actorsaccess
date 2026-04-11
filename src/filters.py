@@ -212,19 +212,20 @@ def role_matches(role: dict, mode: str = "paid") -> tuple[bool, str]:
 
     Args:
         role: Dict with keys fit_for_me (bool), role_name, description.
-        mode: "paid" (default) or "unpaid". In unpaid mode we trust the
-            platform's saved search (or AA's paying_only=false config) to
-            handle paid-vs-unpaid categorization and skip the text-based
-            _is_unpaid check — the pay text field is unreliable because
-            saved-search-categorized "unpaid" roles often still carry a
-            rate string in that field. The lead/supporting gate + the AI
-            narrow things further.
+        mode: "paid" (default) or "unpaid". In unpaid mode:
+            - We skip the AA site-level fit_for_me check. That flag is
+              per-role-element on the breakdowns page and is False on most
+              roles once we open up with paying_only=false, which would
+              kill ~80% of candidates before they reach the role-type +
+              AI layers. The AI is trusted to make fit decisions instead.
+            - We skip the text-based _is_unpaid check; the platform saved
+              search handles paid-vs-unpaid categorization.
 
     Returns:
         (True, "") if the role passes all filters, or
         (False, reason) explaining why it was skipped.
     """
-    if not role.get("fit_for_me"):
+    if mode != "unpaid" and not role.get("fit_for_me"):
         return False, "not fit for me"
 
     if _is_background(role):
