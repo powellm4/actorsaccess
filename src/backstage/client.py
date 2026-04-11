@@ -248,45 +248,67 @@ class BackstageClient:
         logger.warning(f"Failed to attach media to app {app_id}: {result}")
         return False
 
-    def submit_prescreen(self, role_id: int, answers: list[dict]) -> dict | None:
-        """Submit applicant prescreen answers for a role.
+    def _submit_prescreen_answers(self, app_id: int, answers: list[dict]) -> bool:
+        """Post applicant prescreen answers against a draft application.
 
-        Endpoint: POST /talent_application/async/prescreen/{role_id}/
-        Body: list of answer dicts, each:
-            {"question_id": <int>, "selected_answer_id": <int or null>, "answer_text": <str or null>}
+        Tries the DRF-nested-route pattern first, then falls back to a couple
+        of alternates. Returns True if any URL pattern accepts the answers,
+        False otherwise. On failure, the caller should still submit the draft
+        without prescreen answers rather than leave an orphan draft.
 
-        Backstage treats prescreen submission as the entire application for roles
-        that have applicant questions — no separate draft/PUT step is needed.
-
-        Returns the response dict on success (HTTP 201), or {"_rejected": True, "reason": ...}
-        on a 400 rejection, or None on other failure.
+        Answer shape (from role_selector.answer_prescreen_questions):
+            [{"question_id": <int>, "selected_answer_id": <int|None>, "answer_text": <str|None>}, ...]
         """
-        url = f"{APPLICATION_URL}prescreen/{role_id}/"
-        _random_delay(1, 3)
-        result = self._request(url, data=answers)
-        if isinstance(result, dict) and result.get("_error"):
-            detail = result.get("detail", {})
-            errors = detail.get("non_field_errors", []) if isinstance(detail, dict) else []
-            reason = "; ".join(errors) if errors else str(detail)
-            logger.error(f"Prescreen submission rejected for role {role_id}: {reason}")
-            return {"_rejected": True, "reason": reason}
-        if result is None:
-            logger.error(f"Prescreen submission failed for role {role_id}")
-            return None
-        if isinstance(result, dict):
-            logger.info(f"Prescreen submission accepted for role {role_id}")
-            return result
-        # Empty / non-JSON 2xx body — also treat as success
-        logger.info(f"Prescreen submission accepted (non-JSON response) for role {role_id}")
-        return {"ok": True}
+        # Most likely URL: DRF nested route under the application resource
+        candidate_urls = [
+            f"{APPLICATION_URL}{app_id}/prescreen/",
+            f"{APPLICATION_URL}prescreen/{app_id}/",
+        ]
+        for url in candidate_urls:
+            _random_delay(1, 2)
+            logger.info(f"[PRESCREEN] POST {url} with {len(answers)} answer(s)")
+            result = self._request(url, data=answers)
+            if result is None:
+                # Hard error (likely 404 from _request's HTTPError branch)
+                logger.warning(f"[PRESCREEN] {url} → hard error, trying next candidate")
+                continue
+            if isinstance(result, dict) and result.get("_error"):
+                detail = result.get("detail", {})
+                logger.warning(f"[PRESCREEN] {url} → 400 rejection: {detail}")
+                # 400 means the URL is right but the body is wrong — don't
+                # try alternate URLs, just return False and log.
+                logger.error(
+                    f"[PRESCREEN] Backstage rejected answer body for app {app_id}: "
+                    f"{detail!r}. Answers={answers!r}"
+                )
+                return False
+            # Any 2xx (dict or str body) = success
+            logger.info(f"[PRESCREEN] {url} accepted — answers recorded for app {app_id}")
+            return True
+        logger.error(
+            f"[PRESCREEN] All candidate URLs failed for app {app_id} — submitting draft without answers"
+        )
+        return False
 
-    def submit_for_role(self, role_id: int, note: str = "", media_ids: list[int] | None = None) -> dict | None:
+    def submit_for_role(
+        self,
+        role_id: int,
+        note: str = "",
+        media_ids: list[int] | None = None,
+        answers: list[dict] | None = None,
+    ) -> dict | None:
         """Submit an application for a role.
 
-        Three-step process:
+        Four-step process:
         1. POST /talent_application/async/ with {role: id} → creates draft
         2. Attach video reels via /medialocker/async/shares/ (if media_ids provided)
-        3. PUT /talent_application/async/{app_id}/ with {applicant_status: "C"} → submits
+        3. POST /talent_application/async/{app_id}/prescreen/ with answers (if provided)
+        4. PUT /talent_application/async/{app_id}/ with {applicant_status: "C"} → submits
+
+        Step 3 may no-op if the role has no applicant questions.
+        If step 3 fails, we still proceed to step 4 so the draft doesn't
+        become an orphan — the submission goes through without the
+        prescreen answers recorded, and a loud warning is logged.
         """
         # Step 1: Create draft
         _random_delay(1, 3)
@@ -312,7 +334,11 @@ class BackstageClient:
         else:
             logger.info(f"No media_ids provided for app {app_id}, skipping video attachment")
 
-        # Step 3: Submit via PUT (change status from Draft "I" to Submitted "C")
+        # Step 3: Post prescreen answers (if any)
+        if answers:
+            self._submit_prescreen_answers(app_id, answers)
+
+        # Step 4: Submit via PUT (change status from Draft "I" to Submitted "C")
         _random_delay(2, 4)
         submit_data = {"applicant_status": "C"}
         if note:

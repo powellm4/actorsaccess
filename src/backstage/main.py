@@ -580,36 +580,17 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                         continue
 
                     # Build the submission note. Priority when composing:
-                    #   1. Cover letter (if self-tape detected) — always present
+                    #   1. Cover letter (if self-tape detected)
                     #   2. AI-generated casting-note (if analysis said SUBMIT_WITH_NOTE)
-                    #   3. Prescreen Q&A appended as plain text — best-effort
-                    #      communication of answers to casting since the
-                    #      submit_prescreen API endpoint is broken (404).
+                    # Prescreen Q&A is NOT stuffed into the note anymore — it
+                    # goes through the real prescreen endpoint via the answers
+                    # kwarg on submit_for_role.
                     note_parts: list[str] = []
                     if selftape_detected:
                         logger.info(f"[SELFTAPE] Attaching cover letter note for {best['role_name']}")
                         note_parts.append(SELFTAPE_COVER_LETTER)
                     if analysis["action"] == "SUBMIT_WITH_NOTE" and analysis.get("note"):
                         note_parts.append(analysis["note"])
-                    if prescreen_answers:
-                        # Stringify Q&A so casting can read it in the note
-                        # field. This is a workaround — the proper prescreen
-                        # endpoint returns 404 in the current client impl.
-                        q_a_lines = ["Pre-screen answers:"]
-                        for q, a in zip(prescreen_questions, prescreen_answers):
-                            q_text = (q.get("text") or q.get("question") or "").strip()
-                            sel_id = a.get("selected_answer_id")
-                            ans_text = (a.get("answer_text") or "").strip()
-                            if sel_id is not None and not ans_text:
-                                # Look up the selected option text if available
-                                for opt in q.get("answers", []) or q.get("options", []) or []:
-                                    if opt.get("id") == sel_id:
-                                        ans_text = opt.get("text") or opt.get("label") or ""
-                                        break
-                                if not ans_text:
-                                    ans_text = f"(selected option {sel_id})"
-                            q_a_lines.append(f"- Q: {q_text} | A: {ans_text or '(unknown)'}")
-                        note_parts.append("\n".join(q_a_lines))
                     note = "\n\n".join(note_parts)
 
                     submission_cfg = cfg.get("submission", {})
@@ -618,16 +599,21 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                     if resume_id:
                         media_ids.append(resume_id)
 
-                    # Always use submit_for_role. The submit_prescreen endpoint
-                    # currently returns 404 on the role-id URL format, and the
-                    # draft/media/PUT flow in submit_for_role at least gets the
-                    # application submitted with our cover letter note attached.
+                    # submit_for_role handles the full flow: create draft →
+                    # attach media → POST prescreen answers (if any) → PUT
+                    # to submit. Prescreen answers go to the real endpoint
+                    # now; see client._submit_prescreen_answers.
                     logger.info(
                         f"[SUBMIT] Attempting: {project_name} — {best['role_name']} "
                         f"(id={unique_id}), media={media_ids}, "
                         f"note_len={len(note)}, prescreen_answers={len(prescreen_answers) if prescreen_answers else 0}"
                     )
-                    result = client.submit_for_role(best["role_id"], note=note, media_ids=media_ids)
+                    result = client.submit_for_role(
+                        best["role_id"],
+                        note=note,
+                        media_ids=media_ids,
+                        answers=prescreen_answers,
+                    )
 
                     if isinstance(result, dict) and result.get("_rejected"):
                         reason = result.get("reason", "Unknown rejection")
