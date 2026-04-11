@@ -81,10 +81,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload db-storage data/applied.db --clobber
 
-      - name: Send digest email
+      - name: Send digest email (paid)
         env:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-        run: python -m src.digest
+        run: python -m src.digest --mode paid
 
       - name: Upload database (after digest)
         env:

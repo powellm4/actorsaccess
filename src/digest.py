@@ -1,6 +1,7 @@
 # src/digest.py
 """Daily digest email — summarizes applications and rejections from the last 24 hours."""
 
+import argparse
 import logging
 import os
 import sys
@@ -12,17 +13,21 @@ from src.database import Database
 logger = logging.getLogger("digest")
 
 
-def gather_digest_data(db: Database) -> dict:
-    """Query the database for the last 24 hours of activity."""
+def gather_digest_data(db: Database, mode: str | None = None) -> dict:
+    """Query the database for the last 24 hours of activity.
+
+    If mode is "paid" or "unpaid", only include rows tagged with that mode.
+    Passing None returns everything (legacy behavior).
+    """
     return {
-        "applications": db.get_daily_applications(),
-        "rejections": db.get_daily_rejections(),
-        "flagged": db.get_daily_flagged(),
-        "runs": db.get_daily_run_summary(),
+        "applications": db.get_daily_applications(mode=mode),
+        "rejections": db.get_daily_rejections(mode=mode),
+        "flagged": db.get_daily_flagged(mode=mode),
+        "runs": db.get_daily_run_summary(mode=mode),
     }
 
 
-def build_digest_html(data: dict) -> str:
+def build_digest_html(data: dict, mode: str | None = None) -> str:
     """Build an HTML email body from digest data."""
     applications = data["applications"]
     rejections = data["rejections"]
@@ -30,7 +35,7 @@ def build_digest_html(data: dict) -> str:
     runs = data["runs"]
 
     if not applications and not rejections and not flagged:
-        return _empty_digest_html(runs)
+        return _empty_digest_html(runs, mode=mode)
 
     # Split flagged roles into calendar conflicts vs other
     calendar_conflicts = [f for f in flagged if f.get("flag_reason", "").startswith("Calendar conflict")]
@@ -152,10 +157,10 @@ def build_digest_html(data: dict) -> str:
     footer += '\n</div>\n'
 
     body = calendar_section + flagged_section + "\n".join(sections) + footer
-    return _wrap_html(body)
+    return _wrap_html(body, mode=mode)
 
 
-def _empty_digest_html(runs: list[dict]) -> str:
+def _empty_digest_html(runs: list[dict], mode: str | None = None) -> str:
     """Build HTML for a day with no applications."""
     content = '<div style="padding:24px;text-align:center;color:#666;">\n'
     content += '<h2>No applications today</h2>\n'
@@ -166,7 +171,7 @@ def _empty_digest_html(runs: list[dict]) -> str:
         for fr in failed:
             content += f'<p style="color:red;">{fr.get("platform","?")}: {fr.get("error_message","unknown")}</p>\n'
     content += '</div>\n'
-    return _wrap_html(content)
+    return _wrap_html(content, mode=mode)
 
 
 def _platform_badge(platform: str) -> str:
@@ -177,19 +182,38 @@ def _platform_badge(platform: str) -> str:
     return f'<span style="background:{color};color:white;padding:2px 6px;border-radius:3px;font-size:12px;">{label}</span>'
 
 
-def _wrap_html(body: str) -> str:
+def _wrap_html(body: str, mode: str | None = None) -> str:
+    if mode == "unpaid":
+        title = "Daily Casting Digest — UNPAID"
+        accent = "#7c4dff"  # purple
+        banner = (
+            '<div style="background:#ede7f6;border-left:4px solid #7c4dff;'
+            'padding:12px;margin-bottom:16px;border-radius:4px;color:#4a148c;">'
+            '<strong>UNPAID MODE</strong> — LA-local Lead/Supporting/Principal only. '
+            'Cover letter attached to Backstage self-tape requests.'
+            '</div>'
+        )
+    elif mode == "paid":
+        title = "Daily Casting Digest — Paid"
+        accent = "#1565c0"  # blue
+        banner = ""
+    else:
+        title = "Daily Casting Digest"
+        accent = "#333"
+        banner = ""
     return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:700px;margin:0 auto;padding:20px;">
-<h1 style="border-bottom:2px solid #333;padding-bottom:8px;">Daily Casting Digest</h1>
+<h1 style="border-bottom:2px solid {accent};padding-bottom:8px;color:{accent};">{title}</h1>
 <p style="color:#666;">Generated {datetime.now(tz=timezone.utc).strftime("%B %d, %Y at %I:%M %p")} UTC</p>
+{banner}
 {body}
 </body>
 </html>"""
 
 
-def send_email(html: str):
+def send_email(html: str, mode: str | None = None):
     """Send the digest email via Gmail SMTP."""
     import smtplib
     from email.mime.text import MIMEText
@@ -199,9 +223,16 @@ def send_email(html: str):
         logger.error("GMAIL_APP_PASSWORD not set — cannot send digest")
         return
 
+    if mode == "unpaid":
+        subject_prefix = "Casting Digest (UNPAID)"
+    elif mode == "paid":
+        subject_prefix = "Casting Digest (Paid)"
+    else:
+        subject_prefix = "Casting Digest"
+
     sender = "REDACTED"
     msg = MIMEText(html, "html")
-    msg["Subject"] = f"Casting Digest — {datetime.now(tz=timezone.utc).strftime('%B %d, %Y')}"
+    msg["Subject"] = f"{subject_prefix} — {datetime.now(tz=timezone.utc).strftime('%B %d, %Y')}"
     msg["From"] = sender
     msg["To"] = sender
 
@@ -209,13 +240,20 @@ def send_email(html: str):
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(sender, password)
             server.sendmail(sender, sender, msg.as_string())
-        logger.info("Digest email sent via Gmail")
+        logger.info(f"Digest email sent via Gmail (mode={mode})")
     except Exception as e:
         logger.error(f"Failed to send digest email: {e}")
 
 
 def main():
     """Entry point for the digest workflow."""
+    parser = argparse.ArgumentParser(description="Send daily casting digest email")
+    parser.add_argument(
+        "--mode", choices=["paid", "unpaid"], default=None,
+        help="Filter digest to only paid or unpaid rows (default: include everything)",
+    )
+    args = parser.parse_args()
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -224,9 +262,9 @@ def main():
 
     db = Database("data/applied.db")
     try:
-        data = gather_digest_data(db)
-        html = build_digest_html(data)
-        send_email(html)
+        data = gather_digest_data(db, mode=args.mode)
+        html = build_digest_html(data, mode=args.mode)
+        send_email(html, mode=args.mode)
         db.record_digest_sent()
     finally:
         db.close()
