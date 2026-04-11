@@ -19,9 +19,7 @@ submission:
     - 49379289  # IMG_5964
     - 49275576  # IMG_5721
   resume_id: 49559830  # marshall_powell_acting_resume.docx
-  # Attached as the submission note when a Backstage role requests a self-tape.
-  selftape_cover_letter: |
-    Hi! If you think I'm a good fit lookwise, let me know and I'll send a self-tape right away. Thanks for considering me!
+  # Cover letter text is hardcoded in src/backstage/main.py SELFTAPE_COVER_LETTER.
 
 browser:
   headless: false
