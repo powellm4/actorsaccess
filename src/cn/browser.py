@@ -156,8 +156,13 @@ class CastingNetworksBrowser:
 
         return roles
 
-    def navigate_to_billboard(self) -> bool:
-        """Navigate back to the Casting Billboard page."""
+    def navigate_to_billboard(self, saved_search: str | None = None) -> bool:
+        """Navigate back to the Casting Billboard page.
+
+        If saved_search is provided, clicks the named saved search after the
+        page loads so the billboard re-renders with that filter applied.
+        Without it, the user's default saved search auto-loads.
+        """
         try:
             self.page.goto(f"{BASE_URL}/talent/casting-billboard")
             _random_delay(3, 5)
@@ -165,9 +170,65 @@ class CastingNetworksBrowser:
                 '[data-qa-id="casting-billboard-role-name-link"]',
                 timeout=30000,
             )
+            if saved_search:
+                if not self.click_saved_search(saved_search):
+                    return False
             return True
         except Exception as e:
             logger.error(f"Failed to navigate to billboard: {e}")
+            return False
+
+    def click_saved_search(self, name: str) -> bool:
+        """Click a named saved search button on the Casting Billboard page.
+
+        The saved searches live in a "Saved Searches" section at the top of
+        the billboard. Each one renders as a link/button with the search name
+        as its text. After clicking we wait for the results list to re-render.
+
+        Returns True on success, False otherwise.
+        """
+        try:
+            # Scope to the "Saved Searches" region to avoid matching the word
+            # "unpaid" inside a role description elsewhere on the page.
+            saved_section = self.page.locator(
+                'xpath=//*[normalize-space(text())="Saved Searches"]/ancestor::*[self::div or self::section][1]'
+            ).first
+            saved_section.wait_for(timeout=15000)
+
+            target = saved_section.get_by_text(name, exact=True).first
+            target.wait_for(timeout=10000)
+
+            # Grab a role name before clicking so we can detect the re-render.
+            old_first_el = self.page.query_selector(
+                '[data-qa-id="casting-billboard-role-name-link"]'
+            )
+            old_first = old_first_el.inner_text() if old_first_el else ""
+
+            target.click()
+            logger.info(f"Clicked saved search: {name!r}")
+            _random_delay(2, 4)
+
+            # Wait for the results to change (or at least re-appear).
+            for _ in range(15):
+                new_first_el = self.page.query_selector(
+                    '[data-qa-id="casting-billboard-role-name-link"]'
+                )
+                new_first = new_first_el.inner_text() if new_first_el else ""
+                if new_first and new_first != old_first:
+                    logger.info(f"Saved search {name!r} applied — results re-rendered")
+                    return True
+                time.sleep(1)
+
+            # No detectable change — the saved search might already be active,
+            # or the same top role still matches. Treat as success if we can
+            # still see role cards.
+            if self.page.query_selector('[data-qa-id="casting-billboard-role-name-link"]'):
+                logger.info(f"Saved search {name!r} clicked (no visible change, cards present)")
+                return True
+            logger.error(f"Saved search {name!r} clicked but no role cards visible after wait")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to click saved search {name!r}: {e}")
             return False
 
     def get_total_pages(self) -> int:

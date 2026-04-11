@@ -2,9 +2,14 @@ credentials:
   email: "REDACTED"
   password: "REDACTED"
 
-# CN has no paid/unpaid site filter. In unpaid mode src/cn/main.py inverts
-# the _is_unpaid() check and applies is_lead_or_supporting() to keep only
-# Lead/Supporting/Principal/Series Regular/Recurring roles.
+# CN narrows the billboard by clicking a named saved search after login.
+# The user's "unpaid" saved search must exist on castingnetworks.com.
+# If it can't be applied, src/cn/main.py fails closed in unpaid mode
+# so we never scrape the default (paid) billboard under the unpaid flag.
+# Programmatic role_matches() + is_lead_or_supporting() still run as a
+# backstop in case the saved search allows anything through.
+saved_search: "unpaid"
+
 max_pages: 3
 max_submissions: 5
 
