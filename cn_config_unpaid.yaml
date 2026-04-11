@@ -10,7 +10,7 @@ credentials:
 # backstop in case the saved search allows anything through.
 saved_search: "unpaid"
 
-max_pages: 3
+max_pages: 5
 
 submission:
   default_note: ""

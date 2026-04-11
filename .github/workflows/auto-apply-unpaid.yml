@@ -10,6 +10,10 @@ on:
         description: "Override max submissions per platform (leave blank to use config default)"
         required: false
         default: ""
+      max_pages:
+        description: "Override max pages per platform (leave blank to use config default of 5)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -57,7 +61,8 @@ jobs:
           GOOGLE_CALENDAR_SA_KEY: ${{ secrets.GOOGLE_CALENDAR_SA_KEY }}
         run: |
           python -m src.main --once --mode unpaid \
-            ${{ inputs.max_submissions && format('--max-submissions {0}', inputs.max_submissions) || '' }}
+            ${{ inputs.max_submissions && format('--max-submissions {0}', inputs.max_submissions) || '' }} \
+            ${{ inputs.max_pages && format('--max-pages {0}', inputs.max_pages) || '' }}
 
       - name: Upload database (after AA)
         env:
@@ -72,7 +77,8 @@ jobs:
           GOOGLE_CALENDAR_SA_KEY: ${{ secrets.GOOGLE_CALENDAR_SA_KEY }}
         run: |
           xvfb-run --auto-servernum python -m src.cn.main --once --mode unpaid \
-            ${{ inputs.max_submissions && format('--max-submissions {0}', inputs.max_submissions) || '' }}
+            ${{ inputs.max_submissions && format('--max-submissions {0}', inputs.max_submissions) || '' }} \
+            ${{ inputs.max_pages && format('--max-pages {0}', inputs.max_pages) || '' }}
 
       - name: Upload database (after CN)
         env:
@@ -87,7 +93,8 @@ jobs:
           GOOGLE_CALENDAR_SA_KEY: ${{ secrets.GOOGLE_CALENDAR_SA_KEY }}
         run: |
           python -m src.backstage.main --once --mode unpaid \
-            ${{ inputs.max_submissions && format('--max-submissions {0}', inputs.max_submissions) || '' }}
+            ${{ inputs.max_submissions && format('--max-submissions {0}', inputs.max_submissions) || '' }} \
+            ${{ inputs.max_pages && format('--max-pages {0}', inputs.max_pages) || '' }}
 
       - name: Upload database (after Backstage)
         env:
