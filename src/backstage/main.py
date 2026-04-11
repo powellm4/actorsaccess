@@ -499,7 +499,14 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                             f"— will submit anyway with cover letter"
                         )
 
-                    # Applicant questions (YES_NO / SHORT_ANSWER): try AI first
+                    # Applicant questions (YES_NO / SHORT_ANSWER): try AI first.
+                    # If the AI can answer all of them confidently we POST the
+                    # answers via the prescreen endpoint. If even one is
+                    # unanswerable (open-ended pitch, "favorite film", dates
+                    # outside confirmed availability, etc.), we SUBMIT ANYWAY
+                    # without the answers — same submit-anyway pattern as
+                    # self-tape requests. Questions stay Pending in the
+                    # Backstage UI and casting can follow up if interested.
                     prescreen_answers: list[dict] | None = None
                     if prescreen_questions:
                         ai_result = answer_prescreen_questions(
@@ -509,26 +516,20 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                             confirmed_dates=confirmed_dates,
                         )
                         if ai_result.get("needs_input"):
-                            q_texts = [q.get("text", "") for q in prescreen_questions[:3]]
-                            flag_reason = (
-                                f"{ai_result['needs_input']} | Questions: {'; '.join(q_texts)}"
+                            logger.info(
+                                f"[PRESCREEN] {best['role_name']}: AI couldn't answer all "
+                                f"applicant questions ({ai_result['needs_input']}) "
+                                f"— submitting anyway without answers"
                             )
-                            db.record_flagged_role(
-                                project_name=project_name,
-                                project_url=project_url,
-                                role_name=best["role_name"],
-                                role_description=best.get("description", ""),
-                                flag_reason=flag_reason,
-                                run_id=run_id,
-                                platform="backstage",
+                            # Treat this like the self-tape path — attach the
+                            # cover letter note so casting knows to follow up.
+                            selftape_detected = True
+                            prescreen_answers = None
+                        else:
+                            prescreen_answers = ai_result.get("answers") or []
+                            logger.info(
+                                f"[PRESCREEN] AI answered {len(prescreen_answers)} question(s) for {best['role_name']}"
                             )
-                            if dry_run:
-                                _print_role_decision("FLAGGED", project_name, best, flag_reason)
-                            continue
-                        prescreen_answers = ai_result.get("answers") or []
-                        logger.info(
-                            f"[PRESCREEN] AI answered {len(prescreen_answers)} question(s) for {best['role_name']}"
-                        )
 
                     # Also check description for self-tape submission requests
                     desc_lower = best.get("description", "").lower()
