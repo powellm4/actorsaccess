@@ -1,0 +1,40 @@
+credentials:
+  username: "REDACTED"
+  password: "REDACTED"
+
+# Unpaid mode: LA-only, and paying_only must be false so the AA site filter
+# shows unpaid listings. Role-type filtering + unpaid-only enforcement happen
+# programmatically in src/main.py via role_matches(..., mode="unpaid") and
+# is_lead_or_supporting().
+filters:
+  regions:
+    - region: "Los Angeles"
+      max_pages: 2
+  gender: "male"
+  age_range: [19, 29]
+  union_status: "fit_for_me"
+  paying_only: false
+  exclude_reality_tv: true
+
+submission:
+  headshot_index: 0
+  include_media: true
+  include_size_card: true
+  default_note: ""
+
+max_pages: 2
+# Conservative cap — with paying_only=false the candidate pool is much larger
+max_submissions: 5
+
+browser:
+  headless: true
+
+google_calendar:
+  service_account_key_env: "GOOGLE_CALENDAR_SA_KEY"
+  calendar_ids:
+    - "c50f22709de5e666863424cdec435d33cea633a53fe6cd2f34af591825251187@group.calendar.google.com"
+    - "4589f6dc4692352bd5b7c8c39c1f90722f093c1846e3c6185f4b0cf317658d5f@group.calendar.google.com"
+
+logging:
+  level: "INFO"
+  file: "logs/auto_apply_unpaid.log"

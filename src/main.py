@@ -10,7 +10,7 @@ import schedule
 from src.config import load_config, ConfigError
 from src.database import Database
 from src.browser import ActorsAccessBrowser
-from src.filters import role_matches, project_matches, is_sag_only
+from src.filters import role_matches, project_matches, is_sag_only, is_lead_or_supporting
 from src.role_selector import select_best_roles, analyze_submission_requirements, check_partial_availability, check_travel_pay
 from src.calendar_check import parse_shoot_dates, check_availability, get_busy_dates
 
@@ -44,7 +44,7 @@ def _print_role_decision(tag: str, project_name: str, role: dict, reason: str = 
         print(f"  {desc}")
 
 
-def run_once(cfg: dict, db: Database, dry_run: bool = False):
+def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid"):
     """Execute a single scrape-and-apply run.
 
     Flow:
@@ -57,10 +57,12 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
     4. Record everything in the database
 
     If dry_run is True, print what would be submitted without actually submitting.
+    In unpaid mode, only roles explicitly marked Lead/Supporting/Principal/
+    Series Regular/Recurring and shooting in LA are accepted.
     """
-    run_id = db.start_run()
+    run_id = db.start_run(platform="aa", mode=mode)
     cal_ids = cfg.get("google_calendar", {}).get("calendar_ids", [])
-    logger.info(f"[RUN] Started AA run_id={run_id}, calendar_ids={len(cal_ids)} configured")
+    logger.info(f"[RUN] Started AA run_id={run_id}, mode={mode}, calendar_ids={len(cal_ids)} configured")
     roles_found = 0
     roles_applied = 0
     roles_skipped = 0
@@ -207,6 +209,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                                         flag_reason=flag_reason,
                                         run_id=run_id,
                                         platform="aa",
+                                        mode=mode,
                                     )
                                 if dry_run:
                                     for role in roles:
@@ -259,7 +262,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             )
                             continue
 
-                        matches, skip_reason = role_matches(role)
+                        matches, skip_reason = role_matches(role, mode=mode)
                         if not matches:
                             roles_filtered += 1
                             if dry_run:
@@ -270,6 +273,21 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                                     f"{role['role_name']} ({skip_reason})"
                                 )
                             continue
+
+                        # Unpaid mode: require Lead/Supporting/Principal/Series Regular/Recurring
+                        # marker in the description (AA has no structured role_type field)
+                        if mode == "unpaid":
+                            lead_ok, lead_reason = is_lead_or_supporting(role, "aa")
+                            if not lead_ok:
+                                roles_filtered += 1
+                                if dry_run:
+                                    _print_role_decision("SKIP", project["project_name"], role, lead_reason)
+                                else:
+                                    logger.info(
+                                        f"Filtered out (unpaid role-type): {project['project_name']} — "
+                                        f"{role['role_name']} ({lead_reason})"
+                                    )
+                                continue
 
                         # Enrich description with project context so AI
                         # can apply travel pay rules
@@ -297,7 +315,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                         break
 
                     # Pick the best role(s) (AI selection if multiple candidates)
-                    selected, rejections = select_best_roles(candidates, project["project_name"])
+                    selected, rejections = select_best_roles(candidates, project["project_name"], mode=mode)
                     logger.info(
                         f"AI selection for {project['project_name']}: "
                         f"selected={[s[0]['role_name'] for s in selected]}, "
@@ -315,6 +333,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                                 rejection_reason=rejections[role["role_name"]],
                                 run_id=run_id,
                                 platform="aa",
+                                mode=mode,
                             )
 
                     if not selected:
@@ -333,6 +352,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             project["project_name"],
                             best.get("description", ""),
                             project_notes,
+                            mode=mode,
                         )
                         if not tp_ok:
                             logger.info(f"[TRAVEL PAY] Skipping {best['role_name']} on {project['project_name']}: {tp_reason}")
@@ -344,6 +364,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                                 rejection_reason=tp_reason,
                                 run_id=run_id,
                                 platform="aa",
+                                mode=mode,
                             )
                             continue
 
@@ -362,6 +383,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                                     flag_reason=flag_reason,
                                     run_id=run_id,
                                     platform="aa",
+                                    mode=mode,
                                 )
                                 logger.info(f"[CALENDAR] Skipping {best['role_name']} — {flag_reason}")
                                 if dry_run:
@@ -388,6 +410,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                                 flag_reason=analysis["needs_input_reason"],
                                 run_id=run_id,
                                 platform="aa",
+                                mode=mode,
                             )
                             logger.info(f"Flagged for review: {best['role_name']} — {analysis['needs_input_reason']}")
                             if dry_run:
@@ -425,18 +448,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                         result = browser.submit_for_role(
                             best, project["project_name"], sub_cfg
                         )
-                        if isinstance(result, str) and result.startswith("NEEDS_SELFTAPE:"):
-                            flag_reason = "Self-tape/video audition requested"
-                            logger.info(f"Flagging {best['role_name']} — {flag_reason}")
-                            db.record_flagged_role(
-                                project_name=project["project_name"],
-                                project_url=project_url,
-                                role_name=best["role_name"],
-                                role_description=best.get("description", ""),
-                                flag_reason=flag_reason,
-                                run_id=run_id,
-                            )
-                        elif result:
+                        if result:
                             db.record_application(
                                 unique_id, project["project_name"], best["role_name"],
                                 role_description=best.get("description", ""),
@@ -444,6 +456,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                                 candidates_considered=len(candidates),
                                 project_url=project_url,
                                 submission_note=analysis.get("note") or "",
+                                mode=mode,
                             )
                             logger.info(f"[SUBMIT] SUCCESS: {best['role_name']} on {project['project_name']}")
                             roles_applied += 1
@@ -479,9 +492,13 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
 
 def main():
     parser = argparse.ArgumentParser(description="ActorsAccess Auto-Apply Tool")
-    parser.add_argument("--config", default="config.yaml", help="Path to config file")
+    parser.add_argument("--config", default=None, help="Path to config file (default: config.yaml, or config_unpaid.yaml when --mode unpaid)")
     parser.add_argument("--once", action="store_true", help="Run once and exit")
     parser.add_argument("--headed", action="store_true", help="Run with visible browser")
+    parser.add_argument(
+        "--mode", choices=["paid", "unpaid"], default="paid",
+        help="paid (default): normal paying-roles flow. unpaid: LA-local Lead/Supporting/Principal only.",
+    )
     parser.add_argument(
         "--dry-run", action="store_true",
         help="Preview what would be submitted without actually submitting",
@@ -496,8 +513,13 @@ def main():
     )
     args = parser.parse_args()
 
+    # Pick config file based on mode unless explicitly overridden
+    config_path = args.config
+    if config_path is None:
+        config_path = "config_unpaid.yaml" if args.mode == "unpaid" else "config.yaml"
+
     try:
-        cfg = load_config(args.config)
+        cfg = load_config(config_path)
     except ConfigError as e:
         print(f"Config error: {e}")
         sys.exit(1)
@@ -520,13 +542,13 @@ def main():
         args.once = True  # dry-run implies --once
 
     if args.once:
-        logger.info("Running single pass..." + (" (dry run)" if args.dry_run else ""))
-        run_once(cfg, db, dry_run=args.dry_run)
+        logger.info(f"Running single pass (mode={args.mode})" + (" (dry run)" if args.dry_run else ""))
+        run_once(cfg, db, dry_run=args.dry_run, mode=args.mode)
     else:
         interval = cfg["schedule"]["interval_hours"]
-        logger.info(f"Starting scheduler — running every {interval} hours")
-        run_once(cfg, db)  # Run immediately on start
-        schedule.every(interval).hours.do(run_once, cfg, db)
+        logger.info(f"Starting scheduler (mode={args.mode}) — running every {interval} hours")
+        run_once(cfg, db, mode=args.mode)  # Run immediately on start
+        schedule.every(interval).hours.do(run_once, cfg, db, mode=args.mode)
         try:
             while True:
                 schedule.run_pending()

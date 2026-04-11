@@ -1,0 +1,95 @@
+name: Auto Apply (Unpaid)
+
+on:
+  schedule:
+    # 9am PT (UTC-7) once daily
+    - cron: "0 16 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Share the concurrency group with the paid workflow so they never both
+# touch applied.db at the same time.
+concurrency:
+  group: db-access
+  cancel-in-progress: false
+
+jobs:
+  auto-apply-unpaid:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          pip install -r requirements.txt
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Download database
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p data
+          gh release download db-storage --pattern applied.db --dir data/ --clobber
+
+      - name: Run AA auto-apply (unpaid)
+        env:
+          AA_USERNAME: ${{ secrets.AA_USERNAME }}
+          AA_PASSWORD: ${{ secrets.AA_PASSWORD }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_CALENDAR_SA_KEY: ${{ secrets.GOOGLE_CALENDAR_SA_KEY }}
+        run: python -m src.main --once --mode unpaid
+
+      - name: Upload database (after AA)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload db-storage data/applied.db --clobber
+
+      - name: Run CN auto-apply (unpaid, headed via xvfb)
+        env:
+          CN_EMAIL: ${{ secrets.CN_EMAIL }}
+          CN_PASSWORD: ${{ secrets.CN_PASSWORD }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_CALENDAR_SA_KEY: ${{ secrets.GOOGLE_CALENDAR_SA_KEY }}
+        run: xvfb-run --auto-servernum python -m src.cn.main --once --mode unpaid
+
+      - name: Upload database (after CN)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload db-storage data/applied.db --clobber
+
+      - name: Run Backstage auto-apply (unpaid)
+        env:
+          BACKSTAGE_EMAIL: ${{ secrets.BACKSTAGE_EMAIL }}
+          BACKSTAGE_PASSWORD: ${{ secrets.BACKSTAGE_PASSWORD }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_CALENDAR_SA_KEY: ${{ secrets.GOOGLE_CALENDAR_SA_KEY }}
+        run: python -m src.backstage.main --once --mode unpaid
+
+      - name: Upload database (after Backstage)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload db-storage data/applied.db --clobber
+
+      # No digest step here — the paid workflow sends the daily digest
+      # and will pick up unpaid rows via the shared DB.
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-logs-unpaid-${{ github.run_number }}
+          path: logs/
+          retention-days: 90

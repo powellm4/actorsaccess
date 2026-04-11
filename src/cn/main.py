@@ -11,7 +11,7 @@ from src.cn.config import load_cn_config, CnConfigError
 from src.cn.browser import CastingNetworksBrowser
 from src.database import Database
 from src.calendar_check import check_work_date_conflicts, parse_work_dates, check_availability
-from src.filters import _is_background, _is_court_tv, _is_ugc, _is_unpaid, _is_voiceover, _COURT_TV_PATTERN
+from src.filters import _is_background, _is_court_tv, _is_ugc, _is_unpaid, _is_voiceover, _COURT_TV_PATTERN, is_lead_or_supporting
 from src.role_selector import select_best_roles, analyze_submission_requirements, check_travel_pay
 
 logger = logging.getLogger("castingnetworks")
@@ -71,10 +71,10 @@ def _is_cn_background(role: dict) -> bool:
     return _is_background(role)
 
 
-def run_once(cfg: dict, db: Database, dry_run: bool = False):
-    run_id = db.start_run(platform="cn")
+def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid"):
+    run_id = db.start_run(platform="cn", mode=mode)
     cal_ids = cfg.get("google_calendar", {}).get("calendar_ids", [])
-    logger.info(f"[RUN] Started CN run_id={run_id}, calendar_ids={len(cal_ids)} configured")
+    logger.info(f"[RUN] Started CN run_id={run_id}, mode={mode}, calendar_ids={len(cal_ids)} configured")
     roles_found = 0
     roles_applied = 0
     roles_skipped = 0
@@ -158,13 +158,32 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             logger.info(f"Filtered out: {project_name} — {role['role_name']} (background)")
                         continue
 
-                    if _is_unpaid(role):
-                        roles_filtered += 1
-                        if dry_run:
-                            _print_role_decision("SKIP", project_name, role, "unpaid")
-                        else:
-                            logger.info(f"Filtered out: {project_name} — {role['role_name']} (unpaid)")
-                        continue
+                    if mode == "unpaid":
+                        # Unpaid mode: keep only roles explicitly marked unpaid
+                        if not _is_unpaid(role):
+                            roles_filtered += 1
+                            if dry_run:
+                                _print_role_decision("SKIP", project_name, role, "paid role (unpaid mode)")
+                            else:
+                                logger.info(f"Filtered out: {project_name} — {role['role_name']} (paid in unpaid mode)")
+                            continue
+                        # And the role must be Lead/Supporting/Principal/Series Regular/Recurring
+                        lead_ok, lead_reason = is_lead_or_supporting(role, "cn")
+                        if not lead_ok:
+                            roles_filtered += 1
+                            if dry_run:
+                                _print_role_decision("SKIP", project_name, role, lead_reason)
+                            else:
+                                logger.info(f"Filtered out (unpaid role-type): {project_name} — {role['role_name']} ({lead_reason})")
+                            continue
+                    else:
+                        if _is_unpaid(role):
+                            roles_filtered += 1
+                            if dry_run:
+                                _print_role_decision("SKIP", project_name, role, "unpaid")
+                            else:
+                                logger.info(f"Filtered out: {project_name} — {role['role_name']} (unpaid)")
+                            continue
 
                     if _is_voiceover(role):
                         roles_filtered += 1
@@ -220,7 +239,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                 if max_subs and roles_applied >= max_subs:
                     break
 
-                selected, rejections = select_best_roles(candidates, project_name)
+                selected, rejections = select_best_roles(candidates, project_name, mode=mode)
                 logger.info(
                     f"[AI] Selection for {project_name}: "
                     f"selected={[s[0]['role_name'] for s in selected]}, "
@@ -246,6 +265,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             rejection_reason=rejections[role["role_name"]],
                             run_id=run_id,
                             platform="cn",
+                            mode=mode,
                         )
 
                 if not selected:
@@ -264,6 +284,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                         project_name,
                         best.get("description", ""),
                         f"{best.get('submission_date', '')} {best.get('location', '')}",
+                        mode=mode,
                     )
                     if not tp_ok:
                         logger.info(f"[TRAVEL PAY] Skipping {best['role_name']} on {project_name}: {tp_reason}")
@@ -278,6 +299,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             rejection_reason=tp_reason,
                             run_id=run_id,
                             platform="cn",
+                            mode=mode,
                         )
                         continue
 
@@ -309,6 +331,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                                 flag_reason=flag_reason,
                                 run_id=run_id,
                                 platform="cn",
+                                mode=mode,
                             )
                             logger.info(f"Skipping {best['role_name']} — {flag_reason}")
                             if dry_run:
@@ -318,32 +341,8 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     else:
                         logger.info(f"[CALENDAR] No work dates parsed for {best['role_name']}")
 
-                    # Check for self-tape/video audition requests
-                    # Only flag if instructions ask to SUBMIT a self-tape now,
-                    # not if they just describe the audition format
-                    selftape_keywords = ["self-tape", "self tape", "selftape", "slate"]
-                    instructions_lower = role_instructions.lower()
-                    format_phrases = [
-                        "self-taped audition", "self-taped, online audition",
-                        "self tape audition", "self-taped online audition",
-                        "audition instructions will be sent",
-                    ]
-                    is_format_description = any(fp in instructions_lower for fp in format_phrases)
-                    if not is_format_description and any(kw in instructions_lower for kw in selftape_keywords):
-                        flag_reason = "Self-tape/video audition requested"
-                        logger.info(f"Flagging {best['role_name']} — {flag_reason}")
-                        db.record_flagged_role(
-                            project_name=project_name,
-                            project_url=project_url,
-                            role_name=best["role_name"],
-                            role_description=best.get("description", ""),
-                            flag_reason=flag_reason,
-                            run_id=run_id,
-                            platform="cn",
-                        )
-                        if dry_run:
-                            _print_role_decision("FLAGGED", project_name, best, flag_reason)
-                        continue
+                    # Note: we used to flag and skip self-tape/video-audition requests here.
+                    # We now submit anyway — casting can ask for a tape later if interested.
 
                     analysis = analyze_submission_requirements(best, project_name, role_instructions, confirmed_dates=confirmed_dates)
                     logger.info(f"[ANALYSIS] {best['role_name']}: action={analysis['action']}, note={analysis.get('note', 'N/A')}")
@@ -365,6 +364,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                                 flag_reason=flag_reason,
                                 run_id=run_id,
                                 platform="cn",
+                                mode=mode,
                             )
                             logger.info(f"Skipping {best['role_name']} — {flag_reason}")
                             if dry_run:
@@ -380,6 +380,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             flag_reason=analysis["needs_input_reason"],
                             run_id=run_id,
                             platform="cn",
+                            mode=mode,
                         )
                         logger.info(f"Flagged for review: {best['role_name']} — {analysis['needs_input_reason']}")
                         if dry_run:
@@ -415,6 +416,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             platform="cn",
                             project_url=role_url,
                             submission_note=analysis.get("note") or "",
+                            mode=mode,
                         )
                         roles_applied += 1
                     else:
@@ -456,15 +458,23 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
 
 def main():
     parser = argparse.ArgumentParser(description="Casting Networks Auto-Apply Tool")
-    parser.add_argument("--config", default="cn_config.yaml", help="Path to CN config file")
+    parser.add_argument("--config", default=None, help="Path to CN config file (default: cn_config.yaml, or cn_config_unpaid.yaml when --mode unpaid)")
     parser.add_argument("--once", action="store_true", help="Run once and exit")
+    parser.add_argument(
+        "--mode", choices=["paid", "unpaid"], default="paid",
+        help="paid (default) or unpaid (LA-local Lead/Supporting only)",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Preview without submitting")
     parser.add_argument("--max-pages", type=int, default=None, help="Max pages to process")
     parser.add_argument("--max-submissions", type=int, default=None, help="Max roles to submit for")
     args = parser.parse_args()
 
+    config_path = args.config
+    if config_path is None:
+        config_path = "cn_config_unpaid.yaml" if args.mode == "unpaid" else "cn_config.yaml"
+
     try:
-        cfg = load_cn_config(args.config)
+        cfg = load_cn_config(config_path)
     except CnConfigError as e:
         print(f"Config error: {e}")
         sys.exit(1)
@@ -483,14 +493,14 @@ def main():
         args.once = True
 
     if args.once:
-        logger.info("Running single pass..." + (" (dry run)" if args.dry_run else ""))
-        run_once(cfg, db, dry_run=args.dry_run)
+        logger.info(f"Running single pass (mode={args.mode})" + (" (dry run)" if args.dry_run else ""))
+        run_once(cfg, db, dry_run=args.dry_run, mode=args.mode)
     else:
         import schedule as sched
         interval = 4
-        logger.info(f"Starting scheduler — running every {interval} hours")
-        run_once(cfg, db)
-        sched.every(interval).hours.do(run_once, cfg, db)
+        logger.info(f"Starting scheduler (mode={args.mode}) — running every {interval} hours")
+        run_once(cfg, db, mode=args.mode)
+        sched.every(interval).hours.do(run_once, cfg, db, mode=args.mode)
         try:
             while True:
                 sched.run_pending()

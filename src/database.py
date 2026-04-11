@@ -93,6 +93,25 @@ class Database:
             self.conn.execute("ALTER TABLE applied_roles ADD COLUMN submission_note TEXT DEFAULT ''")
         except sqlite3.OperationalError:
             pass
+        # Mode column: 'paid' (default) or 'unpaid'. Tracks which workflow
+        # applied or rejected the role. Does NOT affect dedup — role_id UNIQUE
+        # still prevents double-applying across modes.
+        try:
+            self.conn.execute("ALTER TABLE applied_roles ADD COLUMN mode TEXT DEFAULT 'paid'")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            self.conn.execute("ALTER TABLE run_history ADD COLUMN mode TEXT DEFAULT 'paid'")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            self.conn.execute("ALTER TABLE rejected_roles ADD COLUMN mode TEXT DEFAULT 'paid'")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            self.conn.execute("ALTER TABLE flagged_roles ADD COLUMN mode TEXT DEFAULT 'paid'")
+        except sqlite3.OperationalError:
+            pass
         self.conn.commit()
 
     def has_seen_breakdown(self, breakdown_id: str, platform: str = "aa") -> bool:
@@ -127,32 +146,35 @@ class Database:
         self, role_id: str, project_name: str, role_name: str,
         role_description: str = "", ai_reason: str = "", candidates_considered: int = 1,
         platform: str = "aa", project_url: str = "", submission_note: str = "",
+        mode: str = "paid",
     ):
-        logger.info(f"[DB] Recording application: {project_name} — {role_name} (id={role_id})")
+        logger.info(f"[DB] Recording application: {project_name} — {role_name} (id={role_id}, mode={mode})")
         self.conn.execute(
             """INSERT OR IGNORE INTO applied_roles
-               (role_id, project_name, role_name, role_description, ai_reason, candidates_considered, platform, project_url, applied_at, submission_note)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (role_id, project_name, role_name, role_description, ai_reason, candidates_considered, platform, project_url, self._utcnow(), submission_note),
+               (role_id, project_name, role_name, role_description, ai_reason, candidates_considered, platform, project_url, applied_at, submission_note, mode)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (role_id, project_name, role_name, role_description, ai_reason, candidates_considered, platform, project_url, self._utcnow(), submission_note, mode),
         )
         self.conn.commit()
 
     def record_rejection(
         self, project_name: str, project_url: str, role_name: str,
         role_description: str, rejection_reason: str, run_id: int, platform: str = "aa",
+        mode: str = "paid",
     ):
-        logger.info(f"[DB] Recording rejection: {project_name} — {role_name} ({rejection_reason})")
+        logger.info(f"[DB] Recording rejection: {project_name} — {role_name} ({rejection_reason}, mode={mode})")
         now = self._utcnow()
         self.conn.execute(
             """INSERT INTO rejected_roles
-               (project_name, project_url, role_name, role_description, rejection_reason, run_id, platform, rejected_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               (project_name, project_url, role_name, role_description, rejection_reason, run_id, platform, rejected_at, mode)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(role_name, project_name, platform) DO UPDATE SET
                    rejection_reason = excluded.rejection_reason,
                    role_description = excluded.role_description,
                    run_id = excluded.run_id,
-                   project_url = excluded.project_url""",
-            (project_name, project_url, role_name, role_description, rejection_reason, run_id, platform, now),
+                   project_url = excluded.project_url,
+                   mode = excluded.mode""",
+            (project_name, project_url, role_name, role_description, rejection_reason, run_id, platform, now, mode),
         )
         self.conn.commit()
 
@@ -160,13 +182,13 @@ class Database:
         """UTC timestamp with microsecond precision for reliable ordering."""
         return datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
 
-    def start_run(self, platform: str = "aa") -> int:
+    def start_run(self, platform: str = "aa", mode: str = "paid") -> int:
         cursor = self.conn.execute(
-            "INSERT INTO run_history (started_at, platform) VALUES (?, ?)",
-            (self._utcnow(), platform),
+            "INSERT INTO run_history (started_at, platform, mode) VALUES (?, ?, ?)",
+            (self._utcnow(), platform, mode),
         )
         self.conn.commit()
-        logger.info(f"[DB] Started run id={cursor.lastrowid} platform={platform}")
+        logger.info(f"[DB] Started run id={cursor.lastrowid} platform={platform} mode={mode}")
         return cursor.lastrowid
 
     def complete_run(self, run_id: int, roles_found: int, roles_applied: int, roles_skipped: int):
@@ -276,20 +298,22 @@ class Database:
     def record_flagged_role(
         self, project_name: str, project_url: str, role_name: str,
         role_description: str, flag_reason: str, run_id: int, platform: str = "aa",
+        mode: str = "paid",
     ):
-        logger.info(f"[DB] Recording flagged role: {project_name} — {role_name} ({flag_reason})")
+        logger.info(f"[DB] Recording flagged role: {project_name} — {role_name} ({flag_reason}, mode={mode})")
         now = self._utcnow()
         self.conn.execute(
             """INSERT INTO flagged_roles
-               (project_name, project_url, role_name, role_description, flag_reason, run_id, platform, flagged_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               (project_name, project_url, role_name, role_description, flag_reason, run_id, platform, flagged_at, mode)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(role_name, project_name, platform) DO UPDATE SET
                    flag_reason = excluded.flag_reason,
                    role_description = excluded.role_description,
                    run_id = excluded.run_id,
                    project_url = excluded.project_url,
-                   flagged_at = flagged_roles.flagged_at""",
-            (project_name, project_url, role_name, role_description, flag_reason, run_id, platform, now),
+                   flagged_at = flagged_roles.flagged_at,
+                   mode = excluded.mode""",
+            (project_name, project_url, role_name, role_description, flag_reason, run_id, platform, now, mode),
         )
         self.conn.commit()
 

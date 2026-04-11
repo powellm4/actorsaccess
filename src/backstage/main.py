@@ -16,7 +16,7 @@ from src.backstage.config import load_backstage_config, BackstageConfigError
 from src.backstage.client import BackstageClient
 from src.database import Database
 from src.calendar_check import check_availability, parse_shoot_dates
-from src.filters import _is_background, _is_court_tv, _is_ugc, _is_unpaid, _COURT_TV_PATTERN
+from src.filters import _is_background, _is_court_tv, _is_ugc, _is_unpaid, _COURT_TV_PATTERN, is_lead_or_supporting
 from src.role_selector import (
     select_best_roles,
     analyze_submission_requirements,
@@ -138,10 +138,10 @@ def _parse_shoot_info(production: dict) -> str | None:
     return info
 
 
-def run_once(cfg: dict, db: Database, dry_run: bool = False):
-    run_id = db.start_run(platform="backstage")
+def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid"):
+    run_id = db.start_run(platform="backstage", mode=mode)
     cal_ids = cfg.get("google_calendar", {}).get("calendar_ids", [])
-    logger.info(f"[RUN] Started Backstage run_id={run_id}, calendar_ids={len(cal_ids)} configured")
+    logger.info(f"[RUN] Started Backstage run_id={run_id}, mode={mode}, calendar_ids={len(cal_ids)} configured")
     roles_found = 0
     roles_applied = 0
     roles_skipped = 0
@@ -157,6 +157,9 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
         max_pages = cfg.get("max_pages", 5)
         max_subs = cfg.get("max_submissions")
         saved_search_name = cfg.get("saved_search", "acting")
+        selftape_cover_letter = (
+            cfg.get("submission", {}).get("selftape_cover_letter", "") or ""
+        ).strip()
 
         # Find the saved search to use its filters
         saved_search = None
@@ -167,6 +170,13 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                 logger.info(f"Using saved search '{ss['name']}' (id={ss['id']})")
                 break
         if not saved_search:
+            # Unpaid mode must not silently fall back to the default (paid)
+            # filters — that would submit to paid roles under unpaid flag.
+            if mode == "unpaid":
+                raise RuntimeError(
+                    f"Unpaid mode: saved search '{saved_search_name}' not found on Backstage. "
+                    f"Create it (LA + unpaid + Lead/Supporting) before running unpaid mode."
+                )
             logger.warning(f"Saved search '{saved_search_name}' not found, using default filters")
 
         if dry_run:
@@ -282,13 +292,35 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             logger.info(f"Filtered: {project_name} — {role['role_name']} (background)")
                         continue
 
-                    if _is_unpaid(role):
-                        roles_filtered += 1
-                        if dry_run:
-                            _print_role_decision("SKIP", project_name, role, "unpaid")
-                        else:
-                            logger.info(f"Filtered: {project_name} — {role['role_name']} (unpaid)")
-                        continue
+                    if mode == "unpaid":
+                        # Unpaid mode: keep only unpaid roles. Backstage roles
+                        # scraped via the unpaid saved search should already
+                        # all be unpaid, but double-check via the pay field.
+                        pay = role.get("pay", "").strip()
+                        if pay and not _is_unpaid(role):
+                            roles_filtered += 1
+                            if dry_run:
+                                _print_role_decision("SKIP", project_name, role, "paid role (unpaid mode)")
+                            else:
+                                logger.info(f"Filtered: {project_name} — {role['role_name']} (paid in unpaid mode)")
+                            continue
+                        # Require Lead/Supporting/Principal/Series Regular/Recurring
+                        lead_ok, lead_reason = is_lead_or_supporting(role, "backstage")
+                        if not lead_ok:
+                            roles_filtered += 1
+                            if dry_run:
+                                _print_role_decision("SKIP", project_name, role, lead_reason)
+                            else:
+                                logger.info(f"Filtered (unpaid role-type): {project_name} — {role['role_name']} ({lead_reason})")
+                            continue
+                    else:
+                        if _is_unpaid(role):
+                            roles_filtered += 1
+                            if dry_run:
+                                _print_role_decision("SKIP", project_name, role, "unpaid")
+                            else:
+                                logger.info(f"Filtered: {project_name} — {role['role_name']} (unpaid)")
+                            continue
 
                     if _is_ugc(project_name, role):
                         roles_filtered += 1
@@ -315,7 +347,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                     break
 
                 # AI role selection
-                selected, rejections = select_best_roles(candidates, project_name)
+                selected, rejections = select_best_roles(candidates, project_name, mode=mode)
                 logger.info(
                     f"[AI] Selection for {project_name}: "
                     f"selected={[s[0]['role_name'] for s in selected]}, "
@@ -339,6 +371,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             rejection_reason=rejections[role["role_name"]],
                             run_id=run_id,
                             platform="backstage",
+                            mode=mode,
                         )
 
                 if not selected:
@@ -359,6 +392,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                         project_name,
                         f"{best.get('description', '')} Pay: {pay_text}" if pay_text else best.get("description", ""),
                         production.get("project_notes", ""),
+                        mode=mode,
                     )
                     if not tp_ok:
                         logger.info(f"[TRAVEL PAY] Skipping {best['role_name']} on {project_name}: {tp_reason}")
@@ -373,6 +407,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             rejection_reason=tp_reason,
                             run_id=run_id,
                             platform="backstage",
+                            mode=mode,
                         )
                         continue
 
@@ -413,6 +448,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             flag_reason=flag_reason,
                             run_id=run_id,
                             platform="backstage",
+                            mode=mode,
                         )
                         if dry_run:
                             _print_role_decision("FLAGGED", project_name, best, flag_reason)
@@ -435,6 +471,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             flag_reason=flag_reason,
                             run_id=run_id,
                             platform="backstage",
+                            mode=mode,
                         )
                         if dry_run:
                             _print_role_decision("FLAGGED", project_name, best, flag_reason)
@@ -453,24 +490,15 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                         f"[PRESCREEN] {best['role_name']}: type={prescreen_type!r}, "
                         f"msg={msg_preview}, questions={len(prescreen_questions)}, enriched={detail_enriched}"
                     )
-                    # Video prescreen / free-text self-tape: still flag (we can't auto-tape)
+                    # Video prescreen / free-text self-tape: submit anyway and
+                    # attach the cover-letter note so casting knows to ask for a tape.
+                    selftape_detected = False
                     if prescreen_type == "V" or prescreen_msg:
-                        flag_reason = (
-                            f"Prescreen required: {prescreen_msg[:100]}" if prescreen_msg
-                            else "Video prescreen required"
+                        selftape_detected = True
+                        logger.info(
+                            f"[SELFTAPE] {best['role_name']}: prescreen requests self-tape "
+                            f"— will submit anyway with cover letter"
                         )
-                        db.record_flagged_role(
-                            project_name=project_name,
-                            project_url=project_url,
-                            role_name=best["role_name"],
-                            role_description=best.get("description", ""),
-                            flag_reason=flag_reason,
-                            run_id=run_id,
-                            platform="backstage",
-                        )
-                        if dry_run:
-                            _print_role_decision("FLAGGED", project_name, best, flag_reason)
-                        continue
 
                     # Applicant questions (YES_NO / SHORT_ANSWER): try AI first
                     prescreen_answers: list[dict] | None = None
@@ -512,19 +540,11 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                         "self-tape required", "self tape required",
                     ]
                     if any(sp in desc_lower for sp in submit_phrases):
-                        flag_reason = "Self-tape submission requested in description"
-                        db.record_flagged_role(
-                            project_name=project_name,
-                            project_url=project_url,
-                            role_name=best["role_name"],
-                            role_description=best.get("description", ""),
-                            flag_reason=flag_reason,
-                            run_id=run_id,
-                            platform="backstage",
+                        selftape_detected = True
+                        logger.info(
+                            f"[SELFTAPE] {best['role_name']}: description requests self-tape "
+                            f"— will submit anyway with cover letter"
                         )
-                        if dry_run:
-                            _print_role_decision("FLAGGED", project_name, best, flag_reason)
-                        continue
 
                     # Analyze submission requirements
                     analysis = analyze_submission_requirements(
@@ -542,6 +562,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             flag_reason=analysis["needs_input_reason"],
                             run_id=run_id,
                             platform="backstage",
+                            mode=mode,
                         )
                         if dry_run:
                             _print_role_decision("FLAGGED", project_name, best, analysis["needs_input_reason"])
@@ -561,6 +582,15 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
 
                     # Actually submit
                     note = analysis.get("note", "") if analysis["action"] == "SUBMIT_WITH_NOTE" else ""
+                    # Self-tape detected → attach the cover-letter note. Cover
+                    # letter wins over any AI-generated SUBMIT_WITH_NOTE text
+                    # because the self-tape signal is more important than the
+                    # casting-specific note.
+                    if selftape_detected and selftape_cover_letter:
+                        logger.info(
+                            f"[SELFTAPE] Attaching cover letter note for {best['role_name']}"
+                        )
+                        note = selftape_cover_letter
                     submission_cfg = cfg.get("submission", {})
                     media_ids = list(submission_cfg.get("video_reel_ids", []))
                     resume_id = submission_cfg.get("resume_id")
@@ -589,6 +619,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             flag_reason=f"Backstage rejected: {reason}",
                             run_id=run_id,
                             platform="backstage",
+                            mode=mode,
                         )
                     elif result:
                         logger.info(f"[SUBMIT] SUCCESS: {best['role_name']} on {project_name}")
@@ -603,6 +634,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
                             platform="backstage",
                             project_url=role_url,
                             submission_note=note,
+                            mode=mode,
                         )
                         roles_applied += 1
                     else:
@@ -642,15 +674,23 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False):
 
 def main():
     parser = argparse.ArgumentParser(description="Backstage Auto-Apply Tool")
-    parser.add_argument("--config", default="backstage_config.yaml", help="Path to config file")
+    parser.add_argument("--config", default=None, help="Path to config file (default: backstage_config.yaml, or backstage_config_unpaid.yaml when --mode unpaid)")
     parser.add_argument("--once", action="store_true", help="Run once and exit")
+    parser.add_argument(
+        "--mode", choices=["paid", "unpaid"], default="paid",
+        help="paid (default) or unpaid (LA-local Lead/Supporting only)",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Preview without submitting")
     parser.add_argument("--max-pages", type=int, default=None, help="Max pages to process")
     parser.add_argument("--max-submissions", type=int, default=None, help="Max roles to submit for")
     args = parser.parse_args()
 
+    config_path = args.config
+    if config_path is None:
+        config_path = "backstage_config_unpaid.yaml" if args.mode == "unpaid" else "backstage_config.yaml"
+
     try:
-        cfg = load_backstage_config(args.config)
+        cfg = load_backstage_config(config_path)
     except BackstageConfigError as e:
         print(f"Config error: {e}")
         sys.exit(1)
@@ -669,14 +709,14 @@ def main():
         args.once = True
 
     if args.once:
-        logger.info("Running single pass..." + (" (dry run)" if args.dry_run else ""))
-        run_once(cfg, db, dry_run=args.dry_run)
+        logger.info(f"Running single pass (mode={args.mode})" + (" (dry run)" if args.dry_run else ""))
+        run_once(cfg, db, dry_run=args.dry_run, mode=args.mode)
     else:
         import schedule as sched
         interval = 4
-        logger.info(f"Starting scheduler — running every {interval} hours")
-        run_once(cfg, db)
-        sched.every(interval).hours.do(run_once, cfg, db)
+        logger.info(f"Starting scheduler (mode={args.mode}) — running every {interval} hours")
+        run_once(cfg, db, mode=args.mode)
+        sched.every(interval).hours.do(run_once, cfg, db, mode=args.mode)
         try:
             while True:
                 import time
