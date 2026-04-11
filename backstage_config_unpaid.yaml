@@ -5,12 +5,12 @@ credentials:
 max_pages: 2
 max_submissions: 5
 
-# The saved search must exist on backstage.com. Create it before first run:
-# filters = Los Angeles location + Unpaid compensation + Lead/Supporting role types.
-# If the name doesn't match exactly, src/backstage/main.py fails closed in
-# unpaid mode (raises RuntimeError) so we never silently fall back to the
-# default (paid) filters.
-saved_search: "unpaid LA acting"
+# Must match the saved search name on backstage.com exactly. Its filters
+# should be: Los Angeles location + Unpaid compensation + Lead/Supporting
+# role types. If the name doesn't match, src/backstage/main.py fails closed
+# in unpaid mode (raises RuntimeError) so we never silently fall back to
+# the default (paid) filters.
+saved_search: "unpaid"
 
 submission:
   default_note: ""

@@ -91,6 +91,23 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
             if not browser.login(creds["email"], creds["password"]):
                 raise RuntimeError("Login failed after retry")
 
+        # Optional saved search on CN. Paid mode typically leaves this empty
+        # and lets the user's default saved search auto-load. Unpaid mode
+        # sets it to "unpaid" in cn_config_unpaid.yaml so CN filters the
+        # billboard to unpaid roles before we scrape.
+        saved_search = cfg.get("saved_search") or None
+        if saved_search:
+            if not browser.click_saved_search(saved_search):
+                if mode == "unpaid":
+                    # Fail closed in unpaid mode: if the saved search can't
+                    # be applied we'd end up scraping paid roles under the
+                    # unpaid flag, which is worse than doing nothing.
+                    raise RuntimeError(
+                        f"Unpaid mode: could not apply CN saved search {saved_search!r}. "
+                        f"Verify it exists and is spelled correctly on castingnetworks.com."
+                    )
+                logger.warning(f"Could not apply saved search {saved_search!r}, continuing with default")
+
         max_pages = cfg.get("max_pages", 5)
         total_pages = browser.get_total_pages()
         pages_to_process = min(total_pages, max_pages)
@@ -108,8 +125,10 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                 break
 
             if page_num > 1:
-                # Navigate back to billboard (submissions navigate away)
-                if not browser.navigate_to_billboard():
+                # Navigate back to billboard (submissions navigate away).
+                # Re-apply the saved search on each return so we don't fall
+                # back to the default (e.g. "usa 2") for the next page.
+                if not browser.navigate_to_billboard(saved_search=saved_search):
                     break
                 if not browser.go_to_page(page_num):
                     break
