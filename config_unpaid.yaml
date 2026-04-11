@@ -9,7 +9,6 @@ credentials:
 filters:
   regions:
     - region: "Los Angeles"
-      max_pages: 2
   gender: "male"
   age_range: [19, 29]
   union_status: "fit_for_me"
@@ -22,7 +21,10 @@ submission:
   include_size_card: true
   default_note: ""
 
-max_pages: 2
+# Top-level max_pages applies to every region entry that doesn't set its own.
+# --max-pages on the CLI overrides this at runtime so the unpaid workflow
+# can temporarily dig deeper when dispatched with a max_pages input.
+max_pages: 5
 
 browser:
   headless: true
