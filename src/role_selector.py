@@ -85,6 +85,26 @@ _FLY_TO_US_STATES = {
 }
 
 
+_PAID_TRAVEL_PAY_BLOCK = """TRAVEL PAY MINIMUMS — the actor is based in Los Angeles but is willing to work as "local hire" ANYWHERE as long as the pay meets the threshold. "Must be local hire to [city]", "local to [city]", or "must be based in [city]" are NOT disqualifiers — the actor will travel at his own expense if the total pay is high enough. Apply these rules:
+- LA area (Los Angeles, Burbank, Pasadena, Long Beach, Orange County, etc.): any pay is fine — NEVER reject an LA role for low pay, even $50
+- Short drive (San Diego, Palm Springs, Santa Barbara, Bakersfield): SKIP if total pay is under $250
+- Medium drive (Las Vegas, San Francisco, Phoenix, Tucson, Arizona generally, NV/AZ): SKIP if total pay is under $500
+- Fly-to locations (New York, Atlanta, Chicago, Vancouver, or anywhere requiring air travel): SKIP if total pay is under $1000
+- If the shoot location is not mentioned or unclear, do NOT reject based on pay
+- "Total pay" means the full amount for the job, not per day. If the listing says "$200/day" for a 3-day shoot, total pay is $600 — that passes the $500 medium-drive threshold. For hourly rates, assume an 8-hour day (e.g., "$150/hour" = $1,200/day). If the total pay clearly exceeds the threshold, do NOT reject"""
+
+_UNPAID_LOCATION_BLOCK = """LOCATION POLICY (UNPAID MODE) — this is an unpaid submission. The actor will ONLY work LA-local unpaid roles:
+- LA area (Los Angeles, Burbank, Pasadena, Long Beach, Orange County, Hollywood, Santa Monica, etc.): ACCEPT
+- Anything shooting outside the LA metro area (New York, Chicago, Atlanta, San Diego, Las Vegas, any other state): REJECT immediately
+- "Local hire" requirements to non-LA cities: REJECT (we will not travel for unpaid work)
+- If the shoot location is not mentioned or unclear, do NOT reject on location grounds — let the role-type policy decide"""
+
+
+def _travel_pay_block(mode: str) -> str:
+    """Return the travel/location guidance block for the given mode."""
+    return _UNPAID_LOCATION_BLOCK if mode == "unpaid" else _PAID_TRAVEL_PAY_BLOCK
+
+
 def _extract_total_pay(text: str) -> float | None:
     """Try to extract a numeric pay amount from text. Returns estimated total or None."""
     text_lower = text.lower()
@@ -153,11 +173,20 @@ def _extract_total_pay(text: str) -> float | None:
     return None
 
 
-def check_travel_pay(project_name: str, role_description: str = "", project_notes: str = "") -> tuple[bool, str | None]:
+def check_travel_pay(
+    project_name: str,
+    role_description: str = "",
+    project_notes: str = "",
+    mode: str = "paid",
+) -> tuple[bool, str | None]:
     """Programmatic travel pay check. Returns (should_apply, rejection_reason).
 
-    Returns (True, None) if the role passes or location/pay can't be determined.
-    Returns (False, reason) if the role clearly violates travel pay minimums.
+    In paid mode: returns (True, None) if the role passes or location/pay
+    can't be determined, (False, reason) if pay clearly violates minimums.
+
+    In unpaid mode: returns (True, None) only if the role is LA-local. Any
+    non-LA location is rejected — unpaid work is LA-only by design. If the
+    location can't be determined, we don't reject (the AI gets the final say).
     """
     combined = f"{project_name} {role_description} {project_notes}".lower()
 
@@ -204,6 +233,16 @@ def check_travel_pay(project_name: str, role_description: str = "", project_note
                 matched_location = code
                 break
 
+    # Unpaid mode is LA-local only. Any known non-LA tier is an immediate reject.
+    if mode == "unpaid":
+        if tier is None:
+            return True, None  # location unclear — let AI decide
+        if tier == "la":
+            return True, None
+        reason = f"Unpaid mode: non-LA location ({matched_location})"
+        logger.info(f"[TRAVEL PAY] Rejecting: {reason}")
+        return False, reason
+
     # If we can't determine location, don't reject
     if tier is None or tier == "la":
         return True, None
@@ -237,16 +276,21 @@ def check_travel_pay(project_name: str, role_description: str = "", project_note
     return True, None
 
 
-def select_best_roles(roles: list[dict], project_name: str) -> tuple[list[tuple[dict, str]], dict[str, str]]:
+def select_best_roles(
+    roles: list[dict], project_name: str, mode: str = "paid",
+) -> tuple[list[tuple[dict, str]], dict[str, str]]:
     """Pick the best role(s) from a list of matching roles.
 
     If only one role, returns it directly (no API call).
-    If multiple roles, uses Claude Haiku to select 1-2 best fits.
+    If multiple roles, uses Claude Sonnet to select 1-2 best fits.
     Falls back to the first role if the API call fails.
 
     Args:
         roles: List of role dicts that already passed filters.
         project_name: Name of the project (for context).
+        mode: "paid" (default) or "unpaid". Unpaid mode swaps in a
+            stricter prompt that requires Lead/Supporting role types and
+            LA-only location.
 
     Returns:
         Tuple of:
@@ -260,7 +304,7 @@ def select_best_roles(roles: list[dict], project_name: str) -> tuple[list[tuple[
         return [], rejections
 
     if len(roles) == 1:
-        return _check_single_role_fit(roles[0], project_name, api_key)
+        return _check_single_role_fit(roles[0], project_name, api_key, mode=mode)
 
     try:
         import anthropic
@@ -284,6 +328,21 @@ def select_best_roles(roles: list[dict], project_name: str) -> tuple[list[tuple[
                 f"{i + 1}. {role['role_name']}{meta_str}: {role.get('description', 'No description')[:500]}"
             )
 
+        if mode == "unpaid":
+            scope_line = (
+                "STRICT UNPAID POLICY: This is an unpaid submission. Only Lead, Supporting, "
+                "Principal, Series Regular, or Recurring roles are acceptable. REJECT Day Player, "
+                "Featured, Co-Star, single-scene, or background-adjacent roles. If the role "
+                "prominence is ambiguous or unstated, REJECT. Unpaid work is only worth doing "
+                "for meaningful screen time."
+            )
+        else:
+            scope_line = (
+                "Select ALL roles that are a reasonable fit for this actor. Only reject roles "
+                "that have a genuine disqualifier. Being a day player or lower pay is NOT a "
+                "reason to reject — submit for every role the actor could realistically book."
+            )
+
         prompt = f"""You are a casting assistant helping an actor decide which role(s) to submit for on a project.
 
 ACTOR PROFILE:
@@ -294,7 +353,7 @@ PROJECT: {project_name}
 AVAILABLE ROLES:
 {chr(10).join(role_options)}
 
-Select ALL roles that are a reasonable fit for this actor. Only reject roles that have a genuine disqualifier. Being a day player or lower pay is NOT a reason to reject — submit for every role the actor could realistically book.
+{scope_line}
 
 IMPORTANT: If ANY role description says "submit for only one role", "one submission per actor", or similar, you MUST select only ONE role (the best fit) no matter what.
 
@@ -315,13 +374,7 @@ HARD DISQUALIFIERS — reject any role that requires:
 
 NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair color, build) are EXACT requirements — any mismatch is a hard disqualifier.
 
-TRAVEL PAY MINIMUMS — the actor is based in Los Angeles but is willing to work as "local hire" ANYWHERE as long as the pay meets the threshold. "Must be local hire to [city]", "local to [city]", or "must be based in [city]" are NOT disqualifiers — the actor will travel at his own expense if the total pay is high enough. Apply these rules:
-- LA area (Los Angeles, Burbank, Pasadena, Long Beach, Orange County, etc.): any pay is fine — NEVER reject an LA role for low pay, even $50
-- Short drive (San Diego, Palm Springs, Santa Barbara, Bakersfield): SKIP if total pay is under $250
-- Medium drive (Las Vegas, San Francisco, Phoenix, Tucson, Arizona generally, NV/AZ): SKIP if total pay is under $500
-- Fly-to locations (New York, Atlanta, Chicago, Vancouver, or anywhere requiring air travel): SKIP if total pay is under $1000
-- If the shoot location is not mentioned or unclear, do NOT reject based on pay
-- "Total pay" means the full amount for the job, not per day. If the listing says "$200/day" for a 3-day shoot, total pay is $600 — that passes the $500 medium-drive threshold. For hourly rates, assume an 8-hour day (e.g., "$150/hour" = $1,200/day). If the total pay clearly exceeds the threshold, do NOT reject
+{_travel_pay_block(mode)}
 
 Also consider (but these are NOT reasons to reject — only to rank):
 1. Physical match (age, build, height, ethnicity)
@@ -362,7 +415,7 @@ REJECTED: 4 - Background/extra role, actor does not do background work"""
 
 
 def _check_single_role_fit(
-    role: dict, project_name: str, api_key: str,
+    role: dict, project_name: str, api_key: str, mode: str = "paid",
 ) -> tuple[list[tuple[dict, str]], dict[str, str]]:
     """Quick AI check: is this single role a physical/type fit?"""
     try:
@@ -371,6 +424,17 @@ def _check_single_role_fit(
         client = anthropic.Anthropic(api_key=api_key)
 
         desc = role.get("description", "No description")[:500]
+
+        if mode == "unpaid":
+            unpaid_line = (
+                "STRICT UNPAID POLICY: This is an unpaid submission. Only Lead, Supporting, "
+                "Principal, Series Regular, or Recurring roles are acceptable. SKIP if this is "
+                "a Day Player, Featured, Co-Star, or background-adjacent role. If the role "
+                "prominence is ambiguous or unstated, SKIP.\n\n"
+            )
+        else:
+            unpaid_line = ""
+
         prompt = f"""You are a casting assistant. Quickly decide if this actor should submit for this role.
 
 ACTOR PROFILE:
@@ -380,7 +444,7 @@ PROJECT: {project_name}
 ROLE: {role['role_name']}
 DESCRIPTION: {desc}
 
-HARD DISQUALIFIERS — SKIP if the role requires ANY of these:
+{unpaid_line}HARD DISQUALIFIERS — SKIP if the role requires ANY of these:
 - Height outside 5'10"–6'1" (e.g., "must be 6'3"+", "under 5'6"")
 - Large/heavyset/stocky/overweight build (actor is athletic, 185 lbs)
 - Female only
@@ -397,13 +461,7 @@ HARD DISQUALIFIERS — SKIP if the role requires ANY of these:
 
 NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair color, build) are EXACT requirements — any mismatch is a hard disqualifier.
 
-TRAVEL PAY MINIMUMS — the actor is based in Los Angeles but is willing to work as "local hire" ANYWHERE as long as the pay meets the threshold. "Must be local hire to [city]", "local to [city]", or "must be based in [city]" are NOT disqualifiers — the actor will travel at his own expense if the total pay is high enough. Apply these rules:
-- LA area (Los Angeles, Burbank, Pasadena, Long Beach, Orange County, etc.): any pay is fine — NEVER reject an LA role for low pay, even $50
-- Short drive (San Diego, Palm Springs, Santa Barbara, Bakersfield): SKIP if total pay is under $250
-- Medium drive (Las Vegas, San Francisco, Phoenix, Tucson, Arizona generally, NV/AZ): SKIP if total pay is under $500
-- Fly-to locations (New York, Atlanta, Chicago, Vancouver, or anywhere requiring air travel): SKIP if total pay is under $1000
-- If the shoot location is not mentioned or unclear, do NOT reject based on pay
-- "Total pay" means the full amount for the job, not per day. If the listing says "$200/day" for a 3-day shoot, total pay is $600 — that passes the $500 medium-drive threshold. For hourly rates, assume an 8-hour day (e.g., "$150/hour" = $1,200/day). If the total pay clearly exceeds the threshold, do NOT reject
+{_travel_pay_block(mode)}
 
 If the role is a fit or ambiguous, respond: FIT - <brief reason>
 If the role is clearly not a fit, respond: SKIP - <brief reason>"""

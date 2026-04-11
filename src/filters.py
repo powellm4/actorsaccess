@@ -88,6 +88,69 @@ def _is_unpaid(role: dict) -> bool:
     return bool(_UNPAID_PATTERN.search(pay))
 
 
+# Role-type gating for unpaid mode. We only want meaningful screen time on
+# unpaid submissions — Lead / Supporting / Principal / Series Regular /
+# Recurring. Anything else (Day Player, Featured, Co-Star, etc.) is rejected.
+ACCEPTED_ROLE_TYPES = {
+    "LEAD",
+    "SUPPORTING",
+    "PRINCIPAL",
+    "SERIES REGULAR",
+    "RECURRING",
+}
+
+# Uppercase-only to avoid matching "the lead is a doctor" in prose. On AA,
+# role type is not a structured field — it's embedded in the breakdown
+# description as an ALLCAPS marker (e.g. "LEAD", "DAY PLAYER"). CN/Backstage
+# supply role_type as structured data, so the regex is only used for AA.
+_ROLE_TYPE_MARKER = re.compile(
+    r"\b(LEAD|SUPPORTING|PRINCIPAL|SERIES\s+REGULAR|RECURRING|DAY\s+PLAYER|FEATURED|CO-?STAR)\b"
+)
+
+
+def extract_role_type_marker(description: str) -> str | None:
+    """Find the first uppercase role-type marker in an AA description.
+
+    Returns the normalized marker (whitespace collapsed, uppercased) or None
+    if no marker is present.
+    """
+    if not description:
+        return None
+    m = _ROLE_TYPE_MARKER.search(description)
+    if not m:
+        return None
+    return re.sub(r"\s+", " ", m.group(1)).upper()
+
+
+def is_lead_or_supporting(role: dict, platform: str) -> tuple[bool, str]:
+    """Check whether a role is Lead / Supporting / Principal / Series Regular / Recurring.
+
+    Strict: if the role type can't be determined, the role is rejected.
+
+    Args:
+        role: Dict with role_type (CN/Backstage) or description (AA).
+        platform: "aa", "cn", or "backstage".
+
+    Returns:
+        (True, "") if accepted, or (False, reason) if rejected.
+    """
+    if platform == "aa":
+        marker = extract_role_type_marker(role.get("description", ""))
+        if marker is None:
+            return False, "no role-type marker in description"
+        if marker not in ACCEPTED_ROLE_TYPES:
+            return False, f"role type {marker} not in unpaid whitelist"
+        return True, ""
+
+    # CN and Backstage: structured role_type field
+    role_type = (role.get("role_type") or "").strip().upper()
+    if not role_type:
+        return False, "empty role_type"
+    if role_type not in ACCEPTED_ROLE_TYPES:
+        return False, f"role type {role_type} not in unpaid whitelist"
+    return True, ""
+
+
 def _is_court_tv(role: dict) -> bool:
     """Check if a role is for a court TV show."""
     name = role.get("role_name", "")
@@ -144,11 +207,13 @@ def is_sag_only(project_notes: str) -> bool:
     return bool(_SAG_ONLY_PATTERN.search(project_notes))
 
 
-def role_matches(role: dict) -> tuple[bool, str]:
+def role_matches(role: dict, mode: str = "paid") -> tuple[bool, str]:
     """Check if a role should be submitted for.
 
     Args:
         role: Dict with keys fit_for_me (bool), role_name, description.
+        mode: "paid" (default) or "unpaid". In unpaid mode the _is_unpaid
+            check is inverted — paid roles are rejected, unpaid are kept.
 
     Returns:
         (True, "") if the role passes all filters, or
@@ -163,8 +228,16 @@ def role_matches(role: dict) -> tuple[bool, str]:
     if _is_voiceover(role):
         return False, "voiceover role"
 
-    if _is_unpaid(role):
-        return False, "unpaid role"
+    if mode == "unpaid":
+        # Unpaid mode: only keep roles explicitly marked as unpaid. AA's pay
+        # field is often absent, so if pay is blank we let it through and
+        # rely on the lead/supporting gate + the AI to sanity-check.
+        pay = role.get("pay", "").strip()
+        if pay and not _is_unpaid(role):
+            return False, "paid role (unpaid mode)"
+    else:
+        if _is_unpaid(role):
+            return False, "unpaid role"
 
     if _is_court_tv(role):
         return False, "court TV role"

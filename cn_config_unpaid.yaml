@@ -1,0 +1,25 @@
+credentials:
+  email: "REDACTED"
+  password: "REDACTED"
+
+# CN has no paid/unpaid site filter. In unpaid mode src/cn/main.py inverts
+# the _is_unpaid() check and applies is_lead_or_supporting() to keep only
+# Lead/Supporting/Principal/Series Regular/Recurring roles.
+max_pages: 3
+max_submissions: 5
+
+submission:
+  default_note: ""
+  phone: "3104567890"
+
+browser:
+  headless: false
+
+google_calendar:
+  calendar_ids:
+    - "c50f22709de5e666863424cdec435d33cea633a53fe6cd2f34af591825251187@group.calendar.google.com"
+    - "4589f6dc4692352bd5b7c8c39c1f90722f093c1846e3c6185f4b0cf317658d5f@group.calendar.google.com"
+
+logging:
+  level: "INFO"
+  file: "logs/cn_auto_apply_unpaid.log"

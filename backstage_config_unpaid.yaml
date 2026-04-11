@@ -2,9 +2,15 @@ credentials:
   email: "REDACTED"
   password: "REDACTED"
 
-max_pages: 1
-max_submissions: 10
-saved_search: "acting"
+max_pages: 2
+max_submissions: 5
+
+# The saved search must exist on backstage.com. Create it before first run:
+# filters = Los Angeles location + Unpaid compensation + Lead/Supporting role types.
+# If the name doesn't match exactly, src/backstage/main.py fails closed in
+# unpaid mode (raises RuntimeError) so we never silently fall back to the
+# default (paid) filters.
+saved_search: "unpaid LA acting"
 
 submission:
   default_note: ""
@@ -14,7 +20,6 @@ submission:
     - 49275576  # IMG_5721
   resume_id: 49559830  # marshall_powell_acting_resume.docx
   # Attached as the submission note when a Backstage role requests a self-tape.
-  # Casting can reply and request a tape if they're interested.
   selftape_cover_letter: |
     Hi! If you think I'm a good fit lookwise, let me know and I'll send a self-tape right away. Thanks for considering me!
 
@@ -28,4 +33,4 @@ google_calendar:
 
 logging:
   level: "INFO"
-  file: "logs/backstage_auto_apply.log"
+  file: "logs/backstage_auto_apply_unpaid.log"
