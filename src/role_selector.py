@@ -93,11 +93,7 @@ _PAID_TRAVEL_PAY_BLOCK = """TRAVEL PAY MINIMUMS — the actor is based in Los An
 - If the shoot location is not mentioned or unclear, do NOT reject based on pay
 - "Total pay" means the full amount for the job, not per day. If the listing says "$200/day" for a 3-day shoot, total pay is $600 — that passes the $500 medium-drive threshold. For hourly rates, assume an 8-hour day (e.g., "$150/hour" = $1,200/day). If the total pay clearly exceeds the threshold, do NOT reject"""
 
-_UNPAID_LOCATION_BLOCK = """LOCATION POLICY (UNPAID MODE) — this is an unpaid submission. The actor will ONLY work LA-local unpaid roles:
-- LA area (Los Angeles, Burbank, Pasadena, Long Beach, Orange County, Hollywood, Santa Monica, etc.): ACCEPT
-- Anything shooting outside the LA metro area (New York, Chicago, Atlanta, San Diego, Las Vegas, any other state): REJECT immediately
-- "Local hire" requirements to non-LA cities: REJECT (we will not travel for unpaid work)
-- If the shoot location is not mentioned or unclear, do NOT reject on location grounds — let the role-type policy decide"""
+_UNPAID_LOCATION_BLOCK = """LOCATION POLICY (UNPAID MODE) — the platform's saved search has already filtered for acceptable locations. Do NOT reject based on location. Any role that reached this prompt is in-scope on location grounds, even if the description mentions a specific non-LA-proper city (e.g. Santa Clarita, Burbank, Long Beach, LA metro suburbs). Trust the saved search."""
 
 
 def _travel_pay_block(mode: str) -> str:
@@ -184,10 +180,15 @@ def check_travel_pay(
     In paid mode: returns (True, None) if the role passes or location/pay
     can't be determined, (False, reason) if pay clearly violates minimums.
 
-    In unpaid mode: returns (True, None) only if the role is LA-local. Any
-    non-LA location is rejected — unpaid work is LA-only by design. If the
-    location can't be determined, we don't reject (the AI gets the final say).
+    In unpaid mode: always returns (True, None). Location filtering is
+    delegated to the platform's saved search (Backstage "unpaid", CN
+    "unpaid") — the programmatic keyword list was too brittle and was
+    incorrectly rejecting LA-metro locations like Santa Clarita, and
+    matching state codes like "IN" inside ordinary phrases.
     """
+    if mode == "unpaid":
+        return True, None
+
     combined = f"{project_name} {role_description} {project_notes}".lower()
 
     def _match_location(keywords: list[str]) -> str | None:
@@ -232,16 +233,6 @@ def check_travel_pay(
                 tier = "fly"
                 matched_location = code
                 break
-
-    # Unpaid mode is LA-local only. Any known non-LA tier is an immediate reject.
-    if mode == "unpaid":
-        if tier is None:
-            return True, None  # location unclear — let AI decide
-        if tier == "la":
-            return True, None
-        reason = f"Unpaid mode: non-LA location ({matched_location})"
-        logger.info(f"[TRAVEL PAY] Rejecting: {reason}")
-        return False, reason
 
     # If we can't determine location, don't reject
     if tier is None or tier == "la":
