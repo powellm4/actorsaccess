@@ -3,7 +3,6 @@ credentials:
   password: "REDACTED"
 
 max_pages: 2
-max_submissions: 5
 
 # Must match the saved search name on backstage.com exactly. Its filters
 # should be: Los Angeles location + Unpaid compensation + Lead/Supporting

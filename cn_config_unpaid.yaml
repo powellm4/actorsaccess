@@ -11,7 +11,6 @@ credentials:
 saved_search: "unpaid"
 
 max_pages: 3
-max_submissions: 5
 
 submission:
   default_note: ""

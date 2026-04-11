@@ -23,8 +23,6 @@ submission:
   default_note: ""
 
 max_pages: 2
-# Conservative cap — with paying_only=false the candidate pool is much larger
-max_submissions: 5
 
 browser:
   headless: true
