@@ -322,8 +322,8 @@ def select_best_roles(
         if mode == "unpaid":
             scope_line = (
                 "Select ALL roles that are a reasonable fit for this actor. Only reject roles "
-                "that have a genuine disqualifier. ROLE-TYPE RULE: only Lead, Supporting, "
-                "Principal, Series Regular, or Recurring roles are acceptable — reject Day Player, "
+                "that have a genuine disqualifier. ROLE-TYPE RULE: only Lead, Principal, or "
+                "Series Regular roles are acceptable — reject Supporting, Recurring, Day Player, "
                 "Featured, Co-Star, or single-scene roles. Pay is NOT a reason to reject — any "
                 "role, paid or unpaid, is fine as long as the role-type rule is satisfied."
             )
