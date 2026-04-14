@@ -184,8 +184,8 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                         # _is_unpaid() check rejects everything it shouldn't.
                         # Just enforce the role-type whitelist (CN's saved
                         # search only filters at the coarse principal/background
-                        # level, so we still need to narrow to Lead/Supporting/
-                        # Principal/Series Regular/Recurring here).
+                        # level, so we still need to narrow to Lead/Principal/
+                        # Series Regular here).
                         lead_ok, lead_reason = is_lead_or_supporting(role, "cn")
                         if not lead_ok:
                             roles_filtered += 1

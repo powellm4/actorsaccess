@@ -286,7 +286,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                                 )
                             continue
 
-                        # Unpaid mode: require Lead/Supporting/Principal/Series Regular/Recurring
+                        # Unpaid mode: require Lead/Principal/Series Regular
                         # marker in the description (AA has no structured role_type field)
                         if mode == "unpaid":
                             lead_ok, lead_reason = is_lead_or_supporting(role, "aa")

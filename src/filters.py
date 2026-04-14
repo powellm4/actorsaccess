@@ -88,15 +88,14 @@ def _is_unpaid(role: dict) -> bool:
     return bool(_UNPAID_PATTERN.search(pay))
 
 
-# Role-type gating for unpaid mode. We only want meaningful screen time on
-# unpaid submissions — Lead / Supporting / Principal / Series Regular /
-# Recurring. Anything else (Day Player, Featured, Co-Star, etc.) is rejected.
+# Role-type gating for unpaid mode. Unpaid submissions are reserved for
+# top-billed character slots only — Lead, Principal, Series Regular.
+# Supporting, Recurring, Day Player, Featured, Co-Star, and single-scene
+# roles are rejected.
 ACCEPTED_ROLE_TYPES = {
     "LEAD",
-    "SUPPORTING",
     "PRINCIPAL",
     "SERIES REGULAR",
-    "RECURRING",
 }
 
 # Uppercase-only to avoid matching "the lead is a doctor" in prose. On AA,
@@ -123,7 +122,10 @@ def extract_role_type_marker(description: str) -> str | None:
 
 
 def is_lead_or_supporting(role: dict, platform: str) -> tuple[bool, str]:
-    """Check whether a role is Lead / Supporting / Principal / Series Regular / Recurring.
+    """Check whether a role is Lead / Principal / Series Regular.
+
+    Named for historical reasons — the accepted set has since tightened to
+    top-billed character slots only (no Supporting, no Recurring).
 
     Strict: if the role type can't be determined, the role is rejected.
 
