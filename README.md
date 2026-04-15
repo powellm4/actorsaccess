@@ -1,239 +1,217 @@
 # ActorsAccess Auto-Apply
 
-Automated tool that logs into [Actors Access](https://actorsaccess.com), scrapes casting breakdowns, filters roles by fit, uses AI to pick the best role per project, and submits. Uses Playwright for browser automation and Claude Haiku for intelligent role selection.
+Automated casting submission tool for three platforms — [Actors Access](https://actorsaccess.com), [Casting Networks](https://castingnetworks.com), and [Backstage](https://backstage.com). Logs in, scrapes breakdowns, filters roles by fit, uses Claude Sonnet to pick the best role per project, and submits. Supports two modes (`paid`, `unpaid`) and emails a daily digest of activity.
 
-## Setup Instructions
+## Platforms
 
-### Prerequisites
+| Platform   | Entry point                 | Automation                              | Paid saved search          | Unpaid saved search |
+|------------|-----------------------------|-----------------------------------------|----------------------------|---------------------|
+| Actors Access | `python -m src.main`       | Playwright (Chromium)                   | site filters via config    | site filters via config |
+| Casting Networks | `python -m src.cn.main`  | Playwright (Chromium, must run headed)  | default view               | saved search named `"unpaid"` |
+| Backstage  | `python -m src.backstage.main` | urllib REST client (no browser)         | default view               | saved search named `"unpaid"` |
+
+## Prerequisites
 
 - Python 3.10+ (developed on 3.12)
 - Git
 - Internet connection
 
-### Step-by-step setup
+## Setup on a new machine
 
 ```bash
-# 1. Clone the repo
+# 1. Clone
 git clone https://github.com/powellm4/actorsaccess.git
 cd actorsaccess
 
-# 2. Create and activate a virtual environment
+# 2. Virtual environment
 python -m venv venv
+venv\Scripts\activate          # Windows
+# source venv/bin/activate     # macOS/Linux
 
-# On Windows:
-venv\Scripts\activate
-# On macOS/Linux:
-source venv/bin/activate
-
-# 3. Install Python dependencies
+# 3. Install Python deps
 pip install -r requirements.txt
 
-# 4. Install Playwright's Chromium browser
+# 4. Install Playwright's Chromium (used by AA and CN)
 playwright install chromium
 
-# 5. Set environment variables
-#    (credentials and API key are NOT stored in the repo)
-
-# On Windows (permanent):
-setx AA_USERNAME "your_actorsaccess_username"
-setx AA_PASSWORD "your_password"
+# 5. Set ANTHROPIC_API_KEY (the only required env var)
+# Windows (permanent — then restart terminal):
 setx ANTHROPIC_API_KEY "sk-ant-..."
-# Then restart your terminal for setx to take effect
-
-# On macOS/Linux, add to ~/.bashrc or ~/.zshrc:
-export AA_USERNAME="your_actorsaccess_username"
-export AA_PASSWORD="your_password"
+# macOS/Linux — add to ~/.bashrc or ~/.zshrc:
 export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
-**Note:** The username is your Actors Access username, NOT your email.
+That's it. Run `python -m src.main --once --dry-run` to confirm the AA flow works; then the same for `src.cn.main` and `src.backstage.main`.
 
 ### Environment variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `AA_USERNAME` | Yes | Actors Access username |
-| `AA_PASSWORD` | Yes | Actors Access password |
-| `ANTHROPIC_API_KEY` | No | Anthropic API key for AI role selection. Without it, defaults to first matching role per project. Get one at [console.anthropic.com](https://console.anthropic.com) |
+| Variable | Required? | Purpose |
+|----------|-----------|---------|
+| `ANTHROPIC_API_KEY` | Yes (AI selection + note generation) | Claude API key. Without it, the tool falls back to the first matching role with no reasoning. Get one at [console.anthropic.com](https://console.anthropic.com). |
+| `GMAIL_APP_PASSWORD` | Only to send digest emails | Gmail App Password (not your main password). Used by `src/digest.py` SMTP sender. |
+| `GOOGLE_CALENDAR_SA_KEY` | Optional | Base64-encoded Google service account JSON for calendar-conflict checks (`src/calendar_check.py`). |
+| `AA_USERNAME` / `AA_PASSWORD` | Optional | Overrides credentials in `config.yaml` / `config_unpaid.yaml`. Not needed locally — the committed yaml already has them. |
+| `CN_EMAIL` / `CN_PASSWORD` | Optional | Overrides credentials in `cn_config.yaml` / `cn_config_unpaid.yaml`. |
+| `BACKSTAGE_EMAIL` / `BACKSTAGE_PASSWORD` | Optional | Overrides credentials in `backstage_config.yaml` / `backstage_config_unpaid.yaml`. |
 
-### Config settings
+Credentials for all three platforms are committed in the per-platform yaml files. The env vars only exist so GitHub Actions can inject secrets at runtime.
 
-All other settings are in `config.yaml` (committed to the repo). Edit as needed:
+### Config files
 
-| Setting | Description |
-|---------|-------------|
-| `filters.region` | Region to search. Options: Los Angeles, New York, Chicago, San Francisco / NorCal, Central Atlantic, Midwest, New England, North Central, Northwest, Pacific, Rocky Mountains, South Central, Southeast, Vancouver, Toronto |
-| `filters.union_status` | `all`, `union`, `non-union`, `fit_for_me`, `union_fit`, `nonunion_fit` |
-| `filters.paying_only` | Only show paying roles |
-| `filters.exclude_reality_tv` | Skip reality TV listings |
-| `submission.headshot_index` | Which headshot to use (0 = first) |
-| `submission.include_media` | Attach demo reel/media |
-| `submission.include_size_card` | Attach size card |
-| `max_pages` | Pages of breakdowns per run (~25 projects/page) |
-| `schedule.interval_hours` | How often to repeat (scheduler mode) |
-| `browser.headless` | `true` = no visible browser window |
+Every platform has two yaml files — one per mode. All are committed.
+
+| File | Platform | Mode |
+|------|----------|------|
+| `config.yaml` | Actors Access | paid |
+| `config_unpaid.yaml` | Actors Access | unpaid |
+| `cn_config.yaml` | Casting Networks | paid |
+| `cn_config_unpaid.yaml` | Casting Networks | unpaid |
+| `backstage_config.yaml` | Backstage | paid |
+| `backstage_config_unpaid.yaml` | Backstage | unpaid |
+
+Common knobs (names vary by platform): `filters.region`, `filters.union_status`, `filters.paying_only`, `filters.exclude_reality_tv`, `submission.headshot_index`, `submission.include_media`, `max_pages`, `browser.headless`. See `config.example.yaml` for the AA template.
 
 ## Usage
 
-### Continuous scheduler (recommended for autonomous operation)
+Each entry point takes the same flags:
 
-Runs immediately, then repeats every `interval_hours`:
+| Flag | Effect |
+|------|--------|
+| `--once` | Single run (default is continuous scheduler on `schedule.interval_hours`) |
+| `--mode paid` (default) / `--mode unpaid` | Picks the right config yaml automatically |
+| `--dry-run` | Prints `[SUBMIT]` / `[SKIP - reason]` for each role without submitting |
+| `--headed` | Shows the browser window (AA, CN only) |
+| `--max-pages N` | Cap breakdown pages processed this run |
+| `--config path/to/file.yaml` | Override config file path |
+
+Examples:
 
 ```bash
-python -m src.main
-```
-
-### Single run
-
-```bash
+# Paid single-run, all three platforms
 python -m src.main --once
+python -m src.cn.main --once
+python -m src.backstage.main --once
+
+# Unpaid mode — same commands, different flag
+python -m src.main --once --mode unpaid
+python -m src.cn.main --once --mode unpaid
+python -m src.backstage.main --once --mode unpaid
+
+# Debug a flow without submitting
+python -m src.main --once --dry-run --headed --max-pages 1
 ```
 
-### Dry run (preview only, no submissions)
+### Digest email
 
 ```bash
-python -m src.main --once --dry-run
+python -m src.digest --mode paid     # "Casting Digest (Paid)" — blue accent
+python -m src.digest --mode unpaid   # "Casting Digest (Extended)" — purple accent
 ```
 
-Prints `[SUBMIT]`, `[SUBMIT (AI pick)]`, or `[SKIP - reason]` for each role without actually submitting.
-
-### With visible browser (for debugging)
-
-```bash
-python -m src.main --once --headed
-```
-
-### Limit pages processed
-
-```bash
-python -m src.main --once --max-pages 1
-```
+Sends via Gmail SMTP using `GMAIL_APP_PASSWORD`. Recipient is hardcoded in `src/digest.py`. The `digest_history` table keeps the two streams disjoint so a paid digest won't re-email unpaid rows.
 
 ## How it works
 
-1. **Login** — Logs into Actors Access with credentials from env vars
-2. **Navigate** — Goes to the Breakdowns page, selects region, applies filters (union status, etc.)
-3. **Scrape projects** — Collects project listings page by page (~25 per page)
-4. **Filter projects** — Skips theater/musical projects entirely
-5. **Scrape roles** — For each remaining project, navigates in and scrapes individual roles
-6. **Filter roles** — Three-layer filtering:
-   - **Fit for me** — Skips roles the site doesn't highlight as a demographic match (the site uses your profile's age, gender, ethnicity to highlight fitting roles in yellow)
-   - **Background filter** — Skips roles with "BACKGROUND", "BG", or "Extra" in the name or description
-   - **Already applied** — Skips roles tracked in the local SQLite database
-7. **AI role selection** — If multiple roles pass filters on the same project, sends descriptions to Claude Haiku to pick the single best fit based on actor profile (only 1 submission per project). Falls back to first role if no API key is set.
-8. **Submit** — Opens the submission modal, selects headshot, attaches size card/media, and submits
-9. **Record** — Logs the submission to SQLite so it won't resubmit, and logs to `logs/auto_apply.log`
+1. **Login** — credentials from per-platform config yaml (or env var override).
+2. **Saved search / filters** — AA uses config-driven site filters; CN and Backstage click the `"unpaid"` saved search in unpaid mode.
+3. **Scrape** — project list → role list per project.
+4. **Filter** — fit-for-me, background/extra rejection, theater/musical rejection, already-applied dedup (`applied.db`, scoped by `platform` + `mode`), `check_travel_pay()` guard in paid mode, role-type whitelist (Lead/Principal/Series Regular) in unpaid mode.
+5. **AI selection** — Claude Sonnet picks one role per project from what remains; generates a submission note if the casting post asks for specific info.
+6. **Submit** — attaches media per config, applies cover letter when required (Backstage self-tape).
+7. **Record** — writes to `data/applied.db` with `platform` and `mode` columns.
 
-### Actor profile (used by AI role selection)
+Actor profile used by AI selection lives in `ACTOR_PROFILE` in `src/role_selector.py` — edit there to change it.
 
-The AI selects roles optimized for:
-- Appears 25 years old, male, white, 6'0", 185 lbs, athletic build
-- Type: Leading man, comedic/charming
-- Strengths: Charisma-driven roles, protagonists, romantic leads, comedy, wit
-- Best fit: Confident, driven, likable, or funny characters
+## Deployment — GitHub Actions
 
-To change the actor profile, edit `ACTOR_PROFILE` in `src/role_selector.py`.
+Production runs in two workflows, both in `.github/workflows/`:
+
+| Workflow | Schedule (UTC) | What it does |
+|----------|----------------|--------------|
+| `auto-apply.yml` | `0 15,18,21,0,3,6 * * *` (6×/day) | AA → CN → Backstage → paid digest |
+| `auto-apply-unpaid.yml` | `0 16 * * *` (9am PT, 1×/day) | AA → CN → Backstage → unpaid digest |
+
+Both share a `db-access` concurrency group so they don't clobber each other. CN runs under `xvfb` on the Linux runner since it blocks headless browsers.
+
+### DB storage in CI
+
+`data/applied.db` lives in the `db-storage` GitHub Release. Each workflow downloads it at start, updates it per step, and re-uploads at end. Local runs get a fresh SQLite (auto-created by `Database._create_tables()` on first connect) — the local DB is not production data.
+
+### Required GitHub Secrets
+
+Set under repo Settings → Secrets and variables → Actions:
+
+`ANTHROPIC_API_KEY`, `GMAIL_APP_PASSWORD`, `GOOGLE_CALENDAR_SA_KEY`, `AA_USERNAME`, `AA_PASSWORD`, `CN_EMAIL`, `CN_PASSWORD`, `BACKSTAGE_EMAIL`, `BACKSTAGE_PASSWORD`.
 
 ## File structure
 
 ```
 actorsaccess/
   src/
-    main.py            # Entry point, CLI args, scheduler, main loop
-    browser.py         # Playwright browser automation (login, scrape, submit)
-    config.py          # Config loading and defaults
-    database.py        # SQLite tracking of applied roles
-    filters.py         # Role/project filtering (fit-for-me, background, theater)
-    role_selector.py   # AI-powered best role selection via Claude Haiku
-  config.yaml          # Settings (committed — no credentials)
-  config.example.yaml  # Template config
-  requirements.txt     # Python dependencies
-  data/applied.db      # SQLite DB tracking submissions (git-ignored)
-  logs/                # Log files (git-ignored)
-  tests/               # pytest tests
+    main.py              # AA entry point + scheduler
+    browser.py           # AA Playwright automation
+    config.py            # AA config loader (env var overrides)
+    database.py          # SQLite (platform + mode aware)
+    filters.py           # Shared role/project filters
+    role_selector.py     # Claude Sonnet role selection + note generation
+    digest.py            # Mode-aware Gmail digest sender
+    calendar_check.py    # Google Calendar conflict detection
+    cn/
+      main.py            # CN entry point
+      browser.py         # CN Playwright automation
+      config.py
+    backstage/
+      main.py            # Backstage entry point
+      client.py          # urllib REST client (Cloudflare-safe)
+      config.py
+  config.yaml                   # AA paid
+  config_unpaid.yaml            # AA unpaid
+  cn_config.yaml                # CN paid
+  cn_config_unpaid.yaml         # CN unpaid
+  backstage_config.yaml         # Backstage paid
+  backstage_config_unpaid.yaml  # Backstage unpaid
+  config.example.yaml           # AA template
+  requirements.txt
+  .github/workflows/
+    auto-apply.yml              # Paid, 6×/day
+    auto-apply-unpaid.yml       # Unpaid, 1×/day
+  data/applied.db               # SQLite (git-ignored; lives in GH Release for CI)
+  logs/                         # Log files (git-ignored)
+  tests/
 ```
 
-## Automation (Windows Task Scheduler)
+## Database
 
-The app is deployed as a Windows Scheduled Task that runs every 4 hours.
+Auto-created on first connect. Key tables:
 
-### Current deployment
-
-| Item | Location |
-|------|----------|
-| **Project directory** | `C:\Users\fourp\OneDrive\Documents\dev\actorsaccess` |
-| **Scheduled task name** | `ActorsAccessAutoApply` |
-| **Runner script** | `run.bat` (sets env vars, runs `python -m src.main --once`) |
-| **Schedule** | Every 4 hours starting at 8:00 AM |
-| **Log file** | `logs/auto_apply.log` |
-| **Submissions database** | `data/applied.db` |
-| **Credentials** | Stored in `config.yaml` (git-ignored sensitive fields) and `run.bat` (API key) |
-
-### Managing the scheduled task
-
-```powershell
-# View task status
-Get-ScheduledTaskInfo -TaskName "ActorsAccessAutoApply"
-
-# Run it manually right now
-Start-ScheduledTask -TaskName "ActorsAccessAutoApply"
-
-# Disable temporarily
-Disable-ScheduledTask -TaskName "ActorsAccessAutoApply"
-
-# Re-enable
-Enable-ScheduledTask -TaskName "ActorsAccessAutoApply"
-
-# Delete
-Unregister-ScheduledTask -TaskName "ActorsAccessAutoApply"
-```
-
-### Reviewing automation results
-
-```bash
-# View recent submissions with AI reasoning
-sqlite3 data/applied.db "SELECT applied_at, project_name, role_name, ai_reason, candidates_considered FROM applied_roles ORDER BY applied_at DESC LIMIT 20"
-
-# View run history
-sqlite3 data/applied.db "SELECT * FROM run_history ORDER BY started_at DESC LIMIT 10"
-
-# Tail the log
-tail -f logs/auto_apply.log
-```
-
-### Database schema
-
-**applied_roles** — every role submitted for:
+**applied_roles** — every submission
 | Column | Description |
 |--------|-------------|
-| `role_id` | Unique breakdown_id + role_id |
-| `project_name` | Project title |
-| `role_name` | Role name |
-| `role_description` | Full role description text |
-| `ai_reason` | Why the AI picked this role (or "only matching role") |
+| `role_id` | Unique `breakdown_id + role_id` |
+| `platform` | `aa`, `cn`, or `backstage` |
+| `mode` | `paid` or `unpaid` |
+| `project_name`, `role_name`, `role_description` | Posting details |
+| `ai_reason` | Claude's pick rationale (or "only matching role") |
 | `candidates_considered` | How many roles were in the running |
 | `applied_at` | Timestamp |
 
-**run_history** — each automation run:
-| Column | Description |
-|--------|-------------|
-| `started_at` / `completed_at` | Run timestamps |
-| `roles_found` / `roles_applied` / `roles_skipped` | Counts |
-| `status` | `success` or `error` |
-| `error_message` | Error details if failed |
+**run_history** — per-run stats (started/completed, counts, status, error_message).
 
-## Migrating the database
+**rejected_roles** — filtered-out roles tracked for digest.
 
-If moving to GitHub Actions from a local setup, push your existing `data/applied.db` first to avoid duplicate submissions:
+**flagged_roles** — roles requiring manual review (e.g., calendar conflicts).
+
+**digest_history** — last-sent timestamps per mode.
+
+### Quick DB inspection
 
 ```bash
-git pull
-git add -f data/applied.db
-git commit -m "Add applied.db"
-git push
+sqlite3 data/applied.db "SELECT applied_at, platform, mode, project_name, role_name, ai_reason FROM applied_roles ORDER BY applied_at DESC LIMIT 20"
+sqlite3 data/applied.db "SELECT * FROM run_history ORDER BY started_at DESC LIMIT 10"
+tail -f logs/auto_apply.log
 ```
 
-## Running tests
+## Tests
 
 ```bash
 python -m pytest tests/ -v
