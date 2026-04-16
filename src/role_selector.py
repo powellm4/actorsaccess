@@ -12,7 +12,7 @@ import re
 logger = logging.getLogger(__name__)
 
 ACTOR_PROFILE = """
-- Appears 25 but people often think he's younger; plays 17-30 convincingly (yes, including 17-22 college-aged roles), can stretch to 35
+- Appears 25 but people often think he's younger; plays 17-29 convincingly (yes, including 17-22 college-aged roles)
 - Male, White / Latino, 6'0", 185 lbs, athletic build, brown hair (thick, slightly curly, short-medium length), clean-shaven (no beard)
 - Instagram: @marshallpowell
 - Type: Leading man, comedic/charming; also strong as villain/antagonist/mean characters; also excels at grounded/calm/straight man/voice-of-reason roles
@@ -354,13 +354,13 @@ HARD DISQUALIFIERS — reject any role that requires:
 - Female only
 - Specific ethnicity that excludes both White AND Latino/Hispanic (e.g., "Black only", "Asian only" — reject. But "Hispanic", "Latino", "White" — accept)
 - Specific hair color that is NOT brown ONLY when stated as a casting requirement (e.g., "must have blonde hair", "redhead required"). The actor has BROWN hair. Character descriptions like "dyed hair" or "punk vibes" are styling choices that can be achieved — these are NOT disqualifiers.
-- Age range with NO overlap with 17-35 (e.g., "40-55" is a rejection, but "30-40" is NOT because it overlaps with the actor's range)
+- Age range with NO overlap with 17-29 (e.g., "30-40" is a rejection, but "25-35" is NOT because it overlaps with the actor's range)
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
 - Requires an authentic/native non-American accent (e.g., "must have authentic British accent", "native French speaker")
 - Requires a beard or facial hair (actor is clean-shaven)
 - NOT a real acting or modeling role — consumer studies, product testing, paid research studies, focus groups, medical studies, or any role where participants are selected based on personal conditions (skin conditions, health issues, etc.) rather than acting/modeling ability. IMPORTANT: Modeling gigs, lifestyle content shoots, brand campaigns, fitness shoots, and photo/video commercial work ARE legitimate — do NOT reject these. The actor wants modeling work. Only reject actual research studies, focus groups, and medical studies.
 - Background/extra work — roles where the actor is atmosphere/background with no individual identity. Key signals: PLURAL role names (e.g., "BODYGUARDS", "THUGS", "WEDDING GUESTS 1 AND 2", "STAFF", "BANQUET GUESTS", "FEMALE GUESTS 1 AND 2", "PARTYGOERS", "CROWD", "MASKED AUDIENCE MEMBERS") are always background. Singular generic titles like "WAITER", "CLERK", "NURSE" are borderline — reject these only if the description confirms they are pure atmosphere with no character arc or meaningful action. Named characters (e.g., "SAMUEL", "DR. LARSON", "DETECTIVE MORRIS") should generally be accepted even if the role is small. EXCEPTION: In commercials, roles labeled "featured", "featured talent", "principal", or "hero" where the talent is prominently on-camera ARE legitimate commercial bookings even without dialogue — do NOT reject these. Only reject commercial roles that are clearly crowd/atmosphere with no camera focus.
-- "Must look" or "play younger" age requirements UNDER 17 — the actor appears 25 and can play 17-30. He CAN play down to 17 but CANNOT convincingly look younger than that (under 17, i.e., 13-16). "Plays age 17" or "plays age 18" is fine. Only SKIP if the role explicitly needs someone who looks like a child or young teenager (under 17).
+- "Must look" or "play younger" age requirements UNDER 17 — the actor appears 25 and can play 17-29. He CAN play down to 17 but CANNOT convincingly look younger than that (under 17, i.e., 13-16). "Plays age 17" or "plays age 18" is fine. Only SKIP if the role explicitly needs someone who looks like a child or young teenager (under 17).
 - Requires the actor to OWN something specific that is not a standard wardrobe/prop item — e.g., "must have a dog", "must own a motorcycle", "bring your own surfboard", "real couples only". If the casting post requires the actor to personally possess something (pet, vehicle, relationship, property) as a condition of the role, SKIP it. Standard wardrobe items (suit, business casual, etc.) are NOT disqualifiers.
 
 NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair color, build) are EXACT requirements — any mismatch is a hard disqualifier.
@@ -441,13 +441,13 @@ DESCRIPTION: {desc}
 - Female only
 - Specific ethnicity that excludes both White AND Latino/Hispanic (e.g., "Black only", "Asian only" — reject. But "Hispanic", "Latino", "White" — accept)
 - Specific hair color that is NOT brown ONLY when stated as a casting requirement (e.g., "must have blonde hair", "redhead required"). The actor has BROWN hair. Character descriptions like "dyed hair" or "punk vibes" are styling choices that can be achieved — these are NOT disqualifiers.
-- Age range with NO overlap with 17-35 (e.g., "40-55" is a rejection, but "30-40" is NOT because it overlaps with the actor's range)
+- Age range with NO overlap with 17-29 (e.g., "30-40" is a rejection, but "25-35" is NOT because it overlaps with the actor's range)
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
 - Requires an authentic/native non-American accent (e.g., "must have authentic British accent", "native French speaker")
 - Requires a beard or facial hair (actor is clean-shaven)
 - NOT a real acting or modeling role — consumer studies, product testing, paid research studies, focus groups, medical studies, or any role where participants are selected based on personal conditions (skin conditions, health issues, etc.) rather than acting/modeling ability. IMPORTANT: Modeling gigs, lifestyle content shoots, brand campaigns, fitness shoots, and photo/video commercial work ARE legitimate — do NOT reject these. The actor wants modeling work. Only reject actual research studies, focus groups, and medical studies.
 - Background/extra work — roles where the actor is atmosphere/background with no individual identity. Key signals: PLURAL role names (e.g., "BODYGUARDS", "THUGS", "WEDDING GUESTS 1 AND 2", "STAFF", "BANQUET GUESTS", "FEMALE GUESTS 1 AND 2", "PARTYGOERS", "CROWD", "MASKED AUDIENCE MEMBERS") are always background. Singular generic titles like "WAITER", "CLERK", "NURSE" are borderline — reject these only if the description confirms they are pure atmosphere with no character arc or meaningful action. Named characters (e.g., "SAMUEL", "DR. LARSON", "DETECTIVE MORRIS") should generally be accepted even if the role is small. EXCEPTION: In commercials, roles labeled "featured", "featured talent", "principal", or "hero" where the talent is prominently on-camera ARE legitimate commercial bookings even without dialogue — do NOT reject these. Only reject commercial roles that are clearly crowd/atmosphere with no camera focus.
-- "Must look" or "play younger" age requirements UNDER 17 — the actor appears 25 and can play 17-30. He CAN play down to 17 but CANNOT convincingly look younger than that (under 17, i.e., 13-16). "Plays age 17" or "plays age 18" is fine. Only SKIP if the role explicitly needs someone who looks like a child or young teenager (under 17).
+- "Must look" or "play younger" age requirements UNDER 17 — the actor appears 25 and can play 17-29. He CAN play down to 17 but CANNOT convincingly look younger than that (under 17, i.e., 13-16). "Plays age 17" or "plays age 18" is fine. Only SKIP if the role explicitly needs someone who looks like a child or young teenager (under 17).
 - Requires the actor to OWN something specific that is not a standard wardrobe/prop item — e.g., "must have a dog", "must own a motorcycle", "bring your own surfboard", "real couples only". If the casting post requires the actor to personally possess something (pet, vehicle, relationship, property) as a condition of the role, SKIP it. Standard wardrobe items (suit, business casual, etc.) are NOT disqualifiers.
 
 NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair color, build) are EXACT requirements — any mismatch is a hard disqualifier.
