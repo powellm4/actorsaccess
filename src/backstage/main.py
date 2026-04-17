@@ -500,13 +500,11 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                         )
 
                     # Applicant questions (YES_NO / SHORT_ANSWER): try AI first.
-                    # If the AI can answer all of them confidently we POST the
-                    # answers via the prescreen endpoint. If even one is
-                    # unanswerable (open-ended pitch, "favorite film", dates
-                    # outside confirmed availability, etc.), we SUBMIT ANYWAY
-                    # without the answers — same submit-anyway pattern as
-                    # self-tape requests. Questions stay Pending in the
-                    # Backstage UI and casting can follow up if interested.
+                    # AI answers what it can and marks unanswerable questions
+                    # with null values. Three outcomes:
+                    #   all answered  → POST all answers, no cover letter
+                    #   partial       → POST partial answers + cover letter
+                    #   none answered → submit without answers + cover letter
                     prescreen_answers: list[dict] | None = None
                     if prescreen_questions:
                         ai_result = answer_prescreen_questions(
@@ -517,14 +515,20 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                         )
                         if ai_result.get("needs_input"):
                             logger.info(
-                                f"[PRESCREEN] {best['role_name']}: AI couldn't answer all "
+                                f"[PRESCREEN] {best['role_name']}: AI couldn't answer any "
                                 f"applicant questions ({ai_result['needs_input']}) "
                                 f"— submitting anyway without answers"
                             )
-                            # Treat this like the self-tape path — attach the
-                            # cover letter note so casting knows to follow up.
                             selftape_detected = True
                             prescreen_answers = None
+                        elif ai_result.get("partial"):
+                            prescreen_answers = ai_result.get("answers") or []
+                            selftape_detected = True
+                            logger.info(
+                                f"[PRESCREEN] AI partially answered questions for {best['role_name']} "
+                                f"({ai_result.get('unanswered_reason')}) "
+                                f"— submitting partial answers with cover letter"
+                            )
                         else:
                             prescreen_answers = ai_result.get("answers") or []
                             logger.info(

@@ -709,16 +709,16 @@ NOT ANSWERABLE → respond NEEDS_INPUT for that question:
 Output STRICT JSON only, no prose, no markdown fences. Schema:
 {{
   "answers": [
-    {{"question_id": <int>, "type": "YES_NO"|"SHORT_ANSWER", "selected_answer_id": <int or null>, "answer_text": <string or null>, "reasoning": "<one short sentence>"}}
-  ],
-  "needs_input": <null, or a short reason string if ANY question is unanswerable>
+    {{"question_id": <int>, "type": "YES_NO"|"SHORT_ANSWER", "selected_answer_id": <int or null>, "answer_text": <string or null>, "answerable": <true or false>, "reasoning": "<one short sentence>"}}
+  ]
 }}
 
 Rules:
-- For YES_NO: set selected_answer_id to the option id matching your answer (Yes or No), and set answer_text to null.
-- For SHORT_ANSWER: set answer_text to a concise factual answer (max 25 words, first person), and set selected_answer_id to null.
-- If ANY question is unanswerable, set "needs_input" to a short reason naming which question and why, AND still include best-effort entries (or skip them) in answers — the caller will discard answers when needs_input is set.
-- Never fabricate. If unsure, mark needs_input.
+- You MUST include an entry for EVERY question, even unanswerable ones.
+- For answerable YES_NO: set answerable=true, selected_answer_id to the option id matching your answer (Yes or No), answer_text to null.
+- For answerable SHORT_ANSWER: set answerable=true, answer_text to a concise factual answer (max 25 words, first person), selected_answer_id to null.
+- For unanswerable questions: set answerable=false, selected_answer_id to null, answer_text to null, reasoning to why it cannot be answered.
+- Never fabricate. If unsure, mark answerable=false.
 """
 
     try:
@@ -740,38 +740,60 @@ Rules:
         logger.warning(f"[PRESCREEN-AI] Failed to parse AI response for {role.get('role_name', '')}: {e}")
         return {"needs_input": f"AI prescreen check failed: {e}"}
 
-    if parsed.get("needs_input"):
-        reason = parsed["needs_input"]
-        logger.info(f"[PRESCREEN-AI] needs_input for {role.get('role_name', '')}: {reason}")
-        return {"needs_input": f"Applicant question needs manual answer: {reason}"}
-
     raw_answers = parsed.get("answers") or []
     if len(raw_answers) != len(questions):
         return {"needs_input": f"AI did not answer all {len(questions)} prescreen questions"}
 
-    # Validate every answer matches its question and has a usable value
     by_id = {q.get("id"): q for q in questions}
     out: list[dict] = []
+    answered_count = 0
+    unanswered_reasons: list[str] = []
+
     for a in raw_answers:
         qid = a.get("question_id")
         q = by_id.get(qid)
         if not q:
             return {"needs_input": f"AI returned answer for unknown question id {qid}"}
 
+        if not a.get("answerable", True):
+            out.append({"question_id": qid, "selected_answer_id": None, "answer_text": None})
+            unanswered_reasons.append(a.get("reasoning") or f"question {qid} unanswerable")
+            continue
+
         qtype = q.get("type")
         if qtype == "YES_NO":
             sel = a.get("selected_answer_id")
             valid_ids = {o.get("id") for o in (q.get("answer_options") or [])}
             if sel not in valid_ids:
-                return {"needs_input": f"AI returned invalid selected_answer_id for question {qid}"}
+                out.append({"question_id": qid, "selected_answer_id": None, "answer_text": None})
+                unanswered_reasons.append(f"invalid answer option for question {qid}")
+                continue
             out.append({"question_id": qid, "selected_answer_id": sel, "answer_text": None})
+            answered_count += 1
         elif qtype == "SHORT_ANSWER":
             txt = (a.get("answer_text") or "").strip()
             if not txt:
-                return {"needs_input": f"AI returned empty short_answer for question {qid}"}
+                out.append({"question_id": qid, "selected_answer_id": None, "answer_text": None})
+                unanswered_reasons.append(f"empty short_answer for question {qid}")
+                continue
             out.append({"question_id": qid, "selected_answer_id": None, "answer_text": txt})
+            answered_count += 1
         else:
-            return {"needs_input": f"Unsupported prescreen question type {qtype!r} for question {qid}"}
+            out.append({"question_id": qid, "selected_answer_id": None, "answer_text": None})
+            unanswered_reasons.append(f"unsupported question type {qtype!r} for question {qid}")
+
+    if answered_count == 0:
+        reason = "; ".join(unanswered_reasons[:3])
+        logger.info(f"[PRESCREEN-AI] No questions answerable for {role.get('role_name', '')}: {reason}")
+        return {"needs_input": f"No prescreen questions answerable: {reason}"}
+
+    if unanswered_reasons:
+        reason = "; ".join(unanswered_reasons[:3])
+        logger.info(
+            f"[PRESCREEN-AI] Partially answered {answered_count}/{len(out)} question(s) "
+            f"for {role.get('role_name', '')}: {reason}"
+        )
+        return {"answers": out, "partial": True, "unanswered_reason": reason}
 
     logger.info(
         f"[PRESCREEN-AI] Answered {len(out)} prescreen question(s) for {role.get('role_name', '')}"
