@@ -523,11 +523,10 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                             prescreen_answers = None
                         elif ai_result.get("partial"):
                             prescreen_answers = ai_result.get("answers") or []
-                            selftape_detected = True
                             logger.info(
                                 f"[PRESCREEN] AI partially answered questions for {best['role_name']} "
                                 f"({ai_result.get('unanswered_reason')}) "
-                                f"— submitting partial answers with cover letter"
+                                f"— submitting partial answers, unanswered stay pending"
                             )
                         else:
                             prescreen_answers = ai_result.get("answers") or []
