@@ -316,7 +316,7 @@ def select_best_roles(
                 meta.append(role["pay"])
             meta_str = f" ({', '.join(meta)})" if meta else ""
             role_options.append(
-                f"{i + 1}. {role['role_name']}{meta_str}: {role.get('description', 'No description')[:500]}"
+                f"{i + 1}. {role['role_name']}{meta_str}: {role.get('description', 'No description')[:2000]}"
             )
 
         if mode == "unpaid":
@@ -414,7 +414,7 @@ def _check_single_role_fit(
 
         client = anthropic.Anthropic(api_key=api_key)
 
-        desc = role.get("description", "No description")[:500]
+        desc = role.get("description", "No description")[:2000]
 
         if mode == "unpaid":
             unpaid_line = (

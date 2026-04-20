@@ -306,7 +306,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                         if project_notes:
                             role["description"] = (
                                 role.get("description", "") + "\n"
-                                f"PROJECT NOTES: {project_notes[:500]}"
+                                f"PROJECT NOTES: {project_notes[:2000]}"
                             )
 
                         candidates.append(role)
