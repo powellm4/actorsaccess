@@ -74,10 +74,12 @@ def _normalize_role(api_role: dict, production: dict) -> dict:
     role_desc = api_role.get("description", "")
     prod_desc = production.get("description", "")
     prod_info = production.get("production_info", "")
-    rate_display = api_role.get("rate_display") or api_role.get("total_pay_display", "")
+    rate_display = api_role.get("rate_display", "")
+    total_pay_display = api_role.get("total_pay_display", "")
+    pay_str = " / ".join(p for p in (rate_display, total_pay_display) if p)
     parts = [role_desc]
-    if rate_display:
-        parts.append(f"PAY: {rate_display}")
+    if pay_str:
+        parts.append(f"PAY: {pay_str}")
     if prod_desc:
         parts.append(f"PROJECT DESCRIPTION: {prod_desc}")
     if prod_info:
@@ -90,7 +92,7 @@ def _normalize_role(api_role: dict, production: dict) -> dict:
         "role_type": api_role.get("role_type_display", ""),
         "age_range": api_role.get("age_range_display", ""),
         "gender": api_role.get("gender_display", ""),
-        "pay": api_role.get("rate_display") or api_role.get("total_pay_display", ""),
+        "pay": pay_str,
         "description": enriched_desc,
         "url": api_role.get("absolute_url") or api_role.get("url", ""),
         # Backstage-specific fields
