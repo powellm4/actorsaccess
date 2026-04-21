@@ -31,6 +31,7 @@ ACTOR_PROFILE = """
 - Comfortable and willing to play LGBTQ+ characters of any orientation or gender identity
 - Comfortable with on-screen kissing, intimacy, and nudity (any gender of scene partner)
 - No demo reel currently — still apply for roles requesting one
+- Available for modeling work (print, stills, photo shoots, TFP/Time-For-Print, swimwear, beach, fitness, lifestyle, fashion, editorial, brand campaigns, portfolio shoots, catalog, lookbook). Modeling gigs do NOT have acting role types — evaluate them on physical/type fit only, not on Lead/Principal/etc. labels. Unpaid TFP shoots are acceptable.
 - No voice over / voice acting roles
 - No UGC
 - No background/extra work
@@ -324,8 +325,11 @@ def select_best_roles(
                 "Select ALL roles that are a reasonable fit for this actor. Only reject roles "
                 "that have a genuine disqualifier. ROLE-TYPE RULE: only Lead, Principal, or "
                 "Series Regular roles are acceptable — reject Supporting, Recurring, Day Player, "
-                "Featured, Co-Star, or single-scene roles. Pay is NOT a reason to reject — any "
-                "role, paid or unpaid, is fine as long as the role-type rule is satisfied."
+                "Featured, Co-Star, or single-scene roles. EXCEPTION: modeling / print / photo / "
+                "stills / TFP gigs are EXEMPT from the role-type rule — they are not acting roles "
+                "and do not have Lead/Principal/Series Regular labels; accept them on physical/type "
+                "fit alone. Pay is NOT a reason to reject — any role, paid or unpaid, is fine as "
+                "long as the role-type rule (or modeling exemption) is satisfied."
             )
         else:
             scope_line = (
@@ -358,7 +362,7 @@ HARD DISQUALIFIERS — reject any role that requires:
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
 - Requires an authentic/native non-American English accent (e.g., "must have authentic British accent", "native French speaker"). EXCEPTION: Spanish is fine — the actor is fluent in Spanish, so roles requiring Spanish dialogue, a Spanish-speaking character, a native/fluent Spanish speaker, or bilingual English/Spanish are ACCEPTABLE, not disqualifiers.
 - Requires a beard or facial hair (actor is clean-shaven)
-- NOT a real acting or modeling role — consumer studies, product testing, paid research studies, focus groups, medical studies, or any role where participants are selected based on personal conditions (skin conditions, health issues, etc.) rather than acting/modeling ability. IMPORTANT: Modeling gigs, lifestyle content shoots, brand campaigns, fitness shoots, and photo/video commercial work ARE legitimate — do NOT reject these. The actor wants modeling work. Only reject actual research studies, focus groups, and medical studies.
+- NOT a real acting or modeling role — consumer studies, product testing, paid research studies, focus groups, medical studies, or any role where participants are selected based on personal conditions (skin conditions, health issues, etc.) rather than acting/modeling ability. IMPORTANT: Modeling gigs ARE legitimate and the actor actively wants them — do NOT reject. This includes (non-exhaustive): TFP / Time-For-Print, print modeling, swimwear/beach/poolside shoots, fitness modeling, lifestyle content shoots, fashion/editorial, portfolio shoots, brand campaigns, catalog, lookbook, photo shoots, stills work, and photo/video commercial work. Modeling gigs do not need to be "acting roles" with named characters — judge them on physical/type fit only. Only reject actual research studies, focus groups, and medical studies.
 - Background/extra work — roles where the actor is atmosphere/background with no individual identity. Key signals: PLURAL role names (e.g., "BODYGUARDS", "THUGS", "WEDDING GUESTS 1 AND 2", "STAFF", "BANQUET GUESTS", "FEMALE GUESTS 1 AND 2", "PARTYGOERS", "CROWD", "MASKED AUDIENCE MEMBERS") are always background. Singular generic titles like "WAITER", "CLERK", "NURSE" are borderline — reject these only if the description confirms they are pure atmosphere with no character arc or meaningful action. Named characters (e.g., "SAMUEL", "DR. LARSON", "DETECTIVE MORRIS") should generally be accepted even if the role is small. EXCEPTION: In commercials, roles labeled "featured", "featured talent", "principal", or "hero" where the talent is prominently on-camera ARE legitimate commercial bookings even without dialogue — do NOT reject these. Only reject commercial roles that are clearly crowd/atmosphere with no camera focus.
 - "Must look" or "play younger" age requirements UNDER 17 — the actor appears 25 and can play 17-29. He CAN play down to 17 but CANNOT convincingly look younger than that (under 17, i.e., 13-16). "Plays age 17" or "plays age 18" is fine. Only SKIP if the role explicitly needs someone who looks like a child or young teenager (under 17).
 - Requires the actor to OWN something specific that is not a standard wardrobe/prop item — e.g., "must have a dog", "must own a motorcycle", "bring your own surfboard", "real couples only". If the casting post requires the actor to personally possess something (pet, vehicle, relationship, property) as a condition of the role, SKIP it. Standard wardrobe items (suit, business casual, etc.) are NOT disqualifiers.
@@ -420,8 +424,12 @@ def _check_single_role_fit(
             unpaid_line = (
                 "ROLE-TYPE RULE: only Lead, Supporting, Principal, Series Regular, or "
                 "Recurring roles are acceptable. SKIP if this is a Day Player, Featured, "
-                "Co-Star, or single-scene role. Pay is NOT a reason to skip — any role, "
-                "paid or unpaid, is fine as long as the role-type rule is satisfied.\n\n"
+                "Co-Star, or single-scene role. EXCEPTION: modeling / print / photo / "
+                "stills / TFP gigs are EXEMPT from the role-type rule — they are not "
+                "acting roles and do not have Lead/Principal/Series Regular labels; "
+                "accept them on physical/type fit alone. Pay is NOT a reason to skip — "
+                "any role, paid or unpaid, is fine as long as the role-type rule (or "
+                "modeling exemption) is satisfied.\n\n"
             )
         else:
             unpaid_line = ""
@@ -445,7 +453,7 @@ DESCRIPTION: {desc}
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
 - Requires an authentic/native non-American English accent (e.g., "must have authentic British accent", "native French speaker"). EXCEPTION: Spanish is fine — the actor is fluent in Spanish, so roles requiring Spanish dialogue, a Spanish-speaking character, a native/fluent Spanish speaker, or bilingual English/Spanish are ACCEPTABLE, not disqualifiers.
 - Requires a beard or facial hair (actor is clean-shaven)
-- NOT a real acting or modeling role — consumer studies, product testing, paid research studies, focus groups, medical studies, or any role where participants are selected based on personal conditions (skin conditions, health issues, etc.) rather than acting/modeling ability. IMPORTANT: Modeling gigs, lifestyle content shoots, brand campaigns, fitness shoots, and photo/video commercial work ARE legitimate — do NOT reject these. The actor wants modeling work. Only reject actual research studies, focus groups, and medical studies.
+- NOT a real acting or modeling role — consumer studies, product testing, paid research studies, focus groups, medical studies, or any role where participants are selected based on personal conditions (skin conditions, health issues, etc.) rather than acting/modeling ability. IMPORTANT: Modeling gigs ARE legitimate and the actor actively wants them — do NOT reject. This includes (non-exhaustive): TFP / Time-For-Print, print modeling, swimwear/beach/poolside shoots, fitness modeling, lifestyle content shoots, fashion/editorial, portfolio shoots, brand campaigns, catalog, lookbook, photo shoots, stills work, and photo/video commercial work. Modeling gigs do not need to be "acting roles" with named characters — judge them on physical/type fit only. Only reject actual research studies, focus groups, and medical studies.
 - Background/extra work — roles where the actor is atmosphere/background with no individual identity. Key signals: PLURAL role names (e.g., "BODYGUARDS", "THUGS", "WEDDING GUESTS 1 AND 2", "STAFF", "BANQUET GUESTS", "FEMALE GUESTS 1 AND 2", "PARTYGOERS", "CROWD", "MASKED AUDIENCE MEMBERS") are always background. Singular generic titles like "WAITER", "CLERK", "NURSE" are borderline — reject these only if the description confirms they are pure atmosphere with no character arc or meaningful action. Named characters (e.g., "SAMUEL", "DR. LARSON", "DETECTIVE MORRIS") should generally be accepted even if the role is small. EXCEPTION: In commercials, roles labeled "featured", "featured talent", "principal", or "hero" where the talent is prominently on-camera ARE legitimate commercial bookings even without dialogue — do NOT reject these. Only reject commercial roles that are clearly crowd/atmosphere with no camera focus.
 - "Must look" or "play younger" age requirements UNDER 17 — the actor appears 25 and can play 17-29. He CAN play down to 17 but CANNOT convincingly look younger than that (under 17, i.e., 13-16). "Plays age 17" or "plays age 18" is fine. Only SKIP if the role explicitly needs someone who looks like a child or young teenager (under 17).
 - Requires the actor to OWN something specific that is not a standard wardrobe/prop item — e.g., "must have a dog", "must own a motorcycle", "bring your own surfboard", "real couples only". If the casting post requires the actor to personally possess something (pet, vehicle, relationship, property) as a condition of the role, SKIP it. Standard wardrobe items (suit, business casual, etc.) are NOT disqualifiers.

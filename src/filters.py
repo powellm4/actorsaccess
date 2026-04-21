@@ -60,6 +60,37 @@ _SAG_ONLY_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Modeling / print / photo / stills work doesn't carry acting role types
+# (Lead/Principal/Series Regular). The actor accepts these gigs and they
+# should bypass the unpaid-mode role-type whitelist.
+_MODELING_PROJECT_TYPES = {"print", "photo", "modeling", "stills"}
+
+_MODELING_KEYWORD_PATTERN = re.compile(
+    r"\bTFP\b"
+    r"|\b(?:print|photo|beach|swimwear|fitness|lifestyle|fashion|editorial|portfolio|catalog|lookbook|brand)\s+model\b"
+    r"|\bmodel(?:ing)?\s+(?:shoot|gig|session|portfolio|campaign)\b"
+    r"|\bphoto(?:\s*shoot|graphy)\b"
+    r"|\bstills?\s+(?:shoot|model|talent)\b",
+    re.IGNORECASE,
+)
+
+
+def is_modeling_role(role: dict, project_type: str = "") -> bool:
+    """True if the role is a modeling / print / stills / photo gig.
+
+    Modeling work doesn't carry acting role types (Lead/Principal/etc.) and
+    should be evaluated on physical/type fit only. Detected from (in order):
+    project_type field, role_type field, or keyword signals in role_name +
+    description.
+    """
+    if project_type and project_type.strip().lower() in _MODELING_PROJECT_TYPES:
+        return True
+    role_type = (role.get("role_type") or "").lower()
+    if any(kw in role_type for kw in ("model", "print", "photo", "stills")):
+        return True
+    blob = f"{role.get('role_name', '')} {role.get('description', '')}"
+    return bool(_MODELING_KEYWORD_PATTERN.search(blob))
+
 
 def _is_background(role: dict) -> bool:
     """Check if a role is a background/extra role."""
@@ -121,7 +152,7 @@ def extract_role_type_marker(description: str) -> str | None:
     return re.sub(r"\s+", " ", m.group(1)).upper()
 
 
-def is_lead_or_supporting(role: dict, platform: str) -> tuple[bool, str]:
+def is_lead_or_supporting(role: dict, platform: str, project_type: str = "") -> tuple[bool, str]:
     """Check whether a role is Lead / Principal / Series Regular.
 
     Named for historical reasons — the accepted set has since tightened to
@@ -129,13 +160,20 @@ def is_lead_or_supporting(role: dict, platform: str) -> tuple[bool, str]:
 
     Strict: if the role type can't be determined, the role is rejected.
 
+    Modeling / print / photo / stills gigs short-circuit to accepted —
+    they don't have acting role types and the actor accepts them.
+
     Args:
         role: Dict with role_type (CN/Backstage) or description (AA).
         platform: "aa", "cn", or "backstage".
+        project_type: Optional project_type string (e.g. "Print", "Photo").
 
     Returns:
         (True, "") if accepted, or (False, reason) if rejected.
     """
+    if is_modeling_role(role, project_type):
+        return True, ""
+
     if platform == "aa":
         marker = extract_role_type_marker(role.get("description", ""))
         if marker is None:

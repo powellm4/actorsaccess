@@ -289,7 +289,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                         # Unpaid mode: require Lead/Principal/Series Regular
                         # marker in the description (AA has no structured role_type field)
                         if mode == "unpaid":
-                            lead_ok, lead_reason = is_lead_or_supporting(role, "aa")
+                            lead_ok, lead_reason = is_lead_or_supporting(role, "aa", project.get("project_type", ""))
                             if not lead_ok:
                                 roles_filtered += 1
                                 if dry_run:
