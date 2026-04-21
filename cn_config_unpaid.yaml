@@ -1,6 +1,6 @@
 credentials:
-  email: "REDACTED"
-  password: "REDACTED"
+  email: ""
+  password: ""
 
 # CN narrows the billboard by clicking a named saved search after login.
 # The user's "unpaid" saved search must exist on castingnetworks.com.

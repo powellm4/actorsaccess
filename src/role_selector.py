@@ -23,7 +23,6 @@ ACTOR_PROFILE = """
 - Comfortable with physical comedy, action sequences, and 12+ hour shoot days
 - Shoe size: 9-10
 - Non-union
-- Email: REDACTED | Phone: REDACTED
 - Based in Los Angeles with reliable transportation; willing to travel to other cities for shoots
 - Has a valid driver's license
 - Has a current/valid US passport

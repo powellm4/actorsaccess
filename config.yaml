@@ -1,6 +1,6 @@
 credentials:
-  username: "REDACTED"
-  password: "REDACTED"
+  username: ""
+  password: ""
 
 filters:
   regions:

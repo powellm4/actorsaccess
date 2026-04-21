@@ -104,6 +104,7 @@ jobs:
       - name: Send digest email (unpaid)
         env:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          DIGEST_SENDER_EMAIL: ${{ secrets.DIGEST_SENDER_EMAIL }}
         run: python -m src.digest --mode unpaid
 
       - name: Upload database (after digest)

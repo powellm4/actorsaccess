@@ -231,7 +231,10 @@ def send_email(html: str, mode: str | None = None):
     else:
         subject_prefix = "Casting Digest"
 
-    sender = "REDACTED"
+    sender = os.environ.get("DIGEST_SENDER_EMAIL")
+    if not sender:
+        logger.error("DIGEST_SENDER_EMAIL not set — cannot send digest")
+        return
     msg = MIMEText(html, "html")
     msg["Subject"] = f"{subject_prefix} — {datetime.now(tz=timezone.utc).strftime('%B %d, %Y')}"
     msg["From"] = sender

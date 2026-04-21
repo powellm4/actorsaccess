@@ -1,6 +1,6 @@
 credentials:
-  email: "REDACTED"
-  password: "REDACTED"
+  email: ""
+  password: ""
 
 max_pages: 1
 max_submissions: 10

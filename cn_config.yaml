@@ -1,6 +1,6 @@
 credentials:
-  email: "REDACTED"
-  password: "REDACTED"
+  email: ""
+  password: ""
 
 max_pages: 5
 

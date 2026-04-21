@@ -1,6 +1,6 @@
 credentials:
-  username: "REDACTED"
-  password: "REDACTED"
+  username: ""
+  password: ""
 
 # Unpaid mode: LA-only, and paying_only must be false so the AA site filter
 # shows unpaid listings. Role-type filtering + unpaid-only enforcement happen
