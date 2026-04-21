@@ -306,7 +306,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                         # our text _is_unpaid() check would reject things it
                         # shouldn't. Saved search is the source of truth.
                         # Still require Lead/Principal/Series Regular.
-                        lead_ok, lead_reason = is_lead_or_supporting(role, "backstage")
+                        lead_ok, lead_reason = is_lead_or_supporting(role, "backstage", role.get("project_type", ""))
                         if not lead_ok:
                             roles_filtered += 1
                             if dry_run:

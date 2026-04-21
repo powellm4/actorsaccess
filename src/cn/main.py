@@ -186,7 +186,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                         # search only filters at the coarse principal/background
                         # level, so we still need to narrow to Lead/Principal/
                         # Series Regular here).
-                        lead_ok, lead_reason = is_lead_or_supporting(role, "cn")
+                        lead_ok, lead_reason = is_lead_or_supporting(role, "cn", role.get("project_type", ""))
                         if not lead_ok:
                             roles_filtered += 1
                             if dry_run:
