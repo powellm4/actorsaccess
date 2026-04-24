@@ -64,6 +64,49 @@ def test_single_role_skip():
     assert "Jake" in rejections
 
 
+def test_single_role_skip_with_preamble_still_parsed():
+    """Regression: Sonnet sometimes writes reasoning before the verdict line.
+    The parser must scan all lines, not just the first, so the SKIP decision
+    isn't lost behind preamble (and the role isn't silently flagged as
+    'AI response unrecognized').
+    """
+    preamble_response = (
+        "Looking at this role: **VON** — 29-49, all ethnicities, man, "
+        "easygoing or uptight/serious, one day, non-union, $125/day, Denver, CO.\n\n"
+        "**Checking hard disqualifiers:**\n"
+        "- Age range: 29-49. Actor plays 17-29. Minimal overlap at the low end.\n"
+        "- Location: Denver, CO — travel required, pay doesn't cover travel.\n\n"
+        "SKIP - Age range 29-49 has no meaningful overlap with actor's 17-29"
+    )
+    mock_module, _ = _make_mock_anthropic(preamble_response)
+    roles = [SAMPLE_ROLES[0]]
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles(roles, "Test Project")
+    assert len(selected) == 0
+    assert "Jake" in rejections
+    assert "29-49" in rejections["Jake"] or "Age range" in rejections["Jake"]
+    # Must NOT fall into the "AI response unrecognized" branch
+    assert "unrecognized" not in rejections["Jake"].lower()
+
+
+def test_single_role_fit_with_preamble_still_parsed():
+    """Same as above but for a FIT verdict after preamble reasoning."""
+    preamble_response = (
+        "Evaluating this role: The character is a leading man, 24 years old, "
+        "athletic build, LA-based.\n\n"
+        "FIT - Age and type match; LA local so no travel concern"
+    )
+    mock_module, _ = _make_mock_anthropic(preamble_response)
+    roles = [SAMPLE_ROLES[0]]
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles(roles, "Test Project")
+    assert len(selected) == 1
+    assert selected[0][0]["role_name"] == "Jake"
+    assert rejections == {}
+
+
 def test_single_role_no_api_key_returns_directly():
     """Single candidate without API key should return without check."""
     roles = [SAMPLE_ROLES[0]]

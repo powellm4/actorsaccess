@@ -462,29 +462,45 @@ NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair col
 
 {_travel_pay_block(mode)}
 
-If the role is a fit or ambiguous, respond: FIT - <brief reason>
-If the role is clearly not a fit, respond: SKIP - <brief reason>"""
+Respond with ONLY one line in this exact format (no preamble, no reasoning, no analysis before the verdict):
+FIT - <brief reason>
+or
+SKIP - <brief reason>
+
+CRITICAL: Your response must start IMMEDIATELY with FIT or SKIP. Do NOT write any reasoning, analysis, or thinking before the verdict line."""
 
         response = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=200,
+            max_tokens=500,
             messages=[{"role": "user", "content": prompt}],
         )
 
         text = response.content[0].text.strip()
         logger.debug(f"[AI] Raw fitness check for {role['role_name']} on {project_name}: {text}")
 
-        first_line = text.splitlines()[0] if text else ""
-        # Strip leading markdown/punctuation/whitespace (e.g., "**FIT**", "- SKIP", "> FIT")
-        stripped = re.sub(r'^[\W_]+', '', first_line).upper()
+        # Find the first line that starts (after markdown/punctuation) with FIT or SKIP.
+        # Sonnet sometimes writes preamble ("Looking at this role...") before the verdict
+        # — we scan all lines instead of only the first so the decision isn't lost.
+        verdict_line = ""
+        verdict = ""
+        for raw_line in text.splitlines():
+            stripped_line = re.sub(r'^[\W_]+', '', raw_line).upper()
+            if stripped_line.startswith("SKIP"):
+                verdict_line = raw_line
+                verdict = "SKIP"
+                break
+            if stripped_line.startswith("FIT"):
+                verdict_line = raw_line
+                verdict = "FIT"
+                break
 
-        if stripped.startswith("SKIP"):
-            reason = text.split("-", 1)[1].strip() if "-" in text else text
+        if verdict == "SKIP":
+            reason = verdict_line.split("-", 1)[1].strip() if "-" in verdict_line else verdict_line
             logger.info(f"AI skipped single role {role['role_name']} on {project_name}: {reason}")
             return [], {role["role_name"]: reason}
 
-        if stripped.startswith("FIT"):
-            reason = text.split("-", 1)[1].strip() if "-" in text else "only matching role"
+        if verdict == "FIT":
+            reason = verdict_line.split("-", 1)[1].strip() if "-" in verdict_line else "only matching role"
             return [(role, reason)], {}
 
         logger.warning(
