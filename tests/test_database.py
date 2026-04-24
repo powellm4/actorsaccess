@@ -296,3 +296,98 @@ def test_get_daily_flagged(db):
     assert len(rows) == 1
     assert rows[0]["role_name"] == "Lead"
     assert rows[0]["platform"] == "cn"
+
+
+def test_record_application_default_status_is_submitted(db):
+    """No status arg = stored as 'submitted' (backward compatible)."""
+    db.record_application("role_def", "Project", "Lead")
+    cursor = db.conn.execute(
+        "SELECT status FROM applied_roles WHERE role_id = ?", ("role_def",)
+    )
+    assert cursor.fetchone()[0] == "submitted"
+
+
+def test_record_application_with_status_draft(db):
+    """status='draft' marks the row as an unfinished draft."""
+    db.record_application(
+        "role_draft", "Project", "Lead",
+        platform="backstage", status="draft", submission_note="Paste this cover letter.",
+    )
+    cursor = db.conn.execute(
+        "SELECT status, submission_note FROM applied_roles WHERE role_id = ?",
+        ("role_draft",),
+    )
+    row = cursor.fetchone()
+    assert row[0] == "draft"
+    assert row[1] == "Paste this cover letter."
+
+
+def test_is_applied_returns_true_for_draft(db):
+    """Drafts must count as applied for dedup so we don't re-create them."""
+    db.record_application("role_draft2", "P", "L", platform="backstage", status="draft")
+    assert db.is_applied("role_draft2") is True
+
+
+def test_get_daily_applications_excludes_drafts(db):
+    """Drafts should NOT appear in the applied list — they belong to the flagged section."""
+    db.record_application("role_sub", "P", "L", platform="backstage")
+    db.record_application("role_draft3", "P", "L2", platform="backstage", status="draft")
+    rows = db.get_daily_applications()
+    role_names = {r["role_name"] for r in rows}
+    assert "L" in role_names
+    assert "L2" not in role_names
+
+
+def test_record_flagged_role_with_suggested_note_and_draft_app_id(db):
+    run_id = db.start_run()
+    db.record_flagged_role(
+        project_name="Test Project",
+        project_url="https://backstage.com/casting/123/",
+        role_name="Fitness Model",
+        role_description="Running shoes promo",
+        flag_reason="Cover letter required — draft ready in Backstage",
+        run_id=run_id,
+        platform="backstage",
+        suggested_note="I'd be a natural fit for the lifestyle running shoot.",
+        draft_app_id=555222,
+    )
+    rows = db.get_daily_flagged()
+    assert len(rows) == 1
+    assert rows[0]["suggested_note"].startswith("I'd be a natural fit")
+    assert rows[0]["draft_app_id"] == 555222
+
+
+def test_record_flagged_role_upsert_preserves_draft_app_id(db):
+    """Re-flagging the same role (e.g., on retry) should keep the existing draft_app_id
+    if the new call doesn't supply one."""
+    run_id = db.start_run()
+    db.record_flagged_role(
+        project_name="Test", project_url="u", role_name="R", role_description="d",
+        flag_reason="Cover letter required — draft ready",
+        run_id=run_id, platform="backstage",
+        suggested_note="note v1", draft_app_id=999,
+    )
+    db.record_flagged_role(
+        project_name="Test", project_url="u", role_name="R", role_description="d",
+        flag_reason="Cover letter required — draft preparation failed",
+        run_id=run_id, platform="backstage",
+        suggested_note="note v2",  # draft_app_id omitted
+    )
+    rows = db.get_daily_flagged()
+    assert len(rows) == 1
+    # flag_reason + suggested_note updated but draft_app_id preserved
+    assert "draft preparation failed" in rows[0]["flag_reason"]
+    assert rows[0]["suggested_note"] == "note v2"
+    assert rows[0]["draft_app_id"] == 999
+
+
+def test_schema_migration_adds_new_columns(db):
+    """New columns must exist on a freshly created DB."""
+    cursor = db.conn.execute("PRAGMA table_info(applied_roles)")
+    applied_cols = {row[1] for row in cursor.fetchall()}
+    assert "status" in applied_cols
+
+    cursor = db.conn.execute("PRAGMA table_info(flagged_roles)")
+    flagged_cols = {row[1] for row in cursor.fetchall()}
+    assert "suggested_note" in flagged_cols
+    assert "draft_app_id" in flagged_cols

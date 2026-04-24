@@ -74,6 +74,26 @@ def build_digest_html(data: dict, mode: str | None = None) -> str:
             flagged_section += f'<br><span style="color:#4a148c;"><strong>Needed:</strong> {item.get("flag_reason", "Unknown")}</span>'
             if desc:
                 flagged_section += f'<br><span style="color:#555;">{desc}</span>'
+            # Draft-ready callout: appears only for prepare-only rows that
+            # successfully created a draft on Backstage.
+            draft_app_id = item.get("draft_app_id")
+            if draft_app_id and project_url:
+                flagged_section += (
+                    f'<br><a href="{project_url}" '
+                    'style="display:inline-block;margin-top:6px;color:#4a148c;font-weight:bold;">'
+                    '→ Open on Backstage — add cover letter and submit</a>'
+                )
+            # Suggested cover letter: surfaced when the AI drafted one the
+            # user can paste into Backstage's cover letter field.
+            suggested_note = item.get("suggested_note") or ""
+            if suggested_note:
+                flagged_section += (
+                    '<div style="background:#f5f0ff;border-left:2px solid #7c4dff;'
+                    'padding:8px;margin-top:8px;border-radius:3px;">'
+                    '<strong>Suggested cover letter:</strong><br>'
+                    f'<em style="white-space:pre-wrap;">{suggested_note}</em>'
+                    '</div>'
+                )
             flagged_section += '\n</div>\n'
         flagged_section += '</div>\n'
 
