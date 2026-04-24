@@ -161,3 +161,79 @@ def test_build_digest_html_with_flagged():
     assert "Hero" in html
     assert "Needs SAG-AFTRA number" in html
     assert "https://example.com/flagged" in html
+
+
+def test_build_digest_html_with_draft_renders_open_link_and_suggested_note():
+    """Prepare-only Backstage drafts should surface the Open on Backstage link
+    and the AI-suggested cover letter."""
+    data = {
+        "applications": [],
+        "rejections": [],
+        "flagged": [
+            {
+                "project_name": "ANTA Running Shoes Promo",
+                "project_url": "https://www.backstage.com/casting/123/",
+                "role_name": "Male Fitness Model",
+                "role_description": "Beverly Hills lifestyle shoot",
+                "flag_reason": "Cover letter required (Headshot/Photo, Cover Letter) — draft ready in Backstage",
+                "platform": "backstage",
+                "flagged_at": "2026-04-24 10:00:00",
+                "suggested_note": "The Beverly Hills lifestyle brief feels right in my lane.",
+                "draft_app_id": 987654,
+            }
+        ],
+        "runs": [],
+    }
+    html = build_digest_html(data)
+    assert "Open on Backstage" in html
+    assert "https://www.backstage.com/casting/123/" in html
+    assert "Suggested cover letter" in html
+    assert "Beverly Hills lifestyle brief" in html
+
+
+def test_build_digest_html_flag_without_draft_has_no_open_link():
+    """Flagged rows without a draft_app_id (e.g., other needs_input cases) must
+    NOT render the 'Open on Backstage' CTA."""
+    data = {
+        "applications": [],
+        "rejections": [],
+        "flagged": [
+            {
+                "project_name": "Some Project",
+                "project_url": "https://example.com",
+                "role_name": "Some Role",
+                "role_description": "",
+                "flag_reason": "Needs demo reel",
+                "platform": "backstage",
+                "flagged_at": "2026-04-24 10:00:00",
+            }
+        ],
+        "runs": [],
+    }
+    html = build_digest_html(data)
+    assert "Open on Backstage" not in html
+    assert "Suggested cover letter" not in html
+
+
+def test_build_digest_html_calendar_conflict_has_no_draft_link():
+    """Calendar-conflict flags must stay in their own red section without
+    any draft-related affordances, even if suggested_note somehow leaks in."""
+    data = {
+        "applications": [],
+        "rejections": [],
+        "flagged": [
+            {
+                "project_name": "Conflicted Project",
+                "project_url": "https://example.com",
+                "role_name": "Lead",
+                "role_description": "",
+                "flag_reason": "Calendar conflict: Wedding",
+                "platform": "backstage",
+                "flagged_at": "2026-04-24 10:00:00",
+            }
+        ],
+        "runs": [],
+    }
+    html = build_digest_html(data)
+    assert "Skipped — Calendar Conflicts" in html
+    assert "Open on Backstage" not in html

@@ -902,6 +902,83 @@ Respond with ONLY the action line (and NOTE/REASON line if applicable). No other
     return result
 
 
+def generate_cover_letter(role: dict, project_name: str) -> str:
+    """Generate a short cover letter for a Backstage role that requires one.
+
+    Returns plain text (no greeting, no signature) suitable for the user to
+    paste into Backstage's cover letter field. 2-4 sentences, first person,
+    grounded tone. Must respect the never-fabricate rule: no invented
+    credits, no invented experience, no training-resume talk, no
+    affirming conditional-if attributes not in the profile.
+
+    Returns empty string on error or if the output fails the note validator.
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        logger.warning("ANTHROPIC_API_KEY not set — cannot generate cover letter")
+        return ""
+
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=api_key)
+
+    desc = role.get("description", "")
+    role_name = role.get("role_name", "")
+
+    prompt = f"""You are writing a short cover letter for the actor described below, for a specific casting role. The user will paste this text into Backstage's cover letter field, then review/edit before submitting.
+
+ACTOR PROFILE:
+{ACTOR_PROFILE}
+
+PROJECT: {project_name}
+ROLE: {role_name}
+DESCRIPTION: {desc[:1500]}
+
+Write a 2-4 sentence cover letter in first person, warm but grounded tone. Focus on why the actor is a natural fit based ONLY on attributes explicitly listed in the profile above (type, look, age range, language skills, physical attributes, modeling comfort if relevant). Reference one or two concrete details from the role/project so it doesn't read as boilerplate.
+
+HARD RULES — violations make the letter worse than no letter at all:
+- NO greeting ("Hi", "Dear", "Hello casting"). NO sign-off ("Thanks", "Best", "— Matt"). Plain text only, ready to paste into a form field.
+- NEVER fabricate acting credits, past roles, past projects, specific brand/product usage, personal stories, or lived experience not in the profile.
+- NEVER mention improv/UCB/Groundlings/salsa/guitar/dance training or any skill-resume content — the actor's profile already covers this.
+- NEVER claim or deny conditional-if attributes that aren't in the profile (veteran, parent, nurse, pilot, speaker of another language, licensed for X, grew up in Y). Stay silent on anything not explicitly listed.
+- Spanish fluency IS in the profile — if the role asks for Spanish, mention fluency. Do not mention Spanish if the role doesn't ask for it.
+- Modeling comfort IS in the profile — if this is a modeling/print/stills/TFP/lifestyle/fitness gig, you may mention being comfortable with that work.
+- Do NOT claim availability for specific dates unless the dates are confirmed; you may say "available for the shoot window" in general terms.
+- Do NOT use placeholder brackets [like this] or {{like this}} or "insert X here" language.
+- Output ONLY the cover letter text. No preamble, no explanation, no quote marks around the text.
+
+Write the cover letter now."""
+
+    try:
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=300,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = response.content[0].text.strip()
+    except Exception as e:
+        logger.warning(f"Cover letter generation failed for {role_name} on {project_name}: {e}")
+        return ""
+
+    # Strip any stray quote wrappers the model sometimes adds
+    if len(text) >= 2 and text[0] in {'"', "'"} and text[-1] == text[0]:
+        text = text[1:-1].strip()
+
+    if not text:
+        logger.warning(f"Cover letter generation returned empty text for {role_name} on {project_name}")
+        return ""
+
+    # Reuse _validate_note to block placeholders, skill-mentions, "experience"
+    # claims, etc. If the letter fails validation, return empty so the caller
+    # falls back to "no suggested letter" rather than surfacing fabrication.
+    if not _validate_note(text, role, project_name):
+        logger.warning(f"Cover letter failed validation for {role_name} on {project_name}")
+        return ""
+
+    logger.info(f"Generated cover letter for {role_name} on {project_name} ({len(text)} chars)")
+    return text
+
+
 def _validate_note(note: str, role: dict, project_name: str) -> bool:
     """Validate a generated note before submission. Returns False if the note is bad."""
     import re

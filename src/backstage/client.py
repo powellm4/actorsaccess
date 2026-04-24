@@ -296,6 +296,7 @@ class BackstageClient:
         note: str = "",
         media_ids: list[int] | None = None,
         answers: list[dict] | None = None,
+        prepare_only: bool = False,
     ) -> dict | None:
         """Submit an application for a role.
 
@@ -309,6 +310,12 @@ class BackstageClient:
         If step 3 fails, we still proceed to step 4 so the draft doesn't
         become an orphan — the submission goes through without the
         prescreen answers recorded, and a loud warning is logged.
+
+        prepare_only: when True, run steps 1–3 and stop before step 4. Returns
+        {"_prepared": True, "app_id": <int>} on success so the caller can
+        surface the draft to the user (e.g. for cover-letter-required roles
+        the user finalizes manually). The "note" argument is ignored in
+        prepare-only — there's no final submission to attach it to.
         """
         # Step 1: Create draft
         _random_delay(1, 3)
@@ -337,6 +344,10 @@ class BackstageClient:
         # Step 3: Post prescreen answers (if any)
         if answers:
             self._submit_prescreen_answers(app_id, answers)
+
+        if prepare_only:
+            logger.info(f"[PREPARE-ONLY] Draft {app_id} ready; skipping final submit")
+            return {"_prepared": True, "app_id": app_id}
 
         # Step 4: Submit via PUT (change status from Draft "I" to Submitted "C")
         _random_delay(2, 4)
