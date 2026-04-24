@@ -15,7 +15,7 @@ from datetime import datetime
 from src.backstage.config import load_backstage_config, BackstageConfigError
 from src.backstage.client import BackstageClient
 from src.database import Database
-from src.calendar_check import check_availability, parse_shoot_dates
+from src.calendar_check import check_availability, parse_shoot_dates, parse_all_dates
 from src.filters import _is_background, _is_court_tv, _is_ugc, _is_unpaid, _COURT_TV_PATTERN, is_lead_or_supporting
 from src.role_selector import (
     select_best_roles,
@@ -493,12 +493,33 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                             f"— will submit anyway with cover letter"
                         )
 
-                    # Applicant questions (YES_NO / SHORT_ANSWER): try AI first.
-                    # AI answers what it can and marks unanswerable questions
-                    # with null values. Three outcomes:
-                    #   all answered  → POST all answers, no cover letter
-                    #   partial       → POST partial answers + cover letter
-                    #   none answered → submit without answers + cover letter
+                    # Check calendar for dates mentioned in prescreen questions
+                    # so the AI can answer callback/audition availability questions.
+                    unavailable_dates: str | None = None
+                    if prescreen_questions and cal_ids:
+                        all_q_text = " ".join(q.get("text", "") for q in prescreen_questions)
+                        q_date_ranges = parse_all_dates(all_q_text)
+                        extra_confirmed: list[str] = []
+                        extra_unavailable: list[str] = []
+                        for q_start, q_end in q_date_ranges:
+                            if confirmed_dates and q_start >= confirmed_dates.split(" to ")[0] and q_end <= confirmed_dates.split(" to ")[-1]:
+                                continue
+                            available, conflicts = check_availability(q_start, q_end, cal_ids)
+                            date_label = q_start if q_start == q_end else f"{q_start} to {q_end}"
+                            if available:
+                                extra_confirmed.append(date_label)
+                            else:
+                                extra_unavailable.append(date_label)
+                        if extra_confirmed:
+                            if confirmed_dates:
+                                confirmed_dates = confirmed_dates + ", " + ", ".join(extra_confirmed)
+                            else:
+                                confirmed_dates = ", ".join(extra_confirmed)
+                            logger.info(f"[CALENDAR] Expanded confirmed_dates with prescreen question dates: {confirmed_dates}")
+                        if extra_unavailable:
+                            unavailable_dates = ", ".join(extra_unavailable)
+                            logger.info(f"[CALENDAR] Unavailable dates from prescreen questions: {unavailable_dates}")
+
                     prescreen_answers: list[dict] | None = None
                     if prescreen_questions:
                         ai_result = answer_prescreen_questions(
@@ -506,6 +527,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                             best,
                             project_name,
                             confirmed_dates=confirmed_dates,
+                            unavailable_dates=unavailable_dates,
                         )
                         if ai_result.get("needs_input"):
                             logger.info(

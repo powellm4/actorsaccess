@@ -280,6 +280,81 @@ def parse_shoot_dates(text: str) -> tuple[str, str] | None:
     return None
 
 
+def parse_all_dates(text: str) -> list[tuple[str, str]]:
+    """Extract all date ranges from text, returning every match (not just the first).
+
+    Uses the same 4 patterns as parse_shoot_dates but collects all non-overlapping matches.
+    Returns a list of (start_iso, end_iso) tuples.
+    """
+    import re
+    from datetime import datetime
+
+    current_year = datetime.now().year
+    results: list[tuple[str, str]] = []
+    seen_spans: list[tuple[int, int]] = []
+
+    def _overlaps(start: int, end: int) -> bool:
+        return any(s <= start < e or s < end <= e for s, e in seen_spans)
+
+    patterns = [
+        (r"(\w+)\s+(\d{1,2})\s*[-–]\s*(\d{1,2}),?\s*(\d{4})", "range_same_month_year"),
+        (r"(\w+)\s+(\d{1,2})\s*[-–]\s*(\w+)\s+(\d{1,2}),?\s*(\d{4})", "range_cross_month_year"),
+        (r"(\w+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?\s*[-–]\s*(?:(\w+)\.?\s+)?(\d{1,2})(?:st|nd|rd|th)?", "range_no_year"),
+        (r"(\w+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b(?!\s*[-–])", "single_no_year"),
+    ]
+
+    for pat, kind in patterns:
+        for m in re.finditer(pat, text):
+            if _overlaps(m.start(), m.end()):
+                continue
+            try:
+                if kind == "range_same_month_year":
+                    month_str, d1, d2, year = m.groups()
+                    start = datetime.strptime(f"{month_str} {d1} {year}", "%B %d %Y")
+                    end = datetime.strptime(f"{month_str} {d2} {year}", "%B %d %Y")
+                elif kind == "range_cross_month_year":
+                    m1, d1, m2, d2, year = m.groups()
+                    start = datetime.strptime(f"{m1} {d1} {year}", "%B %d %Y")
+                    end = datetime.strptime(f"{m2} {d2} {year}", "%B %d %Y")
+                elif kind == "range_no_year":
+                    m1, d1, m2, d2 = m.groups()
+                    m1 = m1.rstrip(".")
+                    m2 = (m2 or m1).rstrip(".")
+                    start = end = None
+                    for fmt in ("%B %d %Y", "%b %d %Y"):
+                        try:
+                            start = datetime.strptime(f"{m1} {d1} {current_year}", fmt)
+                            end = datetime.strptime(f"{m2} {d2} {current_year}", fmt)
+                            break
+                        except ValueError:
+                            continue
+                    if not start or not end:
+                        continue
+                elif kind == "single_no_year":
+                    month_str = m.group(1).rstrip(".")
+                    day = m.group(2)
+                    start = end = None
+                    for fmt in ("%B %d %Y", "%b %d %Y"):
+                        try:
+                            start = end = datetime.strptime(f"{month_str} {day} {current_year}", fmt)
+                            break
+                        except ValueError:
+                            continue
+                    if not start:
+                        continue
+                else:
+                    continue
+
+                pair = (start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"))
+                if pair not in results:
+                    results.append(pair)
+                    seen_spans.append((m.start(), m.end()))
+            except ValueError:
+                continue
+
+    return results
+
+
 def parse_work_dates(submission_date: str) -> tuple[str, str] | None:
     """Extract work dates from a submission_date string.
 

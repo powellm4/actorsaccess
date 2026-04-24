@@ -644,6 +644,7 @@ def answer_prescreen_questions(
     role: dict,
     project_name: str,
     confirmed_dates: str | None = None,
+    unavailable_dates: str | None = None,
 ) -> dict:
     """Use Claude to answer Backstage applicant prescreen questions from the actor profile + calendar.
 
@@ -675,6 +676,11 @@ def answer_prescreen_questions(
             f"\nCONFIRMED AVAILABILITY: The actor's calendar has been checked and is FREE for "
             f"{confirmed_dates}. For any availability question that falls within these dates, answer Yes."
         )
+    if unavailable_dates:
+        availability_context += (
+            f"\nUNAVAILABLE DATES: The actor's calendar shows conflicts on "
+            f"{unavailable_dates}. For any availability question on these dates, answer No."
+        )
 
     # Build a compact question list for the prompt
     q_lines = []
@@ -703,6 +709,7 @@ For EACH question, decide if it can be answered confidently and truthfully from 
 
 ANSWERABLE (respond with the answer):
 - Availability questions on dates within CONFIRMED AVAILABILITY → "Yes"
+- Availability questions on dates within UNAVAILABLE DATES → "No"
 - Identity/comfort/willingness questions where the profile EXPLICITLY states the position (LGBTQ+, intimacy/nudity, travel, long shoot days, driver's license, passport, accents, physical comedy, action sequences) → answer per profile
 - Biographical facts in the profile (height, weight, build, hair, location, age range, contact, shoe size, union status) → answer with the fact
 - Questions about specific listed skills (improv, salsa, guitar) → answer Yes ONLY if that exact skill is listed
@@ -712,7 +719,7 @@ NOT ANSWERABLE → respond NEEDS_INPUT for that question:
 - Skills/experience NOT listed in the profile (do NOT fabricate, do NOT volunteer "no")
 - Questions requiring judgment about the script, the character, or personal opinions
 - Anything ambiguous, subjective, or where the profile is silent
-- Availability questions for dates NOT covered by CONFIRMED AVAILABILITY
+- Availability questions for dates NOT covered by CONFIRMED AVAILABILITY or UNAVAILABLE DATES
 
 Output STRICT JSON only, no prose, no markdown fences. Schema:
 {{
@@ -753,8 +760,7 @@ Rules:
         return {"needs_input": f"AI did not answer all {len(questions)} prescreen questions"}
 
     by_id = {q.get("id"): q for q in questions}
-    out: list[dict] = []
-    answered_count = 0
+    answered: list[dict] = []
     unanswered_reasons: list[str] = []
 
     for a in raw_answers:
@@ -764,7 +770,6 @@ Rules:
             return {"needs_input": f"AI returned answer for unknown question id {qid}"}
 
         if not a.get("answerable", True):
-            out.append({"question_id": qid, "selected_answer_id": None, "answer_text": None})
             unanswered_reasons.append(a.get("reasoning") or f"question {qid} unanswerable")
             continue
 
@@ -773,24 +778,19 @@ Rules:
             sel = a.get("selected_answer_id")
             valid_ids = {o.get("id") for o in (q.get("answer_options") or [])}
             if sel not in valid_ids:
-                out.append({"question_id": qid, "selected_answer_id": None, "answer_text": None})
                 unanswered_reasons.append(f"invalid answer option for question {qid}")
                 continue
-            out.append({"question_id": qid, "selected_answer_id": sel, "answer_text": None})
-            answered_count += 1
+            answered.append({"question_id": qid, "selected_answer_id": sel, "answer_text": None})
         elif qtype == "SHORT_ANSWER":
             txt = (a.get("answer_text") or "").strip()
             if not txt:
-                out.append({"question_id": qid, "selected_answer_id": None, "answer_text": None})
                 unanswered_reasons.append(f"empty short_answer for question {qid}")
                 continue
-            out.append({"question_id": qid, "selected_answer_id": None, "answer_text": txt})
-            answered_count += 1
+            answered.append({"question_id": qid, "selected_answer_id": None, "answer_text": txt})
         else:
-            out.append({"question_id": qid, "selected_answer_id": None, "answer_text": None})
             unanswered_reasons.append(f"unsupported question type {qtype!r} for question {qid}")
 
-    if answered_count == 0:
+    if not answered:
         reason = "; ".join(unanswered_reasons[:3])
         logger.info(f"[PRESCREEN-AI] No questions answerable for {role.get('role_name', '')}: {reason}")
         return {"needs_input": f"No prescreen questions answerable: {reason}"}
@@ -798,15 +798,15 @@ Rules:
     if unanswered_reasons:
         reason = "; ".join(unanswered_reasons[:3])
         logger.info(
-            f"[PRESCREEN-AI] Partially answered {answered_count}/{len(out)} question(s) "
+            f"[PRESCREEN-AI] Partially answered {len(answered)}/{len(questions)} question(s) "
             f"for {role.get('role_name', '')}: {reason}"
         )
-        return {"answers": out, "partial": True, "unanswered_reason": reason}
+        return {"answers": answered, "partial": True, "unanswered_reason": reason}
 
     logger.info(
-        f"[PRESCREEN-AI] Answered {len(out)} prescreen question(s) for {role.get('role_name', '')}"
+        f"[PRESCREEN-AI] Answered {len(answered)} prescreen question(s) for {role.get('role_name', '')}"
     )
-    return {"answers": out}
+    return {"answers": answered}
 
 
 def analyze_submission_requirements(role: dict, project_name: str, project_notes: str = "", confirmed_dates: str | None = None) -> dict:
