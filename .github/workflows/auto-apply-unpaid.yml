@@ -105,12 +105,19 @@ jobs:
         env:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           DIGEST_SENDER_EMAIL: ${{ secrets.DIGEST_SENDER_EMAIL }}
+          ARCHIVE_SITE_URL: ${{ vars.ARCHIVE_SITE_URL }}
         run: python -m src.digest --mode unpaid
 
       - name: Upload database (after digest)
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload db-storage data/applied.db --clobber
+
+      - name: Publish archive site
+        uses: ./.github/actions/publish-archive
+        with:
+          archive-password: ${{ secrets.ARCHIVE_PASSWORD }}
+          github-token: ${{ github.token }}
 
       - name: Upload logs
         if: always()

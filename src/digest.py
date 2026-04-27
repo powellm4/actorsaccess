@@ -223,23 +223,35 @@ def _wrap_html(body: str, mode: str | None = None) -> str:
         title = "Daily Casting Digest"
         accent = "#333"
         banner = ""
-    archive_footer = (
-        '<div style="margin-top:24px;padding:12px 16px;background:#eef4fb;'
-        'border-left:4px solid #1565c0;border-radius:4px;color:#0d47a1;font-size:13px;">'
-        '<strong>Searchable archive of all submissions attached</strong> '
-        '(<code>submissions-archive.html</code>). Open it in your browser '
-        'and type a role, project, or casting director name to filter.'
-        '</div>'
-    )
+    site_url = (os.environ.get("ARCHIVE_SITE_URL") or "").strip()
+    if site_url:
+        archive_callout = (
+            '<div style="margin:0 0 16px 0;padding:14px 16px;background:#e8f0fe;'
+            'border-left:4px solid #1565c0;border-radius:4px;color:#0d47a1;font-size:14px;">'
+            f'<a href="{site_url}" style="color:#0d47a1;font-weight:bold;text-decoration:none;font-size:15px;">'
+            'Open submissions archive →</a><br>'
+            '<span style="color:#444;">Searchable history of every role the bot has applied to, drafted, flagged, or passed on. '
+            'Bookmark on any device. Password-protected.</span>'
+            '</div>'
+        )
+    else:
+        archive_callout = (
+            '<div style="margin:0 0 16px 0;padding:12px 16px;background:#eef4fb;'
+            'border-left:4px solid #1565c0;border-radius:4px;color:#0d47a1;font-size:13px;">'
+            '<strong>Searchable archive of all submissions attached</strong> '
+            '(<code>submissions-archive.html</code>). Open it in your browser '
+            'and type a role, project, or casting director name to filter.'
+            '</div>'
+        )
     return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:700px;margin:0 auto;padding:20px;">
 <h1 style="border-bottom:2px solid {accent};padding-bottom:8px;color:{accent};">{title}</h1>
 <p style="color:#666;">Generated {datetime.now(tz=timezone.utc).strftime("%B %d, %Y at %I:%M %p")} UTC</p>
+{archive_callout}
 {banner}
 {body}
-{archive_footer}
 </body>
 </html>"""
 
@@ -322,10 +334,14 @@ def main():
     try:
         data = gather_digest_data(db, mode=args.mode)
         html = build_digest_html(data, mode=args.mode)
-        archive_html = render_archive_html(
-            db.get_all_submission_records(),
-            generated_at=datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
-        )
+        # Only attach the archive when we have no live site to point at.
+        # When ARCHIVE_SITE_URL is configured, the body already links to it.
+        archive_html = None
+        if not (os.environ.get("ARCHIVE_SITE_URL") or "").strip():
+            archive_html = render_archive_html(
+                db.get_all_submission_records(),
+                generated_at=datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+            )
         send_email(html, mode=args.mode, archive_html=archive_html)
         db.record_digest_sent()
     finally:

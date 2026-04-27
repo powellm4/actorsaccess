@@ -105,6 +105,35 @@ def test_render_links_project_when_url_present():
     assert ">Linkable</a>" in html
 
 
+def test_cli_writes_html_file(tmp_path, monkeypatch, capsys):
+    """`python -m src.archive --db <path> --output <path>` writes a real HTML file."""
+    import sys
+    from src.archive import main as archive_main
+    from src.database import Database
+
+    db_path = tmp_path / "test.db"
+    db = Database(str(db_path))
+    db.record_application(
+        "1_2", "CLI Project", "CLI Role",
+        role_description="Petaluma test role",
+        ai_reason="best fit", platform="aa",
+        project_url="https://example.com/p",
+    )
+    db.close()
+
+    out_path = tmp_path / "site" / "index.html"
+    monkeypatch.setattr(sys, "argv", [
+        "src.archive", "--db", str(db_path), "--output", str(out_path),
+    ])
+    archive_main()
+
+    assert out_path.exists()
+    contents = out_path.read_text(encoding="utf-8")
+    assert "Submissions Archive" in contents
+    assert "CLI Role" in contents
+    assert "Petaluma" in contents
+
+
 def test_render_role_description_is_searchable():
     """Description must be in the DOM (inside <details>) so the live filter
     matches against it even before the user expands the row."""

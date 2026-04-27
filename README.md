@@ -143,6 +143,34 @@ Set under repo Settings → Secrets and variables → Actions:
 
 `ANTHROPIC_API_KEY`, `GMAIL_APP_PASSWORD`, `GOOGLE_CALENDAR_SA_KEY`, `AA_USERNAME`, `AA_PASSWORD`, `CN_EMAIL`, `CN_PASSWORD`, `BACKSTAGE_EMAIL`, `BACKSTAGE_PASSWORD`.
 
+Optional (for the live archive site below): `ARCHIVE_PASSWORD`.
+
+### Archive site (live, password-gated, GitHub Pages)
+
+Every digest run also publishes a searchable archive of every submission to a private GitHub Pages site. Open the URL on any device, type a role/project/CD name in the search box, and rows filter live. Useful for answering *"did the bot apply to the JORDAN role I just got a self-tape invite for?"* without digging through Gmail.
+
+The page is encrypted client-side with [staticrypt](https://github.com/robinmoisson/staticrypt) (PBKDF2 + AES-256). The raw HTML on `gh-pages` is gibberish without the password — you enter it once per device (remembered for 30 days).
+
+**One-time setup:**
+
+1. **Add the password secret.** Repo Settings → Secrets and variables → Actions → New repository secret:
+   - Name: `ARCHIVE_PASSWORD`
+   - Value: any strong passphrase you'll remember
+2. **Set the public URL as a variable** (so the digest email can link to it). Repo Settings → Secrets and variables → Actions → Variables tab → New variable:
+   - Name: `ARCHIVE_SITE_URL`
+   - Value: `https://<your-github-username>.github.io/actorsaccess/`
+3. **Enable GitHub Pages.** Repo Settings → Pages → Source: *Deploy from a branch* → Branch: `gh-pages` (root). Save. (The `gh-pages` branch will appear after the first workflow run that publishes to it.)
+4. Trigger the `Auto Apply` workflow manually (Actions tab → Run workflow) and wait for the `Publish archive site` step. The site will be live within ~1 min.
+
+**To rotate the password:** update the `ARCHIVE_PASSWORD` secret, then trigger any digest workflow — the next publish re-encrypts with the new password.
+
+**To skip publishing entirely:** leave `ARCHIVE_PASSWORD` unset. The publish step no-ops and the digest email falls back to attaching `submissions-archive.html`.
+
+Local CLI (for testing the renderer):
+```bash
+python -m src.archive --db data/applied.db --output dist/index.html
+```
+
 ## File structure
 
 ```
@@ -155,6 +183,7 @@ actorsaccess/
     filters.py           # Shared role/project filters
     role_selector.py     # Claude Sonnet role selection + note generation
     digest.py            # Mode-aware Gmail digest sender
+    archive.py           # Searchable submissions archive renderer (CLI + email)
     calendar_check.py    # Google Calendar conflict detection
     cn/
       main.py            # CN entry point
@@ -175,6 +204,8 @@ actorsaccess/
   .github/workflows/
     auto-apply.yml              # Paid, 6×/day
     auto-apply-unpaid.yml       # Unpaid, 1×/day
+  .github/actions/
+    publish-archive/            # Composite action: render → encrypt → push to gh-pages
   data/applied.db               # SQLite (git-ignored; lives in GH Release for CI)
   logs/                         # Log files (git-ignored)
   tests/

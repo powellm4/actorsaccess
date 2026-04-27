@@ -1,0 +1,64 @@
+name: Publish encrypted archive to GitHub Pages
+description: >
+  Renders the submissions archive HTML from the SQLite DB, encrypts it with
+  staticrypt using the ARCHIVE_PASSWORD, and pushes the encrypted page to the
+  gh-pages branch. The user opens the GitHub Pages URL, enters the password,
+  and gets a live searchable view of every submission.
+
+inputs:
+  archive-password:
+    description: Password used to encrypt the archive (prompted on the live site).
+    required: true
+  github-token:
+    description: GitHub token with contents:write for pushing to gh-pages.
+    required: true
+  db-path:
+    description: Path to the SQLite database to render from.
+    required: false
+    default: data/applied.db
+
+runs:
+  using: composite
+  steps:
+    - name: Skip if no password configured
+      id: gate
+      shell: bash
+      env:
+        PW: ${{ inputs.archive-password }}
+      run: |
+        if [ -z "$PW" ]; then
+          echo "ARCHIVE_PASSWORD secret not set — skipping site publish."
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Render archive HTML
+      if: steps.gate.outputs.skip != 'true'
+      shell: bash
+      run: |
+        mkdir -p site-build
+        python -m src.archive --db "${{ inputs.db-path }}" --output site-build/index.html
+
+    - name: Encrypt with staticrypt
+      if: steps.gate.outputs.skip != 'true'
+      shell: bash
+      env:
+        STATICRYPT_PASSWORD: ${{ inputs.archive-password }}
+      run: |
+        # STATICRYPT_PASSWORD is read by the CLI — keeps the password out of
+        # the process listing and out of any logged shell expansion.
+        npx --yes staticrypt site-build/index.html \
+          -d site-output \
+          -t "Submissions Archive" \
+          --remember 30
+
+    - name: Deploy to GitHub Pages
+      if: steps.gate.outputs.skip != 'true'
+      uses: peaceiris/actions-gh-pages@v4
+      with:
+        github_token: ${{ inputs.github-token }}
+        publish_dir: ./site-output
+        publish_branch: gh-pages
+        force_orphan: true
+        commit_message: "Update archive ${{ github.run_number }}"

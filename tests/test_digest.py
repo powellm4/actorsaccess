@@ -215,12 +215,24 @@ def test_build_digest_html_flag_without_draft_has_no_open_link():
     assert "Suggested cover letter" not in html
 
 
-def test_build_digest_html_includes_archive_footer():
-    """Digest body must mention the archive attachment so the user knows it's there."""
+def test_build_digest_html_attachment_callout_when_no_site_url(monkeypatch):
+    """Without ARCHIVE_SITE_URL set, digest body promotes the offline attachment."""
+    monkeypatch.delenv("ARCHIVE_SITE_URL", raising=False)
     data = {"applications": [], "rejections": [], "flagged": [], "runs": []}
     html = build_digest_html(data)
     assert "submissions-archive.html" in html
     assert "Searchable archive" in html
+
+
+def test_build_digest_html_links_to_site_when_url_set(monkeypatch):
+    """When ARCHIVE_SITE_URL is set, the body should link to the live site
+    instead of mentioning the attachment."""
+    monkeypatch.setenv("ARCHIVE_SITE_URL", "https://powellm4.github.io/actorsaccess/")
+    data = {"applications": [], "rejections": [], "flagged": [], "runs": []}
+    html = build_digest_html(data)
+    assert "https://powellm4.github.io/actorsaccess/" in html
+    assert "Open submissions archive" in html
+    assert "submissions-archive.html" not in html
 
 
 def test_build_email_message_attaches_archive():

@@ -1,14 +1,23 @@
 """Searchable submission archive — renders every record from the DB as a single
-self-contained HTML page that gets attached to each daily digest email.
+self-contained HTML page.
 
-Open the attachment on a phone, type a role/project/CD name in the search box
-at the top, and rows filter live as you type. Useful for answering questions
-like "did the bot ever apply to the Jordan Self Tapes role on AA?" without
-needing to dig through Gmail.
+Used two ways:
+1. Attached to each daily digest email (offline fallback).
+2. Published to GitHub Pages (encrypted with staticrypt) so the user can pull
+   it up in any browser at any time.
+
+Open it, type a role/project/CD name in the search box, and rows filter live.
+Useful for answering "did the bot ever apply to the Jordan Self Tapes role?"
+without digging through Gmail.
+
+CLI:
+    python -m src.archive --db data/applied.db --output dist/index.html
 """
 
 import html
+import os
 from collections import Counter
+from datetime import datetime, timezone
 
 
 _PLATFORM_LABELS = {"aa": "Actors Access", "cn": "Casting Networks", "backstage": "Backstage"}
@@ -239,3 +248,40 @@ _PAGE_TEMPLATE = """<!DOCTYPE html>
 </body>
 </html>
 """
+
+
+def main():
+    """CLI: render the archive HTML from a SQLite DB to a file.
+
+    Used by the GitHub Actions publish-archive step to produce input for
+    staticrypt before pushing to the gh-pages branch.
+    """
+    import argparse
+
+    from src.database import Database
+
+    parser = argparse.ArgumentParser(description="Render the submissions archive HTML to a file.")
+    parser.add_argument("--db", required=True, help="Path to the SQLite database")
+    parser.add_argument("--output", required=True, help="Output HTML file path")
+    args = parser.parse_args()
+
+    db = Database(args.db)
+    try:
+        records = db.get_all_submission_records()
+        page = render_archive_html(
+            records,
+            generated_at=datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        )
+    finally:
+        db.close()
+
+    out_dir = os.path.dirname(args.output)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+    with open(args.output, "w", encoding="utf-8") as f:
+        f.write(page)
+    print(f"Wrote {len(page):,} bytes to {args.output} ({len(records)} records)")
+
+
+if __name__ == "__main__":
+    main()
