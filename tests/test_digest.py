@@ -10,7 +10,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from src.database import Database
-from src.digest import build_digest_html, gather_digest_data
+from src.digest import build_digest_html, build_email_message, gather_digest_data
 
 
 @pytest.fixture
@@ -213,6 +213,44 @@ def test_build_digest_html_flag_without_draft_has_no_open_link():
     html = build_digest_html(data)
     assert "Open on Backstage" not in html
     assert "Suggested cover letter" not in html
+
+
+def test_build_digest_html_includes_archive_footer():
+    """Digest body must mention the archive attachment so the user knows it's there."""
+    data = {"applications": [], "rejections": [], "flagged": [], "runs": []}
+    html = build_digest_html(data)
+    assert "submissions-archive.html" in html
+    assert "Searchable archive" in html
+
+
+def test_build_email_message_attaches_archive():
+    """When archive_html is supplied, the message has an HTML attachment."""
+    msg = build_email_message(
+        html="<p>body</p>", mode="paid", sender="me@example.com",
+        archive_html="<html><body>archive</body></html>",
+    )
+    parts = list(msg.walk())
+    attachments = [
+        p for p in parts
+        if p.get_content_disposition() == "attachment"
+    ]
+    assert len(attachments) == 1
+    att = attachments[0]
+    assert att.get_filename() == "submissions-archive.html"
+    assert att.get_content_type() == "text/html"
+    assert b"archive" in att.get_payload(decode=True)
+
+
+def test_build_email_message_no_archive_omits_attachment():
+    """Without archive_html, no attachment should be added."""
+    msg = build_email_message(
+        html="<p>body</p>", mode="paid", sender="me@example.com",
+    )
+    attachments = [
+        p for p in msg.walk()
+        if p.get_content_disposition() == "attachment"
+    ]
+    assert attachments == []
 
 
 def test_build_digest_html_calendar_conflict_has_no_draft_link():

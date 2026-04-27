@@ -381,6 +381,66 @@ def test_record_flagged_role_upsert_preserves_draft_app_id(db):
     assert rows[0]["draft_app_id"] == 999
 
 
+def test_get_all_submission_records_unifies_three_tables(db):
+    """One row in each table should produce three unified rows tagged by record_type."""
+    db.record_application(
+        "role_app", "Applied Project", "Applied Role",
+        role_description="desc applied", ai_reason="best fit",
+        platform="aa", project_url="https://aa.example/applied",
+    )
+    db.record_application(
+        "role_drft", "Draft Project", "Draft Role",
+        role_description="desc draft", platform="backstage", status="draft",
+        submission_note="paste this",
+    )
+    run_id = db.start_run()
+    db.record_rejection(
+        project_name="Rejected Project", project_url="https://aa.example/rej",
+        role_name="Rejected Role", role_description="desc rej",
+        rejection_reason="age", run_id=run_id, platform="aa",
+    )
+    db.record_flagged_role(
+        project_name="Flagged Project", project_url="https://aa.example/flag",
+        role_name="Flagged Role", role_description="desc flag",
+        flag_reason="needs reel", run_id=run_id, platform="cn",
+        suggested_note="suggested cover letter",
+    )
+
+    rows = db.get_all_submission_records()
+    by_type = {r["record_type"]: r for r in rows}
+
+    assert set(by_type) == {"applied", "draft", "flagged", "rejected"}
+    assert by_type["applied"]["project_name"] == "Applied Project"
+    assert by_type["applied"]["reason"] == "best fit"
+    assert by_type["draft"]["submission_note"] == "paste this"
+    assert by_type["draft"]["platform"] == "backstage"
+    assert by_type["flagged"]["reason"] == "needs reel"
+    assert by_type["flagged"]["submission_note"] == "suggested cover letter"
+    assert by_type["rejected"]["reason"] == "age"
+
+
+def test_get_all_submission_records_orders_by_date_desc(db):
+    """Rows must come back newest-first regardless of which table they live in."""
+    import time
+    db.record_application("role_a", "P1", "R1")
+    time.sleep(0.01)
+    run_id = db.start_run()
+    db.record_rejection(
+        project_name="P2", project_url="", role_name="R2",
+        role_description="", rejection_reason="x", run_id=run_id, platform="aa",
+    )
+    time.sleep(0.01)
+    db.record_application("role_b", "P3", "R3")
+
+    rows = db.get_all_submission_records()
+    role_names = [r["role_name"] for r in rows]
+    assert role_names == ["R3", "R2", "R1"]
+
+
+def test_get_all_submission_records_empty(db):
+    assert db.get_all_submission_records() == []
+
+
 def test_schema_migration_adds_new_columns(db):
     """New columns must exist on a freshly created DB."""
     cursor = db.conn.execute("PRAGMA table_info(applied_roles)")

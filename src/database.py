@@ -374,5 +374,47 @@ class Database:
         columns = [desc[0] for desc in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
+    def get_all_submission_records(self) -> list[dict]:
+        """Return every record from applied_roles, flagged_roles, and rejected_roles.
+
+        Used by the searchable archive attached to each daily digest. Each row
+        carries a `record_type` discriminator ('applied', 'draft', 'flagged',
+        'rejected') and a unified `date_iso` column so the archive can render
+        a single sortable table. Ordered by date desc (most recent first).
+        """
+        query = """
+            SELECT
+                CASE WHEN COALESCE(status, 'submitted') = 'draft'
+                     THEN 'draft' ELSE 'applied' END AS record_type,
+                applied_at AS date_iso,
+                platform, mode, project_name, project_url,
+                role_name, role_description,
+                ai_reason AS reason,
+                submission_note
+            FROM applied_roles
+            UNION ALL
+            SELECT
+                'flagged' AS record_type,
+                flagged_at AS date_iso,
+                platform, mode, project_name, project_url,
+                role_name, role_description,
+                flag_reason AS reason,
+                suggested_note AS submission_note
+            FROM flagged_roles
+            UNION ALL
+            SELECT
+                'rejected' AS record_type,
+                rejected_at AS date_iso,
+                platform, mode, project_name, project_url,
+                role_name, role_description,
+                rejection_reason AS reason,
+                '' AS submission_note
+            FROM rejected_roles
+            ORDER BY date_iso DESC
+        """
+        cursor = self.conn.execute(query)
+        columns = [desc[0] for desc in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
     def close(self):
         self.conn.close()

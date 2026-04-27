@@ -8,6 +8,7 @@ import sys
 from collections import defaultdict
 from datetime import datetime, timezone
 
+from src.archive import render_archive_html
 from src.database import Database
 
 logger = logging.getLogger("digest")
@@ -222,6 +223,14 @@ def _wrap_html(body: str, mode: str | None = None) -> str:
         title = "Daily Casting Digest"
         accent = "#333"
         banner = ""
+    archive_footer = (
+        '<div style="margin-top:24px;padding:12px 16px;background:#eef4fb;'
+        'border-left:4px solid #1565c0;border-radius:4px;color:#0d47a1;font-size:13px;">'
+        '<strong>Searchable archive of all submissions attached</strong> '
+        '(<code>submissions-archive.html</code>). Open it in your browser '
+        'and type a role, project, or casting director name to filter.'
+        '</div>'
+    )
     return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
@@ -230,19 +239,20 @@ def _wrap_html(body: str, mode: str | None = None) -> str:
 <p style="color:#666;">Generated {datetime.now(tz=timezone.utc).strftime("%B %d, %Y at %I:%M %p")} UTC</p>
 {banner}
 {body}
+{archive_footer}
 </body>
 </html>"""
 
 
-def send_email(html: str, mode: str | None = None):
-    """Send the digest email via Gmail SMTP."""
-    import smtplib
-    from email.mime.text import MIMEText
+def build_email_message(html: str, mode: str | None, sender: str, archive_html: str | None = None):
+    """Construct the MIME message used for the digest email.
 
-    password = os.environ.get("GMAIL_APP_PASSWORD")
-    if not password:
-        logger.error("GMAIL_APP_PASSWORD not set — cannot send digest")
-        return
+    If `archive_html` is provided, it's attached as `submissions-archive.html`
+    so the user can open it on their phone and search the full submission history.
+    """
+    from email.mime.application import MIMEApplication
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
 
     if mode == "unpaid":
         subject_prefix = "Casting Digest (UNPAID)"
@@ -251,14 +261,38 @@ def send_email(html: str, mode: str | None = None):
     else:
         subject_prefix = "Casting Digest"
 
+    msg = MIMEMultipart("mixed")
+    msg["Subject"] = f"{subject_prefix} — {datetime.now(tz=timezone.utc).strftime('%B %d, %Y')}"
+    msg["From"] = sender
+    msg["To"] = sender
+    msg.attach(MIMEText(html, "html"))
+
+    if archive_html:
+        attachment = MIMEApplication(archive_html.encode("utf-8"), _subtype="xhtml+xml")
+        attachment.set_type("text/html")
+        attachment.add_header(
+            "Content-Disposition", "attachment", filename="submissions-archive.html"
+        )
+        msg.attach(attachment)
+
+    return msg
+
+
+def send_email(html: str, mode: str | None = None, archive_html: str | None = None):
+    """Send the digest email via Gmail SMTP."""
+    import smtplib
+
+    password = os.environ.get("GMAIL_APP_PASSWORD")
+    if not password:
+        logger.error("GMAIL_APP_PASSWORD not set — cannot send digest")
+        return
+
     sender = os.environ.get("DIGEST_SENDER_EMAIL")
     if not sender:
         logger.error("DIGEST_SENDER_EMAIL not set — cannot send digest")
         return
-    msg = MIMEText(html, "html")
-    msg["Subject"] = f"{subject_prefix} — {datetime.now(tz=timezone.utc).strftime('%B %d, %Y')}"
-    msg["From"] = sender
-    msg["To"] = sender
+
+    msg = build_email_message(html, mode=mode, sender=sender, archive_html=archive_html)
 
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
@@ -288,7 +322,11 @@ def main():
     try:
         data = gather_digest_data(db, mode=args.mode)
         html = build_digest_html(data, mode=args.mode)
-        send_email(html, mode=args.mode)
+        archive_html = render_archive_html(
+            db.get_all_submission_records(),
+            generated_at=datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        )
+        send_email(html, mode=args.mode, archive_html=archive_html)
         db.record_digest_sent()
     finally:
         db.close()
