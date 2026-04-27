@@ -96,7 +96,6 @@ jobs:
       - name: Publish archive site
         uses: ./.github/actions/publish-archive
         with:
-          archive-password: ${{ secrets.ARCHIVE_PASSWORD }}
           github-token: ${{ github.token }}
 
       - name: Upload logs

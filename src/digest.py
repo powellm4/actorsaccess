@@ -231,7 +231,7 @@ def _wrap_html(body: str, mode: str | None = None) -> str:
             f'<a href="{site_url}" style="color:#0d47a1;font-weight:bold;text-decoration:none;font-size:15px;">'
             'Open submissions archive →</a><br>'
             '<span style="color:#444;">Searchable history of every role the bot has applied to, drafted, flagged, or passed on. '
-            'Bookmark on any device. Password-protected.</span>'
+            'Bookmark on any device.</span>'
             '</div>'
         )
     else:

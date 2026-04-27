@@ -143,28 +143,17 @@ Set under repo Settings → Secrets and variables → Actions:
 
 `ANTHROPIC_API_KEY`, `GMAIL_APP_PASSWORD`, `GOOGLE_CALENDAR_SA_KEY`, `AA_USERNAME`, `AA_PASSWORD`, `CN_EMAIL`, `CN_PASSWORD`, `BACKSTAGE_EMAIL`, `BACKSTAGE_PASSWORD`.
 
-Optional (for the live archive site below): `ARCHIVE_PASSWORD`.
+### Archive site (live, public, GitHub Pages)
 
-### Archive site (live, password-gated, GitHub Pages)
-
-Every digest run also publishes a searchable archive of every submission to a private GitHub Pages site. Open the URL on any device, type a role/project/CD name in the search box, and rows filter live. Useful for answering *"did the bot apply to the JORDAN role I just got a self-tape invite for?"* without digging through Gmail.
-
-The page is encrypted client-side with [staticrypt](https://github.com/robinmoisson/staticrypt) (PBKDF2 + AES-256). The raw HTML on `gh-pages` is gibberish without the password — you enter it once per device (remembered for 30 days).
+Every digest run also publishes a searchable archive of every submission to a public GitHub Pages site. Open the URL on any device, type a role/project/CD name in the search box, and rows filter live. Useful for answering *"did the bot apply to the JORDAN role I just got a self-tape invite for?"* without digging through Gmail.
 
 **One-time setup:**
 
-1. **Add the password secret.** Repo Settings → Secrets and variables → Actions → New repository secret:
-   - Name: `ARCHIVE_PASSWORD`
-   - Value: any strong passphrase you'll remember
-2. **Set the public URL as a variable** (so the digest email can link to it). Repo Settings → Secrets and variables → Actions → Variables tab → New variable:
+1. **Set the public URL as a variable** (so the digest email can link to it). Repo Settings → Secrets and variables → Actions → Variables tab → New variable:
    - Name: `ARCHIVE_SITE_URL`
    - Value: `https://<your-github-username>.github.io/actorsaccess/`
-3. **Enable GitHub Pages.** Repo Settings → Pages → Source: *Deploy from a branch* → Branch: `gh-pages` (root). Save. (The `gh-pages` branch will appear after the first workflow run that publishes to it.)
-4. Trigger the `Auto Apply` workflow manually (Actions tab → Run workflow) and wait for the `Publish archive site` step. The site will be live within ~1 min.
-
-**To rotate the password:** update the `ARCHIVE_PASSWORD` secret, then trigger any digest workflow — the next publish re-encrypts with the new password.
-
-**To skip publishing entirely:** leave `ARCHIVE_PASSWORD` unset. The publish step no-ops and the digest email falls back to attaching `submissions-archive.html`.
+2. **Enable GitHub Pages.** Repo Settings → Pages → Source: *Deploy from a branch* → Branch: `gh-pages` (root). Save.
+3. Trigger the `Auto Apply` workflow manually (Actions tab → Run workflow) and wait for the `Publish archive site` step. The site will be live within ~1 min.
 
 Local CLI (for testing the renderer):
 ```bash
