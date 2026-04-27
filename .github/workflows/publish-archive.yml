@@ -1,0 +1,49 @@
+name: Publish Archive
+
+# Self-triggering: pushing this file (or anything under the publish-archive
+# composite action, or src/archive.py) fires this workflow, which downloads
+# the DB from the db-storage release and republishes the gh-pages site.
+# Used to regenerate the archive on demand without waiting for the next
+# scheduled auto-apply run.
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/publish-archive.yml'
+      - '.github/actions/publish-archive/**'
+      - 'src/archive.py'
+      - 'src/database.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Share concurrency group with auto-apply workflows so we don't read the DB
+# while another run is mid-write.
+concurrency:
+  group: db-access
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download database
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p data
+          gh release download db-storage --pattern applied.db --dir data/ --clobber
+
+      - name: Publish archive site
+        uses: ./.github/actions/publish-archive
+        with:
+          github-token: ${{ github.token }}
