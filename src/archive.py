@@ -161,6 +161,11 @@ _PAGE_TEMPLATE = """<!DOCTYPE html>
   .desc {{ white-space: pre-wrap; font-size: 13px; color: #444; padding: 6px 0; }}
   .empty {{ text-align: center; padding: 32px; color: #888; font-style: italic; }}
   tr.hidden {{ display: none; }}
+  #js-warning {{ background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px;
+                padding: 12px; margin-top: 8px; color: #664d03; font-size: 13px;
+                line-height: 1.4; }}
+  #js-warning strong {{ color: #533f03; }}
+  #search:disabled {{ background: #f0f0f0; color: #999; cursor: not-allowed; }}
   @media (max-width: 700px) {{
     table, thead, tbody, tr, td {{ display: block; }}
     thead {{ display: none; }}
@@ -176,7 +181,13 @@ _PAGE_TEMPLATE = """<!DOCTYPE html>
   <h1>Submissions Archive</h1>
   <div class="meta">{total} records &middot; generated {generated_at}</div>
   <div>{summary}</div>
-  <input id="search" type="search" placeholder="Search role, project, casting director, description..." autocomplete="off">
+  <input id="search" type="search" disabled value="" placeholder="Loading search..." autocomplete="off">
+  <div id="js-warning">
+    <strong>Search not working?</strong> This preview is blocking JavaScript.
+    Tap the <strong>share icon</strong> (square with up-arrow) and choose
+    <strong>Open in Safari</strong> (or save to Files, then open from Files in Safari).
+    Search will work there.
+  </div>
   <div id="count"></div>
 </header>
 <table>
@@ -195,19 +206,29 @@ _PAGE_TEMPLATE = """<!DOCTYPE html>
 </table>
 <script>
 (function() {{
+  // If this script runs, JS is alive — enable search and hide the warning.
+  var warning = document.getElementById('js-warning');
+  if (warning) warning.style.display = 'none';
   var input = document.getElementById('search');
+  input.disabled = false;
+  input.placeholder = 'Search role, project, casting director, description...';
+
   var rows = document.querySelectorAll('tr.record');
+  // Pre-index lowercase text once so per-keystroke filtering stays snappy
+  // even with several thousand records.
+  var index = new Array(rows.length);
+  for (var i = 0; i < rows.length; i++) index[i] = rows[i].textContent.toLowerCase();
+
   var count = document.getElementById('count');
   function update() {{
     var q = input.value.trim().toLowerCase();
     var shown = 0;
     for (var i = 0; i < rows.length; i++) {{
-      var r = rows[i];
-      if (!q || r.textContent.toLowerCase().indexOf(q) !== -1) {{
-        r.classList.remove('hidden');
+      if (!q || index[i].indexOf(q) !== -1) {{
+        rows[i].classList.remove('hidden');
         shown++;
       }} else {{
-        r.classList.add('hidden');
+        rows[i].classList.add('hidden');
       }}
     }}
     count.textContent = q ? (shown + ' of ' + rows.length + ' matching') : '';

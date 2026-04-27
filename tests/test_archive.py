@@ -77,6 +77,22 @@ def test_render_includes_search_input_and_script():
     assert "classList" in html
 
 
+def test_render_search_disabled_by_default_with_warning_banner():
+    """iOS Mail's Quick Look preview blocks JS — the input must start disabled
+    and the visible banner must direct the user to Open in Safari. JS enables
+    the input and hides the banner only when it actually runs."""
+    html = render_archive_html([], generated_at="now")
+    # Input is disabled until JS turns it on
+    assert 'id="search"' in html
+    assert "disabled" in html
+    # Warning banner is visible by default (no inline display:none)
+    assert 'id="js-warning"' in html
+    assert "Open in Safari" in html
+    # JS enables the input and hides the warning when it runs
+    assert "input.disabled = false" in html
+    assert "warning.style.display = 'none'" in html
+
+
 def test_render_links_project_when_url_present():
     records = [
         {"record_type": "applied", "date_iso": "2026-04-27 10:00:00", "platform": "aa",
