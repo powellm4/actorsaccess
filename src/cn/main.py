@@ -12,7 +12,12 @@ from src.cn.browser import CastingNetworksBrowser
 from src.database import Database
 from src.calendar_check import check_work_date_conflicts, parse_work_dates, check_availability
 from src.filters import _is_background, _is_court_tv, _is_ugc, _is_unpaid, _is_voiceover, _COURT_TV_PATTERN, is_lead_or_supporting
-from src.role_selector import select_best_roles, analyze_submission_requirements, check_travel_pay
+from src.role_selector import (
+    TRANSIENT_REJECTION_PREFIX,
+    analyze_submission_requirements,
+    check_travel_pay,
+    select_best_roles,
+)
 
 logger = logging.getLogger("castingnetworks")
 
@@ -269,9 +274,16 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                 if project_url and not project_url.startswith("http"):
                     project_url = f"https://app.castingnetworks.com{project_url}"
 
-                # Record rejections
+                # Record rejections (skip transient AI failures so they retry next run)
                 for role in candidates:
                     if role["role_name"] in rejections:
+                        reason = rejections[role["role_name"]]
+                        if reason.startswith(TRANSIENT_REJECTION_PREFIX):
+                            logger.info(
+                                f"[TRANSIENT] Re-queuing for next run: "
+                                f"{project_name} — {role['role_name']} ({reason})"
+                            )
+                            continue
                         role_url = role.get("url", "")
                         if role_url and not role_url.startswith("http"):
                             role_url = f"https://app.castingnetworks.com{role_url}"
@@ -280,7 +292,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                             project_url=role_url or project_url,
                             role_name=role["role_name"],
                             role_description=role.get("description", ""),
-                            rejection_reason=rejections[role["role_name"]],
+                            rejection_reason=reason,
                             run_id=run_id,
                             platform="cn",
                             mode=mode,

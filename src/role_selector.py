@@ -11,6 +11,22 @@ import re
 
 logger = logging.getLogger(__name__)
 
+# Prefix on a rejection reason that means "AI hit a transient error" — callers
+# must NOT persist these to rejected_roles so the next run retries the role.
+TRANSIENT_REJECTION_PREFIX = "[transient] "
+
+
+def _is_transient_error(exc: Exception) -> bool:
+    """True for API errors worth re-trying on the next run (overload, rate-limit, network)."""
+    status = getattr(exc, "status_code", None)
+    if status in (408, 409, 425, 429, 500, 502, 503, 504, 529):
+        return True
+    name = type(exc).__name__
+    return name in (
+        "APIConnectionError", "APITimeoutError", "InternalServerError",
+        "RateLimitError", "ConnectionError", "Timeout", "ReadTimeout",
+    )
+
 ACTOR_PROFILE = """
 - Appears 25 but people often think he's younger; plays 17-29 convincingly (yes, including 17-22 college-aged roles)
 - Male, White / Latino, 6'0", 185 lbs, athletic build, brown hair (thick, slightly curly, short-medium length), clean-shaven (no beard)
@@ -18,7 +34,9 @@ ACTOR_PROFILE = """
 - Type: Leading man, comedic/charming; also strong as villain/antagonist/mean characters; also excels at grounded/calm/straight man/voice-of-reason roles
 - 2 years improv training at UCB and The Groundlings
 - 5+ years salsa dancing
+- Strong volleyball player
 - Plays guitar well
+- Can sing (comfortable with roles requiring singing ability)
 - Fluent in Spanish (bilingual English/Spanish — can perform Spanish-speaking roles, including roles requiring native or fluent Spanish)
 - American accent in English (can play accents but not authentic/native non-American English accents). Spanish is the exception: he speaks it fluently and can play roles requiring Spanish dialogue or a native Spanish speaker.
 - Comfortable with physical comedy, action sequences, and 12+ hour shoot days
@@ -301,7 +319,7 @@ def select_best_roles(
     try:
         import anthropic
 
-        client = anthropic.Anthropic(api_key=api_key)
+        client = anthropic.Anthropic(api_key=api_key, max_retries=8)
 
         # Build role summaries for the prompt
         role_options = []
@@ -404,8 +422,15 @@ REJECTED: 4 - Background/extra role, actor does not do background work"""
         return _parse_structured_response(text, roles, project_name)
 
     except Exception as e:
-        logger.warning(f"AI role selection failed ({e}), skipping all to be safe")
-        rejections = {r["role_name"]: f"AI failed ({e}), skipped" for r in roles}
+        if _is_transient_error(e):
+            logger.warning(f"AI role selection transient failure ({e}); will retry next run")
+            rejections = {
+                r["role_name"]: f"{TRANSIENT_REJECTION_PREFIX}AI transient failure ({e})"
+                for r in roles
+            }
+        else:
+            logger.warning(f"AI role selection failed ({e}), skipping all to be safe")
+            rejections = {r["role_name"]: f"AI failed ({e}), skipped" for r in roles}
         return [], rejections
 
 
@@ -416,7 +441,7 @@ def _check_single_role_fit(
     try:
         import anthropic
 
-        client = anthropic.Anthropic(api_key=api_key)
+        client = anthropic.Anthropic(api_key=api_key, max_retries=8)
 
         desc = role.get("description", "No description")[:2000]
 
@@ -510,6 +535,9 @@ CRITICAL: Your response must start IMMEDIATELY with FIT or SKIP. Do NOT write an
         return [], {role["role_name"]: f"AI response unrecognized: {text[:200]}"}
 
     except Exception as e:
+        if _is_transient_error(e):
+            logger.warning(f"AI fitness check transient failure ({e}); will retry next run")
+            return [], {role["role_name"]: f"{TRANSIENT_REJECTION_PREFIX}AI transient failure ({e})"}
         logger.warning(f"AI fitness check failed ({e}), skipping role")
         return [], {role["role_name"]: f"AI check failed: {e}"}
 
@@ -600,7 +628,7 @@ def check_partial_availability(
     try:
         import anthropic
 
-        client = anthropic.Anthropic(api_key=api_key)
+        client = anthropic.Anthropic(api_key=api_key, max_retries=8)
 
         free_str = ", ".join(partial_info["free_dates"])
         busy_str = ", ".join(partial_info["busy_dates"])
@@ -684,7 +712,7 @@ def answer_prescreen_questions(
     import anthropic
     import json as _json
 
-    client = anthropic.Anthropic(api_key=api_key)
+    client = anthropic.Anthropic(api_key=api_key, max_retries=8)
 
     availability_context = ""
     if confirmed_dates:
@@ -847,7 +875,7 @@ def analyze_submission_requirements(role: dict, project_name: str, project_notes
 
     import anthropic
 
-    client = anthropic.Anthropic(api_key=api_key)
+    client = anthropic.Anthropic(api_key=api_key, max_retries=8)
 
     availability_context = ""
     if confirmed_dates:
@@ -936,7 +964,7 @@ def generate_cover_letter(role: dict, project_name: str) -> str:
 
     import anthropic
 
-    client = anthropic.Anthropic(api_key=api_key)
+    client = anthropic.Anthropic(api_key=api_key, max_retries=8)
 
     desc = role.get("description", "")
     role_name = role.get("role_name", "")
