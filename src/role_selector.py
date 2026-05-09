@@ -110,7 +110,14 @@ _PAID_TRAVEL_PAY_BLOCK = """TRAVEL PAY MINIMUMS — the actor is based in Los An
 - Medium drive (Las Vegas, San Francisco, Phoenix, Tucson, Arizona generally, NV/AZ): SKIP if total pay is under $500
 - Fly-to locations (New York, Atlanta, Chicago, Vancouver, or anywhere requiring air travel): SKIP if total pay is under $1000
 - If the shoot location is not mentioned or unclear, do NOT reject based on pay
-- "Total pay" means the full amount for the job, not per day. If the listing says "$200/day" for a 3-day shoot, total pay is $600 — that passes the $500 medium-drive threshold. For hourly rates, assume an 8-hour day (e.g., "$150/hour" = $1,200/day). If the total pay clearly exceeds the threshold, do NOT reject"""
+- "Total pay" means the full amount for the job, not per day. If the listing says "$200/day" for a 3-day shoot, total pay is $600 — that passes the $500 medium-drive threshold. For hourly rates, assume an 8-hour day (e.g., "$150/hour" = $1,200/day). If the total pay clearly exceeds the threshold, do NOT reject
+
+WHEN PAY CLEARS THE THRESHOLD, FIT/SELECT — these are NOT valid reasons to reject, no matter how the casting post is worded:
+- "Local hire only" / "must be local to [city]" / "talent local to [city] only" / "Casting talent local to [CITY] ONLY" — the actor flies in and pays his own way; this is exactly the case the threshold rule was written for.
+- The casting post does not mention travel, lodging, or relocation reimbursement — assume there is none. The actor still wants the role and will cover his own travel/accommodations.
+- "The actor cannot authentically/genuinely present as a [city] local" — irrelevant. Casting is not going to vet residency; he books the job and shows up. Do not invent this concern.
+- The actor lives in Los Angeles and the shoot is in another state/city — that is the entire point of the threshold rule. Do not cite it as a reason to reject.
+- Acknowledging the math ("pay exceeds the threshold, however...") then rejecting anyway — there is no "however." If pay clears the threshold and the only objection is location/local-hire framing, the verdict is FIT/SELECT."""
 
 _UNPAID_TRAVEL_BLOCK = """TRAVEL/LOCATION — the actor is based in Los Angeles. Do NOT reject based on location; the platform filter has already narrowed the pool. If the role is shooting locally in LA or LA metro (including Santa Clarita, Burbank, Long Beach, etc.), accept it."""
 
@@ -286,6 +293,68 @@ def check_travel_pay(
     return True, None
 
 
+# Patterns matching AI rejection reasoning that boils down to "you're not local
+# to the shoot city." The actor is happy to travel as a local hire when pay
+# clears the threshold, so these reasons should not stand on their own.
+_LOCAL_HIRE_REJECTION_PATTERNS = [
+    r"\blocal hire\b",
+    r"\blocal to\b",
+    r"\blocal talent\b",
+    r"\blocal (?:only|hire only)\b",
+    r"\bmust be local\b",
+    r"\bmust be based\b",
+    r"\bbased in [A-Z]",  # "based in Los Angeles" framed as a problem
+    r"\bcannot.*\blocal\b",
+    r"\bauthentically.*\blocal\b",
+    r"\bgenuinely.*\blocal\b",
+    r"\bpresent as.*\blocal\b",
+    r"\bno (?:travel|relocation|reimbursement|housing|lodging|accommodations?)\b",
+]
+
+
+def _is_local_hire_rationalization(reason: str) -> bool:
+    """True if AI rejection reason boils down to a local-hire / no-travel-reimbursement objection."""
+    if not reason:
+        return False
+    return any(re.search(p, reason, re.IGNORECASE) for p in _LOCAL_HIRE_REJECTION_PATTERNS)
+
+
+def _maybe_override_local_hire_skip(
+    role: dict, project_name: str, ai_reason: str, mode: str,
+    project_notes: str = "",
+) -> tuple[bool, str]:
+    """Override an AI SKIP that's a local-hire rationalization when pay clears the threshold.
+
+    Returns (overridden, new_reason). Only fires in paid mode. The override
+    runs ``check_travel_pay`` as the source of truth; if that programmatic
+    check would have passed (pay clears the threshold for the location, or
+    location is unknown), the AI's local-hire objection is treated as
+    rationalization and we accept the role.
+    """
+    if mode != "paid":
+        return False, ai_reason
+    if not _is_local_hire_rationalization(ai_reason):
+        return False, ai_reason
+    tp_ok, tp_reason = check_travel_pay(
+        project_name, role.get("description", ""), project_notes, mode="paid",
+    )
+    if tp_ok:
+        new_reason = (
+            f"travel pay clears threshold; overriding AI local-hire objection "
+            f"(AI said: {ai_reason[:120]})"
+        )
+        logger.info(
+            f"[TRAVEL PAY OVERRIDE] {project_name} — {role.get('role_name', '?')}: "
+            f"AI rejected for local-hire/no-travel-reimbursement but pay clears threshold; accepting"
+        )
+        return True, new_reason
+    logger.debug(
+        f"[TRAVEL PAY OVERRIDE] Not overriding {project_name} — {role.get('role_name', '?')}: "
+        f"programmatic check also rejects ({tp_reason})"
+    )
+    return False, ai_reason
+
+
 def select_best_roles(
     roles: list[dict], project_name: str, mode: str = "paid",
 ) -> tuple[list[tuple[dict, str]], dict[str, str]]:
@@ -419,7 +488,22 @@ REJECTED: 4 - Background/extra role, actor does not do background work"""
 
         text = response.content[0].text.strip()
         logger.info(f"[AI] Raw response for {project_name}: {text}")
-        return _parse_structured_response(text, roles, project_name)
+        selected, rejections = _parse_structured_response(text, roles, project_name)
+        # Override AI rejections that boil down to "you're not a [city] local"
+        # when the programmatic travel-pay check would have passed.
+        roles_by_name = {r["role_name"]: r for r in roles}
+        for role_name in list(rejections.keys()):
+            ai_reason = rejections[role_name]
+            role_obj = roles_by_name.get(role_name)
+            if role_obj is None:
+                continue
+            overridden, new_reason = _maybe_override_local_hire_skip(
+                role_obj, project_name, ai_reason, mode,
+            )
+            if overridden:
+                selected.append((role_obj, new_reason))
+                del rejections[role_name]
+        return selected, rejections
 
     except Exception as e:
         if _is_transient_error(e):
@@ -522,6 +606,11 @@ CRITICAL: Your response must start IMMEDIATELY with FIT or SKIP. Do NOT write an
         if verdict == "SKIP":
             reason = verdict_line.split("-", 1)[1].strip() if "-" in verdict_line else verdict_line
             logger.info(f"AI skipped single role {role['role_name']} on {project_name}: {reason}")
+            overridden, new_reason = _maybe_override_local_hire_skip(
+                role, project_name, reason, mode,
+            )
+            if overridden:
+                return [(role, new_reason)], {}
             return [], {role["role_name"]: reason}
 
         if verdict == "FIT":
