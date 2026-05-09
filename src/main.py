@@ -11,7 +11,13 @@ from src.config import load_config, ConfigError
 from src.database import Database
 from src.browser import ActorsAccessBrowser
 from src.filters import role_matches, project_matches, is_sag_only, is_lead_or_supporting
-from src.role_selector import select_best_roles, analyze_submission_requirements, check_partial_availability, check_travel_pay
+from src.role_selector import (
+    TRANSIENT_REJECTION_PREFIX,
+    analyze_submission_requirements,
+    check_partial_availability,
+    check_travel_pay,
+    select_best_roles,
+)
 from src.calendar_check import parse_shoot_dates, check_availability, get_busy_dates
 
 logger = logging.getLogger("actorsaccess")
@@ -334,15 +340,22 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                         f"rejected={list(rejections.keys())}"
                     )
 
-                    # Record rejections
+                    # Record rejections (skip transient AI failures so they retry next run)
                     for role in candidates:
                         if role["role_name"] in rejections:
+                            reason = rejections[role["role_name"]]
+                            if reason.startswith(TRANSIENT_REJECTION_PREFIX):
+                                logger.info(
+                                    f"[TRANSIENT] Re-queuing for next run: "
+                                    f"{project['project_name']} — {role['role_name']} ({reason})"
+                                )
+                                continue
                             db.record_rejection(
                                 project_name=project["project_name"],
                                 project_url=project_url,
                                 role_name=role["role_name"],
                                 role_description=role.get("description", ""),
-                                rejection_reason=rejections[role["role_name"]],
+                                rejection_reason=reason,
                                 run_id=run_id,
                                 platform="aa",
                                 mode=mode,

@@ -213,6 +213,106 @@ def test_three_selections_all_kept():
     assert rejections == {}
 
 
+# --- local-hire override tests ---
+#
+# Regression: the AI was rejecting BLADES OF LOVE — RYAN (Charlotte, NC,
+# $4,200 total) by acknowledging the pay cleared the fly-to threshold and
+# then rationalizing around the rule via "actor cannot present as a
+# Charlotte local hire." The override should catch this exact pattern.
+
+_BLADES_REASON = (
+    "Charlotte, NC local hire only; actor is based in Los Angeles, and at $700/day × 6 days "
+    "= $4,200 total, the pay exceeds the fly-to threshold of $1,000 — however, the casting "
+    "explicitly requires talent local to Charlotte, NC as a hard local hire condition with "
+    "no indication of travel/relocation reimbursement, and the actor cannot genuinely "
+    "present as a Charlotte local hire."
+)
+_BLADES_DESC = (
+    "20 to 25 years old; man. Hockey star turned figure skater. "
+    "Shoots for 6 days. Location: Charlotte, NC. Rate of Pay: $700/day. "
+    "Casting talent local to CHARLOTTE, NC ONLY"
+)
+
+
+def test_override_local_hire_when_pay_clears_threshold_single_role():
+    """AI SKIP citing 'local hire' should be overridden when pay clears threshold."""
+    mock_module, _ = _make_mock_anthropic(f"SKIP - {_BLADES_REASON}")
+    role = {"role_name": "Ryan", "description": _BLADES_DESC}
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "BLADES OF LOVE")
+    assert len(selected) == 1, f"expected override → selected, got rejections={rejections}"
+    assert selected[0][0]["role_name"] == "Ryan"
+    assert "clears threshold" in selected[0][1].lower()
+    assert rejections == {}
+
+
+def test_no_override_when_pay_below_threshold():
+    """Local-hire SKIP should stand if pay is too low for the location tier."""
+    mock_module, _ = _make_mock_anthropic("SKIP - Atlanta local hire only")
+    role = {
+        "role_name": "Bob",
+        "description": "Local hire only to Atlanta, GA. $100/day for 1 day.",
+    }
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "Cheap Atlanta")
+    assert selected == []
+    assert "Bob" in rejections
+
+
+def test_no_override_for_legitimate_skip_reason():
+    """SKIP for height/skills/etc. must never be overridden, even with travel-pay."""
+    mock_module, _ = _make_mock_anthropic("SKIP - Requires 6'4\" minimum, actor is 6'0\"")
+    role = {
+        "role_name": "Tall",
+        "description": "Must be 6'4\"+. Local hire only to LA. $5000 total.",
+    }
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "Tall People Project")
+    assert selected == []
+    assert "Tall" in rejections
+
+
+def test_no_override_in_unpaid_mode():
+    """Unpaid mode has no pay-threshold rules; the override must not fire."""
+    mock_module, _ = _make_mock_anthropic(f"SKIP - {_BLADES_REASON}")
+    role = {"role_name": "Ryan", "description": _BLADES_DESC}
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "BLADES", mode="unpaid")
+    assert selected == []
+    assert "Ryan" in rejections
+
+
+def test_override_in_multi_role_path():
+    """Multi-role REJECTED with local-hire reason should be moved to SELECTED when pay clears."""
+    roles = [
+        {
+            "role_name": "Ava",
+            "role_type": "Lead",
+            "description": "Female figure skater. Charlotte, NC. $700/day × 6 days.",
+        },
+        {
+            "role_name": "Ryan",
+            "role_type": "Lead",
+            "description": _BLADES_DESC,
+        },
+    ]
+    response = (
+        "REJECTED: 1 - Female-only, actor is male\n"
+        f"REJECTED: 2 - {_BLADES_REASON}"
+    )
+    mock_module, _ = _make_mock_anthropic(response)
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles(roles, "BLADES OF LOVE")
+    selected_names = [s[0]["role_name"] for s in selected]
+    assert "Ryan" in selected_names, f"Ryan should have been overridden; got {selected_names} / {rejections}"
+    assert "Ava" in rejections  # legit female-only rejection should stand
+
+
 # --- analyze_submission_requirements tests ---
 
 SAMPLE_ROLE = {
