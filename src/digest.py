@@ -98,67 +98,71 @@ def build_digest_html(data: dict, mode: str | None = None) -> str:
             flagged_section += '\n</div>\n'
         flagged_section += '</div>\n'
 
-    # Group by project
-    projects = defaultdict(lambda: {"applied": [], "rejected": []})
+    # Group by project (applied only — passed roles are surfaced as a
+    # separate top-level review section above).
+    projects = defaultdict(lambda: {"applied": []})
     for app in applications:
         projects[app["project_name"]]["applied"].append(app)
-    for rej in rejections:
-        projects[rej["project_name"]]["rejected"].append(rej)
 
-    # Build HTML
+    # Build top-level "Passed" review section (flat list with a platform
+    # badge on each card so the user can still tell where it came from).
+    passed_section = ""
+    if rejections:
+        passed_section = '<div style="margin-bottom:24px;">\n'
+        passed_section += '<h2 style="color:#e65100;margin-bottom:12px;">Passed</h2>\n'
+        for rej in rejections:
+            platform_badge = _platform_badge(rej.get("platform", "aa"))
+            desc = rej.get("role_description") or ""
+            rej_url = rej.get("project_url", "")
+            role_label = f'<a href="{rej_url}" style="color:#e65100;text-decoration:underline;">{rej["role_name"]}</a>' if rej_url else rej["role_name"]
+            passed_section += '<div style="background:#fff3e0;padding:12px;border-radius:4px;margin-bottom:8px;">\n'
+            passed_section += f'<strong style="color:#e65100;">PASSED</strong> {platform_badge} — <strong>{rej.get("project_name", "")}</strong> — <strong>{role_label}</strong>'
+            if desc:
+                passed_section += f'<br><span style="color:#555;">{desc}</span>'
+            passed_section += f'<br><strong>Reason:</strong> {rej.get("rejection_reason", "N/A")}'
+            passed_section += '\n</div>\n'
+        passed_section += '</div>\n'
+
+    # Build per-project "Applied" sections (bottom of email).
     sections = []
+    if applications:
+        sections.append('<h2 style="color:#2e7d32;margin-bottom:12px;">Applied</h2>\n')
     for project_name, roles in sorted(projects.items()):
-        project_url = ""
-        if roles["applied"]:
-            project_url = roles["applied"][0].get("project_url", "")
-        elif roles["rejected"]:
-            project_url = roles["rejected"][0].get("project_url", "")
-
+        if not roles["applied"]:
+            continue
+        project_url = roles["applied"][0].get("project_url", "")
         header = f'<a href="{project_url}">{project_name}</a>' if project_url else project_name
 
-        section = f'<div style="margin-bottom:24px;border:1px solid #ddd;border-radius:8px;padding:16px;">\n'
+        section = '<div style="margin-bottom:24px;border:1px solid #ddd;border-radius:8px;padding:16px;">\n'
         section += f'<h2 style="margin-top:0;color:#333;">{header}</h2>\n'
 
-        # Applied roles
-        if roles["applied"]:
-            for app in roles["applied"]:
-                platform_badge = _platform_badge(app.get("platform", "aa"))
-                desc = app.get("role_description") or ""
-                section += f'<div style="background:#e8f5e9;padding:12px;border-radius:4px;margin-bottom:8px;">\n'
-                app_url = app.get("project_url", "")
-                role_label = f'<a href="{app_url}" style="color:#2e7d32;text-decoration:underline;">{app["role_name"]}</a>' if app_url else app["role_name"]
-                section += f'<strong style="color:#2e7d32;">APPLIED</strong> {platform_badge} — <strong>{role_label}</strong>'
-                if app.get("candidates_considered", 1) > 1:
-                    section += f' <em>(chosen from {app["candidates_considered"]} candidates)</em>'
-                section += f'<br><span style="color:#555;">{desc}</span>' if desc else ""
-                section += f'<br><strong>Reason:</strong> {app.get("ai_reason", "N/A")}'
-                note = app.get("submission_note", "")
-                if note:
-                    section += f'<br><strong>Note submitted:</strong> <em>{note}</em>'
-                else:
-                    section += f'<br><span style="color:#888;">No specific submission info requested</span>'
-                section += '\n</div>\n'
-
-        # Rejected roles
-        if roles["rejected"]:
-            for rej in roles["rejected"]:
-                platform_badge = _platform_badge(rej.get("platform", "aa"))
-                desc = rej.get("role_description") or ""
-                rej_url = rej.get("project_url", "")
-                role_label = f'<a href="{rej_url}" style="color:#e65100;text-decoration:underline;">{rej["role_name"]}</a>' if rej_url else rej["role_name"]
-                section += f'<div style="background:#fff3e0;padding:12px;border-radius:4px;margin-bottom:8px;">\n'
-                section += f'<strong style="color:#e65100;">PASSED</strong> {platform_badge} — <strong>{role_label}</strong>'
-                section += f'<br><span style="color:#555;">{desc}</span>' if desc else ""
-                section += f'<br><strong>Reason:</strong> {rej.get("rejection_reason", "N/A")}'
-                section += '\n</div>\n'
+        for app in roles["applied"]:
+            platform_badge = _platform_badge(app.get("platform", "aa"))
+            desc = app.get("role_description") or ""
+            section += '<div style="background:#e8f5e9;padding:12px;border-radius:4px;margin-bottom:8px;">\n'
+            app_url = app.get("project_url", "")
+            role_label = f'<a href="{app_url}" style="color:#2e7d32;text-decoration:underline;">{app["role_name"]}</a>' if app_url else app["role_name"]
+            section += f'<strong style="color:#2e7d32;">APPLIED</strong> {platform_badge} — <strong>{role_label}</strong>'
+            if app.get("candidates_considered", 1) > 1:
+                section += f' <em>(chosen from {app["candidates_considered"]} candidates)</em>'
+            section += f'<br><span style="color:#555;">{desc}</span>' if desc else ""
+            section += f'<br><strong>Reason:</strong> {app.get("ai_reason", "N/A")}'
+            note = app.get("submission_note", "")
+            if note:
+                section += f'<br><strong>Note submitted:</strong> <em>{note}</em>'
+            else:
+                section += '<br><span style="color:#888;">No specific submission info requested</span>'
+            section += '\n</div>\n'
 
         section += '</div>\n'
         sections.append(section)
 
-    # Footer stats
+    # Footer stats — count distinct projects across applied AND rejected so
+    # the summary still reflects the total project pool evaluated today.
     total_applied = len(applications)
     total_rejected = len(rejections)
-    total_projects = len(projects)
+    project_names = {a["project_name"] for a in applications} | {r["project_name"] for r in rejections}
+    total_projects = len(project_names)
     failed_runs = [r for r in runs if r.get("status") == "error"]
 
     footer = f'<div style="margin-top:24px;padding:16px;background:#f5f5f5;border-radius:8px;">\n'
@@ -177,7 +181,13 @@ def build_digest_html(data: dict, mode: str | None = None) -> str:
             footer += f'<br><span style="color:red;">Failed ({fr.get("platform","?")}): {fr.get("error_message","unknown")}</span>'
     footer += '\n</div>\n'
 
-    body = calendar_section + flagged_section + "\n".join(sections) + footer
+    body = (
+        calendar_section
+        + flagged_section
+        + passed_section
+        + "\n".join(sections)
+        + footer
+    )
     return _wrap_html(body, mode=mode)
 
 
