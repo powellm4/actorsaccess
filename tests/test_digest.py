@@ -265,6 +265,121 @@ def test_build_email_message_no_archive_omits_attachment():
     assert attachments == []
 
 
+def test_passed_roles_appear_above_applied_in_digest():
+    """The review block (calendar / flagged / passed) must render above the
+    'Applied' section so the user sees what to review without scrolling past
+    successful submissions."""
+    data = {
+        "applications": [
+            {
+                "project_name": "Applied Project",
+                "project_url": "https://example.com/applied",
+                "role_name": "Lead",
+                "role_description": "Hero",
+                "ai_reason": "Great fit",
+                "platform": "aa",
+                "candidates_considered": 1,
+            }
+        ],
+        "rejections": [
+            {
+                "project_name": "Passed Project",
+                "project_url": "https://example.com/passed",
+                "role_name": "Villain",
+                "role_description": "Bad guy",
+                "rejection_reason": "Age too high",
+                "platform": "backstage",
+            }
+        ],
+        "flagged": [
+            {
+                "project_name": "Flagged Project",
+                "project_url": "https://example.com/flagged",
+                "role_name": "Hero",
+                "role_description": "An action hero",
+                "flag_reason": "Needs SAG-AFTRA number",
+                "platform": "aa",
+                "flagged_at": "2026-04-24 10:00:00",
+            },
+            {
+                "project_name": "Conflict Project",
+                "project_url": "https://example.com/conflict",
+                "role_name": "Extra",
+                "role_description": "",
+                "flag_reason": "Calendar conflict: Wedding",
+                "platform": "backstage",
+                "flagged_at": "2026-04-24 10:00:00",
+            },
+        ],
+        "runs": [],
+    }
+    html = build_digest_html(data)
+
+    # Top-of-email review headings must precede the Applied block.
+    idx_calendar = html.find("Skipped — Calendar Conflicts")
+    idx_attention = html.find("Needs Your Attention")
+    idx_passed_heading = html.find(">Passed<")
+    idx_passed_card = html.find("PASSED")
+    idx_applied_heading = html.find(">Applied<")
+    idx_applied_card = html.find("APPLIED")
+
+    assert idx_calendar != -1
+    assert idx_attention != -1
+    assert idx_passed_heading != -1
+    assert idx_passed_card != -1
+    assert idx_applied_heading != -1
+    assert idx_applied_card != -1
+
+    assert idx_calendar < idx_attention < idx_passed_heading
+    assert idx_passed_card < idx_applied_card
+    assert idx_passed_heading < idx_applied_heading
+
+
+def test_passed_section_includes_project_name_and_no_inline_passed_in_applied():
+    """Each PASSED card should carry its project name (since cards are no
+    longer nested inside per-project sections), and the per-project Applied
+    sections must contain zero PASSED cards."""
+    data = {
+        "applications": [
+            {
+                "project_name": "Shared Project",
+                "project_url": "https://example.com",
+                "role_name": "Lead",
+                "role_description": "",
+                "ai_reason": "Great fit",
+                "platform": "aa",
+                "candidates_considered": 1,
+            }
+        ],
+        "rejections": [
+            {
+                "project_name": "Shared Project",
+                "project_url": "https://example.com",
+                "role_name": "Villain",
+                "role_description": "",
+                "rejection_reason": "Age",
+                "platform": "aa",
+            }
+        ],
+        "flagged": [],
+        "runs": [],
+    }
+    html = build_digest_html(data)
+
+    # Locate the per-project applied block (bordered card).
+    applied_block_start = html.find('border:1px solid #ddd')
+    assert applied_block_start != -1
+    applied_block = html[applied_block_start:]
+    assert "PASSED" not in applied_block
+    assert "Villain" not in applied_block
+
+    # The passed card should reference its project so the user can still
+    # tell where it came from in the flat list.
+    passed_block = html[: applied_block_start]
+    assert "Shared Project" in passed_block
+    assert "Villain" in passed_block
+
+
 def test_build_digest_html_calendar_conflict_has_no_draft_link():
     """Calendar-conflict flags must stay in their own red section without
     any draft-related affordances, even if suggested_note somehow leaks in."""
