@@ -45,3 +45,14 @@ google_calendar:
 logging:
   level: "INFO"
   file: "logs/auto_apply.log"
+
+# Apply Anyway overrides. The digest emails each Passed/Needs-Attention role
+# with an "Apply anyway" button that opens a pre-filled GitHub issue in the
+# repo below. On the next run, the bot reads open issues with the label,
+# force-applies the role (bypassing AI/calendar/needs-input checks), then
+# comments + closes the issue. Requires the OVERRIDE_GITHUB_TOKEN env var.
+# Comment out this block (or leave the env var unset) to disable the feature
+# — the digest will simply omit the buttons.
+overrides:
+  repo: "powellm4/aa-overrides"
+  label: "apply-anyway"
