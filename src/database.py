@@ -63,6 +63,48 @@ class Database:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS shadow_comparisons (
+                id                        INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id                    INTEGER,
+                platform                  TEXT NOT NULL,
+                mode                      TEXT NOT NULL,
+                call_site                 TEXT NOT NULL,
+                project_name              TEXT,
+                role_name                 TEXT,
+                prompt_hash               TEXT NOT NULL,
+                prompt_text               TEXT NOT NULL,
+
+                claude_response           TEXT,
+                claude_verdict            TEXT,
+                claude_latency_ms         INTEGER,
+                claude_input_tokens       INTEGER,
+                claude_output_tokens      INTEGER,
+
+                ds_chat_response          TEXT,
+                ds_chat_verdict           TEXT,
+                ds_chat_latency_ms        INTEGER,
+                ds_chat_input_tokens      INTEGER,
+                ds_chat_output_tokens     INTEGER,
+                ds_chat_error             TEXT,
+
+                ds_reasoner_response      TEXT,
+                ds_reasoner_verdict       TEXT,
+                ds_reasoner_latency_ms    INTEGER,
+                ds_reasoner_input_tokens  INTEGER,
+                ds_reasoner_output_tokens INTEGER,
+                ds_reasoner_error         TEXT,
+
+                chat_matches_claude       INTEGER,
+                reasoner_matches_claude   INTEGER,
+
+                user_adjudication         TEXT,
+                user_adjudication_note    TEXT,
+
+                created_at                TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_shadow_call_site     ON shadow_comparisons(call_site);
+            CREATE INDEX IF NOT EXISTS idx_shadow_created_at    ON shadow_comparisons(created_at);
+            CREATE INDEX IF NOT EXISTS idx_shadow_disagreements ON shadow_comparisons(chat_matches_claude, reasoner_matches_claude);
         """)
         # Add columns if upgrading from older schema
         try:
