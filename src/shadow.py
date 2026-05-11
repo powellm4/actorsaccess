@@ -28,6 +28,7 @@ import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from typing import Callable
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,58 @@ def set_db_path(path: str) -> None:
 
 def get_db_path() -> str:
     return _db_path
+
+
+# ---------------------------------------------------------------------------
+# Platform / mode / run_id context
+# ---------------------------------------------------------------------------
+#
+# Entry-point scripts (src/main.py, src/cn/main.py, src/backstage/main.py) set
+# the current platform/mode/run_id once per run via set_run_context() or the
+# current_platform() context manager, so the role_selector functions don't
+# need to thread these arguments through every signature.
+
+_current_platform: str | None = None
+_current_mode: str | None = None
+_current_run_id: int | None = None
+
+
+def set_run_context(
+    *,
+    platform: str | None,
+    mode: str | None,
+    run_id: int | None = None,
+) -> None:
+    """Set the platform/mode/run_id stamped onto every shadow row this run."""
+    global _current_platform, _current_mode, _current_run_id
+    _current_platform = platform
+    _current_mode = mode
+    _current_run_id = run_id
+
+
+def clear_run_context() -> None:
+    """Clear the current run context."""
+    set_run_context(platform=None, mode=None, run_id=None)
+
+
+def get_run_context() -> tuple[str | None, str | None, int | None]:
+    """Return (platform, mode, run_id) — used by shadowed_completion as defaults."""
+    return _current_platform, _current_mode, _current_run_id
+
+
+@contextmanager
+def current_platform(
+    platform: str,
+    mode: str,
+    run_id: int | None = None,
+):
+    """Context manager: set platform/mode/run_id for the duration of the block."""
+    prev = get_run_context()
+    set_run_context(platform=platform, mode=mode, run_id=run_id)
+    try:
+        yield
+    finally:
+        set_run_context(platform=prev[0], mode=prev[1], run_id=prev[2])
 
 
 # ---------------------------------------------------------------------------
@@ -379,8 +432,8 @@ def shadowed_completion(
     claude_client,
     claude_model: str = "claude-sonnet-4-6",
     extract_verdict: Callable[[str], str | None] | None,
-    platform: str,
-    mode: str,
+    platform: str | None = None,
+    mode: str | None = None,
     project_name: str | None = None,
     role_name: str | None = None,
     run_id: int | None = None,
@@ -389,7 +442,19 @@ def shadowed_completion(
 
     See module docstring for the kill switch. DeepSeek failures never bubble
     up to the caller — they land in ds_*_error.
+
+    platform/mode/run_id default to the values set by set_run_context() (or
+    current_platform() context manager) when not passed explicitly.
     """
+    # Fill in any missing context from the module-level run context.
+    if platform is None or mode is None or run_id is None:
+        ctx_platform, ctx_mode, ctx_run_id = get_run_context()
+        if platform is None:
+            platform = ctx_platform
+        if mode is None:
+            mode = ctx_mode
+        if run_id is None:
+            run_id = ctx_run_id
     # Call Claude synchronously. If this raises, it propagates — exactly the
     # behavior the caller had before the wrapper existed.
     claude_started = time.monotonic()

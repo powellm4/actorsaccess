@@ -9,6 +9,8 @@ import logging
 import os
 import re
 
+from src.shadow import VERDICT_EXTRACTORS, shadowed_completion
+
 logger = logging.getLogger(__name__)
 
 # Prefix on a rejection reason that means "AI hit a transient error" — callers
@@ -480,13 +482,14 @@ SELECTED: 3 - Age range fits, playboy type works for actor's look
 REJECTED: 2 - Requires heavyset build, actor is athletic
 REJECTED: 4 - Background/extra role, actor does not do background work"""
 
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
+        text = shadowed_completion(
+            prompt,
+            call_site="select_best_roles",
             max_tokens=1000,
-            messages=[{"role": "user", "content": prompt}],
-        )
-
-        text = response.content[0].text.strip()
+            claude_client=client,
+            extract_verdict=VERDICT_EXTRACTORS["select_best_roles"],
+            project_name=project_name,
+        ).strip()
         logger.info(f"[AI] Raw response for {project_name}: {text}")
         selected, rejections = _parse_structured_response(text, roles, project_name)
         # Override AI rejections that boil down to "you're not a [city] local"
@@ -578,13 +581,15 @@ SKIP - <brief reason>
 
 CRITICAL: Your response must start IMMEDIATELY with FIT or SKIP. Do NOT write any reasoning, analysis, or thinking before the verdict line."""
 
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
+        text = shadowed_completion(
+            prompt,
+            call_site="single_fit",
             max_tokens=500,
-            messages=[{"role": "user", "content": prompt}],
-        )
-
-        text = response.content[0].text.strip()
+            claude_client=client,
+            extract_verdict=VERDICT_EXTRACTORS["single_fit"],
+            project_name=project_name,
+            role_name=role.get("role_name"),
+        ).strip()
         logger.debug(f"[AI] Raw fitness check for {role['role_name']} on {project_name}: {text}")
 
         # Find the first line that starts (after markdown/punctuation) with FIT or SKIP.
@@ -749,13 +754,15 @@ PROCEED - <brief reason>
 or
 SKIP - <brief reason>"""
 
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
+        text = shadowed_completion(
+            prompt,
+            call_site="partial_availability",
             max_tokens=100,
-            messages=[{"role": "user", "content": prompt}],
-        )
-
-        text = response.content[0].text.strip()
+            claude_client=client,
+            extract_verdict=VERDICT_EXTRACTORS["partial_availability"],
+            project_name=project_name,
+            role_name=role.get("role_name"),
+        ).strip()
         logger.debug(f"[CALENDAR] Partial availability AI response: {text}")
 
         if text.upper().startswith("PROCEED"):
@@ -870,12 +877,15 @@ Rules:
 """
 
     try:
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
+        text = shadowed_completion(
+            prompt,
+            call_site="prescreen",
             max_tokens=600,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = response.content[0].text.strip()
+            claude_client=client,
+            extract_verdict=VERDICT_EXTRACTORS["prescreen"],
+            project_name=project_name,
+            role_name=role.get("role_name"),
+        ).strip()
         logger.debug(f"[PRESCREEN-AI] Raw response for {role.get('role_name', '')}: {text}")
 
         # Strip accidental code fences
@@ -1016,13 +1026,15 @@ IMPORTANT RULES:
 
 Respond with ONLY the action line (and NOTE/REASON line if applicable). No other text."""
 
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
+    text = shadowed_completion(
+        prompt,
+        call_site="submission_requirements",
         max_tokens=200,
-        messages=[{"role": "user", "content": prompt}],
-    )
-
-    text = response.content[0].text.strip()
+        claude_client=client,
+        extract_verdict=VERDICT_EXTRACTORS["submission_requirements"],
+        project_name=project_name,
+        role_name=role.get("role_name"),
+    ).strip()
     logger.debug(f"[ANALYSIS] Raw response for {role.get('role_name', '')} on {project_name}: {text}")
     result = _parse_analysis_response(text, role, project_name)
 
@@ -1083,12 +1095,15 @@ HARD RULES — violations make the letter worse than no letter at all:
 Write the cover letter now."""
 
     try:
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
+        text = shadowed_completion(
+            prompt,
+            call_site="cover_letter",
             max_tokens=300,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = response.content[0].text.strip()
+            claude_client=client,
+            extract_verdict=VERDICT_EXTRACTORS["cover_letter"],
+            project_name=project_name,
+            role_name=role_name,
+        ).strip()
     except Exception as e:
         logger.warning(f"Cover letter generation failed for {role_name} on {project_name}: {e}")
         return ""
