@@ -5,8 +5,11 @@ import os
 import sys
 import time
 
+import re
+
 import schedule
 
+from src import overrides as overrides_mod
 from src.config import load_config, ConfigError
 from src.database import Database
 from src.browser import ActorsAccessBrowser
@@ -50,6 +53,184 @@ def _print_role_decision(tag: str, project_name: str, role: dict, reason: str = 
         print(f"  {desc}")
 
 
+def _override_config(cfg: dict) -> tuple[dict | None, str | None]:
+    """Return (config, token) for the override flow, or (None, None) if disabled."""
+    overrides_cfg = cfg.get("overrides")
+    token = os.environ.get("OVERRIDE_GITHUB_TOKEN")
+    if not overrides_cfg or not token:
+        return None, None
+    if not overrides_cfg.get("repo") or not overrides_cfg.get("label"):
+        logger.warning("[OVERRIDE] config.overrides missing 'repo' or 'label' — skipping override processing")
+        return None, None
+    return overrides_cfg, token
+
+
+def _ingest_override_issues(overrides_cfg: dict, token: str, db: Database):
+    """Pull open GitHub issues with the configured label, queue them locally,
+    comment + close. Malformed issues get a parsing-error comment."""
+    # Idempotent label create (no-op if it already exists). Means the user
+    # only has to create the repo + token; the label appears on first run.
+    try:
+        overrides_mod.ensure_label_exists(
+            overrides_cfg["repo"], overrides_cfg["label"], token,
+        )
+    except Exception as e:
+        logger.warning(f"[OVERRIDE] Could not ensure label exists: {e}")
+
+    try:
+        ok, malformed = overrides_mod.fetch_pending_with_errors(
+            overrides_cfg["repo"], overrides_cfg["label"], token,
+        )
+    except Exception as e:
+        logger.error(f"[OVERRIDE] Failed to fetch override issues: {e}")
+        return
+
+    for req in ok:
+        db.add_pending_override(
+            issue_number=req.issue_number,
+            project_name=req.project_name,
+            role_name=req.role_name,
+            platform=req.platform,
+            mode=req.mode,
+        )
+        overrides_mod.comment_and_close(
+            overrides_cfg["repo"], req.issue_number,
+            "Queued — will apply on this run.", token,
+        )
+
+    for issue_num in malformed:
+        overrides_mod.comment_and_close(
+            overrides_cfg["repo"], issue_num,
+            "Could not parse override request. Expected fields:\n"
+            "`project_name`, `role_name`, `platform` (aa|backstage|cn), `mode` (paid|unpaid).",
+            token,
+        )
+
+
+def _apply_aa_override(
+    cfg: dict, db: Database, browser, override: dict,
+    overrides_cfg: dict, token: str, dry_run: bool,
+):
+    """Force-apply a single AA-platform override role. Bypasses all of the
+    normal filters / AI selection / travel-pay / calendar checks — the user
+    explicitly asked for this role to go through."""
+    project_name = override["project_name"]
+    role_name = override["role_name"]
+    issue_num = override["issue_number"]
+    mode = override["mode"]
+
+    def _finish(outcome: str, detail: str, comment: str):
+        db.record_override_outcome(
+            issue_number=issue_num, project_name=project_name, role_name=role_name,
+            platform="aa", mode=mode, outcome=outcome, detail=detail,
+        )
+        db.clear_pending_override(project_name, role_name, "aa", mode)
+        overrides_mod.comment_and_close(overrides_cfg["repo"], issue_num, comment, token)
+
+    project_url = db.get_known_project_url(role_name, project_name, "aa")
+    if not project_url:
+        logger.warning(f"[OVERRIDE] No project URL on file for {project_name} — {role_name}")
+        _finish("failed", "Project URL not on file in db.",
+                "Failed: no project URL on file. The role may have been removed before it was queued.")
+        return
+
+    if dry_run:
+        print(f"\n[OVERRIDE - DRY RUN] would re-apply: {project_name} — {role_name}")
+        # Don't dequeue in dry-run so the real run still picks it up.
+        return
+
+    try:
+        roles, _ = browser.scrape_roles_on_project(project_url)
+    except Exception as e:
+        logger.error(f"[OVERRIDE] Scrape failed for {project_url}: {e}")
+        _finish("failed", f"Scrape failed: {e}", f"Failed to scrape project page: {e}")
+        return
+
+    matched = next((r for r in roles if r["role_name"] == role_name), None)
+    if not matched:
+        _finish(
+            "not_found",
+            "Role no longer visible on project page",
+            "Role no longer visible on the project page. (The breakdown may have been pulled or the role removed.)",
+        )
+        return
+
+    bid_match = re.search(r"breakdown=(\d+)", project_url)
+    breakdown_id = bid_match.group(1) if bid_match else f"override{issue_num}"
+    unique_id = f"{breakdown_id}_{matched['role_id']}"
+
+    if db.is_applied(unique_id):
+        db.delete_rejection(role_name, project_name, "aa")
+        db.delete_flagged(role_name, project_name, "aa")
+        _finish(
+            "applied",
+            "Already applied — no action needed",
+            "Already applied — no action needed.",
+        )
+        return
+
+    sub_cfg = cfg["submission"].copy()
+    # Apply Anyway = plain submit, no special note (per the brainstorm decision
+    # for needs-attention overrides).
+    sub_cfg["default_note"] = ""
+
+    try:
+        result = browser.submit_for_role(matched, project_name, sub_cfg)
+        err_detail = "" if result else "browser.submit_for_role returned False"
+    except Exception as e:
+        logger.error(f"[OVERRIDE] Submit raised on {project_name} / {role_name}: {e}")
+        result = False
+        err_detail = str(e)
+
+    if result:
+        db.record_application(
+            unique_id, project_name, role_name,
+            role_description=matched.get("description", ""),
+            ai_reason="OVERRIDE: applied via Apply Anyway",
+            candidates_considered=1, platform="aa",
+            project_url=project_url, submission_note="", mode=mode,
+        )
+        db.delete_rejection(role_name, project_name, "aa")
+        db.delete_flagged(role_name, project_name, "aa")
+        _finish(
+            "applied",
+            "Submitted successfully via override",
+            f"Applied successfully on **{project_name}** — *{role_name}*.",
+        )
+    else:
+        _finish(
+            "failed",
+            err_detail,
+            f"Failed to apply: {err_detail}",
+        )
+
+
+def process_aa_overrides(
+    cfg: dict, db: Database, browser, run_id: int, mode: str, dry_run: bool,
+):
+    """Pull GitHub override issues, queue them, then apply pending AA
+    overrides for this mode. Called once per run, right after login.
+
+    Non-AA-platform overrides are left in the queue for whichever run
+    handles that platform (no-op here)."""
+    overrides_cfg, token = _override_config(cfg)
+    if not overrides_cfg:
+        return
+
+    _ingest_override_issues(overrides_cfg, token, db)
+
+    pending = [
+        o for o in db.list_pending_overrides()
+        if o["platform"] == "aa" and o["mode"] == mode
+    ]
+    if not pending:
+        return
+
+    logger.info(f"[OVERRIDE] Processing {len(pending)} AA override(s) for mode={mode}")
+    for override in pending:
+        _apply_aa_override(cfg, db, browser, override, overrides_cfg, token, dry_run)
+
+
 def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid"):
     """Execute a single scrape-and-apply run.
 
@@ -85,6 +266,11 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
             logger.warning("Login failed, retrying once...")
             if not browser.login(creds["username"], creds["password"]):
                 raise RuntimeError("Login failed after retry")
+
+        # Apply Anyway: pull queued GitHub overrides and force-apply them
+        # before the normal scrape. They use direct project-URL navigation,
+        # so they don't depend on the breakdown filter pulling the project up.
+        process_aa_overrides(cfg, db, browser, run_id, mode, dry_run)
 
         # Navigate and filter
         filters = cfg["filters"]

@@ -63,6 +63,27 @@ class Database:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS pending_overrides (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                issue_number INTEGER NOT NULL,
+                project_name TEXT NOT NULL,
+                role_name TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                mode TEXT NOT NULL DEFAULT 'paid',
+                queued_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(project_name, role_name, platform, mode)
+            );
+            CREATE TABLE IF NOT EXISTS override_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                issue_number INTEGER NOT NULL,
+                project_name TEXT NOT NULL,
+                role_name TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                mode TEXT NOT NULL DEFAULT 'paid',
+                outcome TEXT NOT NULL,
+                detail TEXT DEFAULT '',
+                processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
         """)
         # Add columns if upgrading from older schema
         try:
@@ -415,6 +436,130 @@ class Database:
         cursor = self.conn.execute(query)
         columns = [desc[0] for desc in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    # --- Apply Anyway overrides (queued via GitHub issues) ---
+
+    def add_pending_override(
+        self, issue_number: int, project_name: str, role_name: str,
+        platform: str, mode: str = "paid",
+    ):
+        """Queue a role to be force-applied on the next run, even if it's
+        currently in rejected_roles or flagged_roles. Idempotent: a duplicate
+        (project, role, platform, mode) is silently dropped (UNIQUE constraint),
+        keeping the first issue_number that queued it."""
+        logger.info(f"[DB] Queuing override: {project_name} — {role_name} (issue #{issue_number}, platform={platform}, mode={mode})")
+        self.conn.execute(
+            """INSERT OR IGNORE INTO pending_overrides
+               (issue_number, project_name, role_name, platform, mode, queued_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (issue_number, project_name, role_name, platform, mode, self._utcnow()),
+        )
+        self.conn.commit()
+
+    def get_pending_override(
+        self, project_name: str, role_name: str, platform: str, mode: str,
+    ) -> dict | None:
+        cursor = self.conn.execute(
+            """SELECT issue_number, project_name, role_name, platform, mode, queued_at
+               FROM pending_overrides
+               WHERE project_name = ? AND role_name = ? AND platform = ? AND mode = ?""",
+            (project_name, role_name, platform, mode),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        cols = [d[0] for d in cursor.description]
+        return dict(zip(cols, row))
+
+    def list_pending_overrides(self) -> list[dict]:
+        cursor = self.conn.execute(
+            """SELECT issue_number, project_name, role_name, platform, mode, queued_at
+               FROM pending_overrides ORDER BY queued_at ASC"""
+        )
+        cols = [d[0] for d in cursor.description]
+        return [dict(zip(cols, row)) for row in cursor.fetchall()]
+
+    def clear_pending_override(
+        self, project_name: str, role_name: str, platform: str, mode: str,
+    ):
+        self.conn.execute(
+            """DELETE FROM pending_overrides
+               WHERE project_name = ? AND role_name = ? AND platform = ? AND mode = ?""",
+            (project_name, role_name, platform, mode),
+        )
+        self.conn.commit()
+
+    def record_override_outcome(
+        self, issue_number: int, project_name: str, role_name: str,
+        platform: str, mode: str, outcome: str, detail: str = "",
+    ):
+        """outcome is one of: 'applied', 'failed', 'not_found'."""
+        logger.info(f"[DB] Override outcome: {project_name} — {role_name} = {outcome} ({detail})")
+        self.conn.execute(
+            """INSERT INTO override_history
+               (issue_number, project_name, role_name, platform, mode, outcome, detail, processed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (issue_number, project_name, role_name, platform, mode, outcome, detail, self._utcnow()),
+        )
+        self.conn.commit()
+
+    def get_daily_override_outcomes(self, mode: str | None = None) -> list[dict]:
+        """Outcomes since the last digest (or last 24h if no digest yet)."""
+        since = self.get_last_digest_time()
+        mode_clause = " AND mode = ?" if mode else ""
+        mode_params = (mode,) if mode else ()
+        if since:
+            query = f"""SELECT issue_number, project_name, role_name, platform, mode,
+                              outcome, detail, processed_at
+                       FROM override_history
+                       WHERE processed_at > ?{mode_clause}
+                       ORDER BY processed_at DESC"""
+            cursor = self.conn.execute(query, (since,) + mode_params)
+        else:
+            query = f"""SELECT issue_number, project_name, role_name, platform, mode,
+                              outcome, detail, processed_at
+                       FROM override_history
+                       WHERE processed_at >= datetime('now', '-24 hours'){mode_clause}
+                       ORDER BY processed_at DESC"""
+            cursor = self.conn.execute(query, mode_params)
+        cols = [d[0] for d in cursor.description]
+        return [dict(zip(cols, row)) for row in cursor.fetchall()]
+
+    def delete_rejection(self, role_name: str, project_name: str, platform: str):
+        """Remove a rejection row (used after an Apply-Anyway override succeeds
+        so the role doesn't keep showing up in the Passed section)."""
+        self.conn.execute(
+            "DELETE FROM rejected_roles WHERE role_name = ? AND project_name = ? AND platform = ?",
+            (role_name, project_name, platform),
+        )
+        self.conn.commit()
+
+    def delete_flagged(self, role_name: str, project_name: str, platform: str):
+        """Remove a flagged row (used after an Apply-Anyway override succeeds)."""
+        self.conn.execute(
+            "DELETE FROM flagged_roles WHERE role_name = ? AND project_name = ? AND platform = ?",
+            (role_name, project_name, platform),
+        )
+        self.conn.commit()
+
+    def get_known_project_url(
+        self, role_name: str, project_name: str, platform: str,
+    ) -> str | None:
+        """Look up the project_url stored for a previously-rejected or
+        flagged role. Used by the override flow to navigate back to the
+        project page without re-scraping the breakdowns list."""
+        for table, ts_col in (("rejected_roles", "rejected_at"), ("flagged_roles", "flagged_at")):
+            cursor = self.conn.execute(
+                f"""SELECT project_url FROM {table}
+                    WHERE role_name = ? AND project_name = ? AND platform = ?
+                          AND project_url IS NOT NULL AND project_url != ''
+                    ORDER BY {ts_col} DESC LIMIT 1""",
+                (role_name, project_name, platform),
+            )
+            row = cursor.fetchone()
+            if row:
+                return row[0]
+        return None
 
     def close(self):
         self.conn.close()

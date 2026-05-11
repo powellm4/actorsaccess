@@ -53,8 +53,21 @@ That's it. Run `python -m src.main --once --dry-run` to confirm the AA flow work
 | `AA_USERNAME` / `AA_PASSWORD` | Optional | Overrides credentials in `config.yaml` / `config_unpaid.yaml`. Not needed locally — the committed yaml already has them. |
 | `CN_EMAIL` / `CN_PASSWORD` | Optional | Overrides credentials in `cn_config.yaml` / `cn_config_unpaid.yaml`. |
 | `BACKSTAGE_EMAIL` / `BACKSTAGE_PASSWORD` | Optional | Overrides credentials in `backstage_config.yaml` / `backstage_config_unpaid.yaml`. |
+| `OVERRIDE_GITHUB_TOKEN` | Optional (Apply Anyway) | Fine-grained PAT with **Issues: Read & Write** scope on the override repo configured in `overrides.repo`. Without it, "Apply anyway" buttons in the digest are omitted. (Same name in CI — GitHub Actions disallows secret names starting with `GITHUB_`.) |
 
 Credentials for all three platforms are committed in the per-platform yaml files. The env vars only exist so GitHub Actions can inject secrets at runtime.
+
+### Apply Anyway via GitHub Issues
+
+Each Passed and Needs-Attention card in the digest carries an **Apply anyway** button. Clicking it opens a pre-filled GitHub issue in a separate private repo. On the next AA run the bot reads open issues with the configured label, force-applies the role (bypassing AI / travel-pay / calendar / needs-input checks), then comments and closes the issue. Outcomes show up in the next digest's "Manually Applied" section.
+
+One-time setup:
+
+1. **Create a private repo** for the overrides — e.g. `your-username/aa-overrides`. It only ever holds issues; no code.
+2. **Create a fine-grained PAT** at [github.com/settings/personal-access-tokens](https://github.com/settings/personal-access-tokens) with access to that single repo and the **Issues: Read & Write** permission. Save it locally as the `OVERRIDE_GITHUB_TOKEN` env var, and add the same name as a repo secret in GitHub Actions for the scheduled runs.
+3. **Set `overrides.repo`** in `config.yaml` (and `config_unpaid.yaml` if you use that mode) to the new repo's full name. The default label is `apply-anyway` — the bot creates it on first use if it doesn't exist.
+
+Comment the `overrides:` block out, or leave the env var unset, to disable the feature entirely; the digest will simply omit the buttons.
 
 ### Config files
 

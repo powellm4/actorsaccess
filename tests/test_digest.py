@@ -402,3 +402,134 @@ def test_build_digest_html_calendar_conflict_has_no_draft_link():
     html = build_digest_html(data)
     assert "Skipped — Calendar Conflicts" in html
     assert "Open on Backstage" not in html
+
+
+# --- Apply Anyway override links ---
+
+OVERRIDES_CFG = {"repo": "powellm4/aa-overrides", "label": "apply-anyway"}
+
+
+def _passed_role(name="Lead", project="Acme", platform="aa"):
+    return {
+        "project_name": project, "project_url": "https://aa.example/?breakdown=1",
+        "role_name": name, "role_description": "", "rejection_reason": "AI: not a fit",
+        "platform": platform, "mode": "paid",
+    }
+
+
+def _flagged_role(name="Lead", project="Acme", platform="aa"):
+    return {
+        "project_name": project, "project_url": "https://aa.example/?breakdown=2",
+        "role_name": name, "role_description": "", "flag_reason": "Needs cover letter",
+        "platform": platform, "mode": "paid", "flagged_at": "2026-04-24 10:00:00",
+    }
+
+
+def test_passed_card_includes_apply_anyway_link_when_overrides_configured():
+    data = {"applications": [], "rejections": [_passed_role()], "flagged": [], "runs": []}
+    html = build_digest_html(data, overrides_cfg=OVERRIDES_CFG)
+    assert "Apply anyway" in html
+    assert "github.com/powellm4/aa-overrides/issues/new" in html
+    # The label and the role identifiers must be in the link query string.
+    assert "labels=apply-anyway" in html
+    assert "Acme" in html
+    assert "Lead" in html
+
+
+def test_flagged_card_includes_apply_anyway_link_when_overrides_configured():
+    data = {"applications": [], "rejections": [], "flagged": [_flagged_role()], "runs": []}
+    html = build_digest_html(data, overrides_cfg=OVERRIDES_CFG)
+    assert "Apply anyway" in html
+    assert "github.com/powellm4/aa-overrides/issues/new" in html
+
+
+def test_calendar_conflict_card_includes_apply_anyway_link():
+    """User explicitly chose 'skip the flag check, submit plainly' for needs-attention.
+    Calendar-conflict flags belong to the same flagged_roles table — they should
+    expose the same Apply Anyway action."""
+    data = {
+        "applications": [],
+        "rejections": [],
+        "flagged": [{
+            **_flagged_role(),
+            "flag_reason": "Calendar conflict: Wedding",
+        }],
+        "runs": [],
+    }
+    html = build_digest_html(data, overrides_cfg=OVERRIDES_CFG)
+    assert "Apply anyway" in html
+
+
+def test_no_apply_anyway_links_when_overrides_not_configured():
+    """If overrides_cfg is omitted, the digest renders cleanly without buttons —
+    no broken links, no leftover text."""
+    data = {
+        "applications": [],
+        "rejections": [_passed_role()],
+        "flagged": [_flagged_role()],
+        "runs": [],
+    }
+    html = build_digest_html(data)  # no overrides_cfg
+    assert "Apply anyway" not in html
+    assert "github.com/" not in html or "issues/new" not in html
+
+
+# --- Manually Applied section ---
+
+def test_manually_applied_section_renders_outcomes():
+    data = {
+        "applications": [],
+        "rejections": [],
+        "flagged": [],
+        "runs": [],
+        "overrides": [
+            {"issue_number": 7, "project_name": "Acme", "role_name": "Lead",
+             "platform": "aa", "mode": "paid",
+             "outcome": "applied", "detail": "Submitted successfully",
+             "processed_at": "2026-05-10 12:00:00"},
+            {"issue_number": 8, "project_name": "Bee", "role_name": "Hero",
+             "platform": "aa", "mode": "paid",
+             "outcome": "failed", "detail": "Submit button not found",
+             "processed_at": "2026-05-10 12:01:00"},
+            {"issue_number": 9, "project_name": "Cee", "role_name": "Villain",
+             "platform": "aa", "mode": "paid",
+             "outcome": "not_found", "detail": "Project no longer visible",
+             "processed_at": "2026-05-10 12:02:00"},
+        ],
+    }
+    html = build_digest_html(data, overrides_cfg=OVERRIDES_CFG)
+    assert "Manually Applied" in html
+    # Each role surfaces by name.
+    assert "Lead" in html
+    assert "Hero" in html
+    assert "Villain" in html
+    # Outcomes show through.
+    assert "Applied" in html or "applied" in html
+    assert "Submit button not found" in html or "Failed" in html
+    assert "Project no longer visible" in html or "not visible" in html.lower()
+    # Each row links back to its GitHub issue.
+    assert "github.com/powellm4/aa-overrides/issues/7" in html
+    assert "github.com/powellm4/aa-overrides/issues/8" in html
+
+
+def test_manually_applied_section_omitted_when_no_overrides():
+    """If there are no override outcomes for the window, the section header
+    must not render (don't spam the email with empty sections)."""
+    data = {
+        "applications": [], "rejections": [], "flagged": [], "runs": [],
+        "overrides": [],
+    }
+    html = build_digest_html(data, overrides_cfg=OVERRIDES_CFG)
+    assert "Manually Applied" not in html
+
+
+def test_gather_digest_data_includes_overrides(db):
+    """gather_digest_data should populate 'overrides' from override_history."""
+    db.record_override_outcome(
+        issue_number=1, project_name="P", role_name="R",
+        platform="aa", mode="paid", outcome="applied", detail="ok",
+    )
+    data = gather_digest_data(db)
+    assert "overrides" in data
+    assert len(data["overrides"]) == 1
+    assert data["overrides"][0]["outcome"] == "applied"

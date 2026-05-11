@@ -59,6 +59,7 @@ jobs:
           AA_PASSWORD: ${{ secrets.AA_PASSWORD }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_CALENDAR_SA_KEY: ${{ secrets.GOOGLE_CALENDAR_SA_KEY }}
+          OVERRIDE_GITHUB_TOKEN: ${{ secrets.OVERRIDE_GITHUB_TOKEN }}
         run: |
           python -m src.main --once --mode unpaid \
             ${{ inputs.max_submissions && format('--max-submissions {0}', inputs.max_submissions) || '' }} \
