@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from src.archive import render_archive_html
 from src.database import Database
 from src.overrides import build_override_url
+from src.shadow_report import render_digest_block
 
 logger = logging.getLogger("digest")
 
@@ -321,12 +322,20 @@ def _wrap_html(body: str, mode: str | None = None) -> str:
             'and type a role, project, or casting director name to filter.'
             '</div>'
         )
+    # Optional shadow-eval summary block. Returns "" when no shadow data is
+    # available, so the digest renders unchanged on days the feature is off.
+    try:
+        shadow_block = render_digest_block(mode)
+    except Exception as e:  # pragma: no cover - defensive: shadow must never break digest
+        logger.warning(f"render_digest_block failed: {e}")
+        shadow_block = ""
     return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:700px;margin:0 auto;padding:20px;">
 <h1 style="border-bottom:2px solid {accent};padding-bottom:8px;color:{accent};">{title}</h1>
 <p style="color:#666;">Generated {datetime.now(tz=timezone.utc).strftime("%B %d, %Y at %I:%M %p")} UTC</p>
+{shadow_block}
 {archive_callout}
 {banner}
 {body}

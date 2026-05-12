@@ -22,6 +22,12 @@ runs:
         mkdir -p site-build
         python -m src.archive --db "${{ inputs.db-path }}" --output site-build/index.html
 
+    - name: Render shadow-eval archive HTML
+      shell: bash
+      run: |
+        # Writes site-build/shadow/index.html — served at /shadow/ once deployed.
+        python -m src.shadow_report --db "${{ inputs.db-path }}" --output site-build
+
     - name: Deploy to GitHub Pages
       uses: peaceiris/actions-gh-pages@v4
       with:

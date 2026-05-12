@@ -25,6 +25,7 @@ from src.role_selector import (
     generate_cover_letter,
     select_best_roles,
 )
+from src.shadow import clear_run_context, flush_pending_shadows, set_run_context
 
 logger = logging.getLogger("backstage")
 
@@ -152,6 +153,7 @@ def _parse_shoot_info(production: dict) -> str | None:
 
 def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid"):
     run_id = db.start_run(platform="backstage", mode=mode)
+    set_run_context(platform="backstage", mode=mode, run_id=run_id)
     cal_ids = cfg.get("google_calendar", {}).get("calendar_ids", [])
     logger.info(f"[RUN] Started Backstage run_id={run_id}, mode={mode}, calendar_ids={len(cal_ids)} configured")
     roles_found = 0
@@ -787,6 +789,13 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
         logger.error(f"Run failed: {e}")
         db.fail_run(run_id, str(e))
         raise
+
+    finally:
+        try:
+            flush_pending_shadows(timeout=60)
+        except Exception as flush_err:
+            logger.warning(f"[SHADOW] flush_pending_shadows failed: {flush_err}")
+        clear_run_context()
 
 
 def main():

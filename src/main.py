@@ -21,6 +21,7 @@ from src.role_selector import (
     check_travel_pay,
     select_best_roles,
 )
+from src.shadow import clear_run_context, flush_pending_shadows, set_run_context
 from src.calendar_check import parse_shoot_dates, check_availability, get_busy_dates
 
 logger = logging.getLogger("actorsaccess")
@@ -248,6 +249,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
     Series Regular/Recurring and shooting in LA are accepted.
     """
     run_id = db.start_run(platform="aa", mode=mode)
+    set_run_context(platform="aa", mode=mode, run_id=run_id)
     cal_ids = cfg.get("google_calendar", {}).get("calendar_ids", [])
     logger.info(f"[RUN] Started AA run_id={run_id}, mode={mode}, calendar_ids={len(cal_ids)} configured")
     roles_found = 0
@@ -699,6 +701,11 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
 
     finally:
         browser.close()
+        try:
+            flush_pending_shadows(timeout=60)
+        except Exception as flush_err:
+            logger.warning(f"[SHADOW] flush_pending_shadows failed: {flush_err}")
+        clear_run_context()
 
 
 def main():
