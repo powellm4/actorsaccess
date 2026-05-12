@@ -47,6 +47,7 @@ jobs:
           AA_USERNAME: ${{ secrets.AA_USERNAME }}
           AA_PASSWORD: ${{ secrets.AA_PASSWORD }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GOOGLE_CALENDAR_SA_KEY: ${{ secrets.GOOGLE_CALENDAR_SA_KEY }}
         run: python -m src.main --once
 
@@ -60,6 +61,7 @@ jobs:
           CN_EMAIL: ${{ secrets.CN_EMAIL }}
           CN_PASSWORD: ${{ secrets.CN_PASSWORD }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GOOGLE_CALENDAR_SA_KEY: ${{ secrets.GOOGLE_CALENDAR_SA_KEY }}
         run: xvfb-run --auto-servernum python -m src.cn.main --once
 
@@ -73,6 +75,7 @@ jobs:
           BACKSTAGE_EMAIL: ${{ secrets.BACKSTAGE_EMAIL }}
           BACKSTAGE_PASSWORD: ${{ secrets.BACKSTAGE_PASSWORD }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GOOGLE_CALENDAR_SA_KEY: ${{ secrets.GOOGLE_CALENDAR_SA_KEY }}
         run: python -m src.backstage.main --once
 
@@ -86,6 +89,7 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           DIGEST_SENDER_EMAIL: ${{ secrets.DIGEST_SENDER_EMAIL }}
           ARCHIVE_SITE_URL: ${{ vars.ARCHIVE_SITE_URL }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: python -m src.digest --mode paid
 
       - name: Upload database (after digest)

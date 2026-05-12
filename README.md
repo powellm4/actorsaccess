@@ -48,6 +48,8 @@ That's it. Run `python -m src.main --once --dry-run` to confirm the AA flow work
 | Variable | Required? | Purpose |
 |----------|-----------|---------|
 | `ANTHROPIC_API_KEY` | Yes (AI selection + note generation) | Claude API key. Without it, the tool falls back to the first matching role with no reasoning. Get one at [console.anthropic.com](https://console.anthropic.com). |
+| `DEEPSEEK_API_KEY` | Optional | DeepSeek API key for the shadow-eval comparison feature. Without it, shadow mode is silently disabled and Claude operates alone. |
+| `SHADOW_ENABLED` | Optional | Set to `0` to force-disable shadow eval even when `DEEPSEEK_API_KEY` is set. Default: enabled. |
 | `GMAIL_APP_PASSWORD` | Only to send digest emails | Gmail App Password (not your main password). Used by `src/digest.py` SMTP sender. |
 | `GOOGLE_CALENDAR_SA_KEY` | Optional | Base64-encoded Google service account JSON for calendar-conflict checks (`src/calendar_check.py`). |
 | `AA_USERNAME` / `AA_PASSWORD` | Optional | Overrides credentials in `config.yaml` / `config_unpaid.yaml`. Not needed locally — the committed yaml already has them. |
@@ -122,6 +124,10 @@ Sends via Gmail SMTP using `GMAIL_APP_PASSWORD`. Recipient is hardcoded in `src/
 
 Actor profile used by AI selection lives in `ACTOR_PROFILE` in `src/role_selector.py` — edit there to change it.
 
+### Shadow evaluation (DeepSeek)
+
+Every Claude call in `src/role_selector.py` is duplicated through DeepSeek (`deepseek-chat` + `deepseek-reasoner`) in background threads for comparison. Claude remains the production decision-maker — DeepSeek responses are observed only. Results land in the `shadow_comparisons` table of `data/applied.db` and are surfaced via a daily-digest summary block plus a full report at `/shadow/` on the archive site (per-call-site agreement rate, disagreement queue, cost/latency stats). The feature auto-disables if `DEEPSEEK_API_KEY` is unset or `SHADOW_ENABLED=0`.
+
 ## Deployment — GitHub Actions
 
 Production runs in two workflows, both in `.github/workflows/`:
@@ -141,7 +147,7 @@ Both share a `db-access` concurrency group so they don't clobber each other. CN 
 
 Set under repo Settings → Secrets and variables → Actions:
 
-`ANTHROPIC_API_KEY`, `GMAIL_APP_PASSWORD`, `GOOGLE_CALENDAR_SA_KEY`, `AA_USERNAME`, `AA_PASSWORD`, `CN_EMAIL`, `CN_PASSWORD`, `BACKSTAGE_EMAIL`, `BACKSTAGE_PASSWORD`.
+`ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `GMAIL_APP_PASSWORD`, `GOOGLE_CALENDAR_SA_KEY`, `AA_USERNAME`, `AA_PASSWORD`, `CN_EMAIL`, `CN_PASSWORD`, `BACKSTAGE_EMAIL`, `BACKSTAGE_PASSWORD`.
 
 ### Archive site (live, public, GitHub Pages)
 
