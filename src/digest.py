@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 from src.archive import render_archive_html
 from src.database import Database
+from src.overrides import build_override_url
 from src.shadow_report import render_digest_block
 
 logger = logging.getLogger("digest")
@@ -26,17 +27,42 @@ def gather_digest_data(db: Database, mode: str | None = None) -> dict:
         "rejections": db.get_daily_rejections(mode=mode),
         "flagged": db.get_daily_flagged(mode=mode),
         "runs": db.get_daily_run_summary(mode=mode),
+        "overrides": db.get_daily_override_outcomes(mode=mode),
     }
 
 
-def build_digest_html(data: dict, mode: str | None = None) -> str:
+def _apply_anyway_link(overrides_cfg: dict | None, item: dict, accent: str) -> str:
+    """Render an 'Apply anyway' link for a passed/flagged role card.
+
+    Returns empty string when overrides aren't configured — the caller can
+    safely concatenate without a None check.
+    """
+    if not overrides_cfg or not overrides_cfg.get("repo") or not overrides_cfg.get("label"):
+        return ""
+    url = build_override_url(
+        repo=overrides_cfg["repo"], label=overrides_cfg["label"],
+        project_name=item.get("project_name", ""), role_name=item.get("role_name", ""),
+        platform=item.get("platform", "aa"), mode=item.get("mode", "paid"),
+    )
+    return (
+        f'<br><a href="{url}" style="display:inline-block;margin-top:6px;'
+        f'background:{accent};color:white;padding:4px 10px;border-radius:3px;'
+        f'font-size:12px;text-decoration:none;font-weight:bold;">'
+        f'Apply anyway →</a>'
+    )
+
+
+def build_digest_html(
+    data: dict, mode: str | None = None, overrides_cfg: dict | None = None,
+) -> str:
     """Build an HTML email body from digest data."""
     applications = data["applications"]
     rejections = data["rejections"]
     flagged = data.get("flagged", [])
     runs = data["runs"]
+    overrides = data.get("overrides", [])
 
-    if not applications and not rejections and not flagged:
+    if not applications and not rejections and not flagged and not overrides:
         return _empty_digest_html(runs, mode=mode)
 
     # Split flagged roles into calendar conflicts vs other
@@ -58,6 +84,7 @@ def build_digest_html(data: dict, mode: str | None = None) -> str:
             calendar_section += f'<br><span style="color:#b71c1c;">{item.get("flag_reason", "Unknown")}</span>'
             if desc:
                 calendar_section += f'<br><span style="color:#555;">{desc}</span>'
+            calendar_section += _apply_anyway_link(overrides_cfg, item, "#b71c1c")
             calendar_section += '\n</div>\n'
         calendar_section += '</div>\n'
 
@@ -96,6 +123,7 @@ def build_digest_html(data: dict, mode: str | None = None) -> str:
                     f'<em style="white-space:pre-wrap;">{suggested_note}</em>'
                     '</div>'
                 )
+            flagged_section += _apply_anyway_link(overrides_cfg, item, "#4a148c")
             flagged_section += '\n</div>\n'
         flagged_section += '</div>\n'
 
@@ -121,8 +149,47 @@ def build_digest_html(data: dict, mode: str | None = None) -> str:
             if desc:
                 passed_section += f'<br><span style="color:#555;">{desc}</span>'
             passed_section += f'<br><strong>Reason:</strong> {rej.get("rejection_reason", "N/A")}'
+            passed_section += _apply_anyway_link(overrides_cfg, rej, "#e65100")
             passed_section += '\n</div>\n'
         passed_section += '</div>\n'
+
+    # Build "Manually Applied" section (overrides processed since last digest).
+    manually_applied_section = ""
+    if overrides:
+        repo = overrides_cfg.get("repo") if overrides_cfg else None
+        manually_applied_section = '<div style="margin-bottom:24px;">\n'
+        manually_applied_section += '<h2 style="color:#00695c;margin-bottom:12px;">Manually Applied</h2>\n'
+        for ov in overrides:
+            outcome = ov.get("outcome", "")
+            outcome_label = {
+                "applied": ("Applied successfully", "#2e7d32"),
+                "failed": ("Failed", "#b71c1c"),
+                "not_found": ("Role no longer visible", "#888888"),
+            }.get(outcome, (outcome.title(), "#444"))
+            label_text, label_color = outcome_label
+            platform_badge = _platform_badge(ov.get("platform", "aa"))
+            manually_applied_section += (
+                '<div style="background:#e0f2f1;border-left:4px solid #00695c;'
+                'padding:12px;border-radius:4px;margin-bottom:8px;">\n'
+            )
+            manually_applied_section += (
+                f'{platform_badge} <strong>{ov.get("project_name", "")}</strong> — '
+                f'<strong>{ov.get("role_name", "")}</strong>'
+            )
+            manually_applied_section += (
+                f'<br><strong style="color:{label_color};">{label_text}</strong>'
+            )
+            detail = ov.get("detail", "")
+            if detail and outcome != "applied":
+                manually_applied_section += f' <span style="color:#555;">— {detail}</span>'
+            issue_number = ov.get("issue_number")
+            if repo and issue_number:
+                manually_applied_section += (
+                    f' <a href="https://github.com/{repo}/issues/{issue_number}" '
+                    f'style="color:#00695c;font-size:12px;">(issue #{issue_number})</a>'
+                )
+            manually_applied_section += '\n</div>\n'
+        manually_applied_section += '</div>\n'
 
     # Build per-project "Applied" sections (bottom of email).
     sections = []
@@ -186,6 +253,7 @@ def build_digest_html(data: dict, mode: str | None = None) -> str:
         calendar_section
         + flagged_section
         + passed_section
+        + manually_applied_section
         + "\n".join(sections)
         + footer
     )
@@ -334,6 +402,25 @@ def send_email(html: str, mode: str | None = None, archive_html: str | None = No
         logger.error(f"Failed to send digest email: {e}")
 
 
+def _load_overrides_cfg() -> dict | None:
+    """Best-effort load of the overrides config for digest rendering. Reads
+    from config.yaml; returns None if missing or unreadable so the digest
+    falls back to no Apply Anyway buttons rather than failing."""
+    try:
+        import yaml
+        for path in ("config.yaml", "config.example.yaml"):
+            if os.path.exists(path):
+                with open(path) as f:
+                    cfg = yaml.safe_load(f) or {}
+                ov = cfg.get("overrides")
+                if ov and ov.get("repo") and ov.get("label"):
+                    return ov
+                return None
+    except Exception as e:
+        logger.warning(f"Could not load overrides config for digest: {e}")
+    return None
+
+
 def main():
     """Entry point for the digest workflow."""
     parser = argparse.ArgumentParser(description="Send daily casting digest email")
@@ -352,7 +439,8 @@ def main():
     db = Database("data/applied.db")
     try:
         data = gather_digest_data(db, mode=args.mode)
-        html = build_digest_html(data, mode=args.mode)
+        overrides_cfg = _load_overrides_cfg()
+        html = build_digest_html(data, mode=args.mode, overrides_cfg=overrides_cfg)
         # Only attach the archive when we have no live site to point at.
         # When ARCHIVE_SITE_URL is configured, the body already links to it.
         archive_html = None

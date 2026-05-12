@@ -451,3 +451,137 @@ def test_schema_migration_adds_new_columns(db):
     flagged_cols = {row[1] for row in cursor.fetchall()}
     assert "suggested_note" in flagged_cols
     assert "draft_app_id" in flagged_cols
+
+
+# --- pending_overrides + override_history (Apply Anyway) ---
+
+def test_pending_overrides_table_created(db):
+    cursor = db.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    tables = {row[0] for row in cursor.fetchall()}
+    assert "pending_overrides" in tables
+    assert "override_history" in tables
+
+
+def test_add_and_get_pending_override(db):
+    db.add_pending_override(
+        issue_number=42, project_name="Acme - Untitled",
+        role_name="Lead Detective", platform="aa", mode="paid",
+    )
+    row = db.get_pending_override("Acme - Untitled", "Lead Detective", "aa", "paid")
+    assert row is not None
+    assert row["issue_number"] == 42
+    assert row["project_name"] == "Acme - Untitled"
+
+
+def test_add_pending_override_is_idempotent(db):
+    """Same role queued twice should leave only one row (UNIQUE on key)."""
+    db.add_pending_override(7, "P", "R", "aa", "paid")
+    db.add_pending_override(8, "P", "R", "aa", "paid")
+    rows = db.list_pending_overrides()
+    assert len(rows) == 1
+    # First insert wins; second is silently dropped.
+    assert rows[0]["issue_number"] == 7
+
+
+def test_get_pending_override_returns_none_when_missing(db):
+    assert db.get_pending_override("X", "Y", "aa", "paid") is None
+
+
+def test_clear_pending_override(db):
+    db.add_pending_override(1, "P", "R", "aa", "paid")
+    db.clear_pending_override("P", "R", "aa", "paid")
+    assert db.get_pending_override("P", "R", "aa", "paid") is None
+
+
+def test_list_pending_overrides_returns_all(db):
+    db.add_pending_override(1, "P1", "R1", "aa", "paid")
+    db.add_pending_override(2, "P2", "R2", "aa", "unpaid")
+    rows = db.list_pending_overrides()
+    assert len(rows) == 2
+    issue_numbers = {r["issue_number"] for r in rows}
+    assert issue_numbers == {1, 2}
+
+
+def test_record_override_outcome_applied(db):
+    db.record_override_outcome(
+        issue_number=99, project_name="P", role_name="R",
+        platform="aa", mode="paid", outcome="applied", detail="Submitted successfully",
+    )
+    rows = db.get_daily_override_outcomes()
+    assert len(rows) == 1
+    assert rows[0]["outcome"] == "applied"
+    assert rows[0]["issue_number"] == 99
+    assert rows[0]["detail"] == "Submitted successfully"
+
+
+def test_record_override_outcome_failed_and_not_found(db):
+    db.record_override_outcome(
+        issue_number=1, project_name="P1", role_name="R1",
+        platform="aa", mode="paid", outcome="failed", detail="Submit button not found",
+    )
+    db.record_override_outcome(
+        issue_number=2, project_name="P2", role_name="R2",
+        platform="aa", mode="paid", outcome="not_found", detail="Project no longer visible",
+    )
+    rows = db.get_daily_override_outcomes()
+    by_outcome = {r["outcome"]: r for r in rows}
+    assert set(by_outcome) == {"failed", "not_found"}
+    assert by_outcome["failed"]["detail"] == "Submit button not found"
+    assert by_outcome["not_found"]["detail"] == "Project no longer visible"
+
+
+def test_get_daily_override_outcomes_filters_by_mode(db):
+    db.record_override_outcome(1, "P1", "R1", "aa", "paid", "applied", "ok")
+    db.record_override_outcome(2, "P2", "R2", "aa", "unpaid", "applied", "ok")
+    paid_only = db.get_daily_override_outcomes(mode="paid")
+    assert len(paid_only) == 1
+    assert paid_only[0]["mode"] == "paid"
+
+
+def test_delete_rejection_removes_row(db):
+    """After an Apply-Anyway override succeeds, we drop the rejection row
+    so the role doesn't keep showing up in the Passed section."""
+    run_id = db.start_run()
+    db.record_rejection(
+        project_name="P", project_url="u", role_name="R",
+        role_description="d", rejection_reason="age", run_id=run_id, platform="aa",
+    )
+    assert db.is_rejected("R", "P", "aa") is True
+    db.delete_rejection("R", "P", "aa")
+    assert db.is_rejected("R", "P", "aa") is False
+
+
+def test_delete_flagged_removes_row(db):
+    run_id = db.start_run()
+    db.record_flagged_role(
+        project_name="P", project_url="u", role_name="R",
+        role_description="d", flag_reason="needs note", run_id=run_id, platform="aa",
+    )
+    assert len(db.get_daily_flagged()) == 1
+    db.delete_flagged("R", "P", "aa")
+    assert len(db.get_daily_flagged()) == 0
+
+
+def test_get_known_project_url_from_rejection(db):
+    run_id = db.start_run()
+    db.record_rejection(
+        project_name="P", project_url="https://aa.example/?breakdown=42",
+        role_name="R", role_description="d", rejection_reason="age",
+        run_id=run_id, platform="aa",
+    )
+    url = db.get_known_project_url("R", "P", "aa")
+    assert url == "https://aa.example/?breakdown=42"
+
+
+def test_get_known_project_url_from_flagged(db):
+    run_id = db.start_run()
+    db.record_flagged_role(
+        project_name="P", project_url="https://aa.example/?breakdown=99",
+        role_name="R", role_description="d", flag_reason="needs note",
+        run_id=run_id, platform="aa",
+    )
+    assert db.get_known_project_url("R", "P", "aa") == "https://aa.example/?breakdown=99"
+
+
+def test_get_known_project_url_returns_none_if_unknown(db):
+    assert db.get_known_project_url("R", "P", "aa") is None

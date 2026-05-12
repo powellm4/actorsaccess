@@ -38,3 +38,8 @@ google_calendar:
 logging:
   level: "INFO"
   file: "logs/auto_apply_unpaid.log"
+
+# See config.yaml for full Apply Anyway docs. Same repo handles both modes.
+overrides:
+  repo: "powellm4/aa-overrides"
+  label: "apply-anyway"

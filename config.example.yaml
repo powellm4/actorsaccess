@@ -25,3 +25,9 @@ browser:
 logging:
   level: "INFO"
   file: "logs/auto_apply.log"
+
+# Optional: Apply Anyway overrides. See README → "Apply Anyway via GitHub
+# Issues". Requires OVERRIDE_GITHUB_TOKEN env var.
+# overrides:
+#   repo: "your-username/aa-overrides"
+#   label: "apply-anyway"
