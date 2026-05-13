@@ -138,12 +138,36 @@ def test_partial_row_inserted_immediately(shadow_db, monkeypatch):
     assert row["claude_input_tokens"] == 42
     assert row["claude_output_tokens"] == 17
     assert row["claude_latency_ms"] is not None
+    # Default model name persists so reports can price historical rows.
+    assert row["claude_model"] == "claude-sonnet-4-6"
     # DeepSeek half not populated yet.
     assert row["ds_chat_response"] is None
     assert row["ds_reasoner_response"] is None
     # Now release and drain.
     barrier.set()
     flush_pending_shadows()
+
+
+def test_explicit_claude_model_recorded(shadow_db, monkeypatch):
+    """Passing a non-default claude_model is recorded on the row."""
+    monkeypatch.setattr(
+        shadow, "call_deepseek",
+        lambda model, prompt, max_tokens, api_key: ("FIT", 1, 1),
+    )
+    claude = FakeClaude("FIT - claude")
+    shadowed_completion(
+        "p",
+        call_site="single_fit",
+        max_tokens=100,
+        claude_client=claude,
+        claude_model="claude-opus-4-7",
+        extract_verdict=VERDICT_EXTRACTORS["single_fit"],
+        platform="aa",
+        mode="paid",
+    )
+    flush_pending_shadows()
+    row = _fetch_only_row(shadow_db)
+    assert row["claude_model"] == "claude-opus-4-7"
 
 
 def test_deepseek_updates_after_flush(shadow_db, monkeypatch):

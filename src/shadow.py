@@ -269,6 +269,7 @@ def _insert_partial_row(
     claude_latency_ms: int,
     claude_input_tokens: int | None,
     claude_output_tokens: int | None,
+    claude_model: str | None,
 ) -> int:
     """Insert the claude_* half of the row and return its id."""
     conn = sqlite3.connect(_db_path, check_same_thread=False)
@@ -278,13 +279,13 @@ def _insert_partial_row(
                    run_id, platform, mode, call_site, project_name, role_name,
                    prompt_hash, prompt_text,
                    claude_response, claude_verdict, claude_latency_ms,
-                   claude_input_tokens, claude_output_tokens
-               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   claude_input_tokens, claude_output_tokens, claude_model
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 run_id, platform, mode, call_site, project_name, role_name,
                 _prompt_hash(prompt), prompt,
                 claude_response, claude_verdict, claude_latency_ms,
-                claude_input_tokens, claude_output_tokens,
+                claude_input_tokens, claude_output_tokens, claude_model,
             ),
         )
         conn.commit()
@@ -501,6 +502,7 @@ def shadowed_completion(
             claude_latency_ms=claude_latency_ms,
             claude_input_tokens=claude_input_tokens,
             claude_output_tokens=claude_output_tokens,
+            claude_model=claude_model,
         )
     except Exception as e:  # noqa: BLE001
         logger.warning("[SHADOW] failed to insert partial row: %s", e)

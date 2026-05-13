@@ -15,7 +15,9 @@ import pytest
 
 from src.database import Database
 from src.shadow_report import (
+    ANTHROPIC_PRICING,
     DEEPSEEK_PRICING,
+    DEFAULT_CLAUDE_MODEL,
     render_archive_page,
     render_digest_block,
 )
@@ -165,6 +167,86 @@ def test_digest_singular_disagreement_grammar(db_path):
     html = render_digest_block("paid", db_path=db_path)
     assert "1 disagreement</strong> awaiting review" in html
     assert "1 disagreements" not in html
+
+
+def test_digest_includes_claude_row_and_savings_line(db_path):
+    """Claude is rendered as the baseline row with cost, plus a savings line."""
+    conn = sqlite3.connect(db_path)
+    # One paid row today with realistic-ish tokens for all three providers.
+    # Claude: 1M in / 1M out → $3 + $15 = $18.
+    # ds_chat: 1M in / 1M out → $0.27 + $1.10 = $1.37.
+    # ds_reasoner: 1M in / 1M out → $0.55 + $2.19 = $2.74.
+    _insert(
+        conn,
+        claude_verdict="FIT",
+        claude_input_tokens=1_000_000, claude_output_tokens=1_000_000,
+        claude_latency_ms=2000,
+        claude_model="claude-sonnet-4-6",
+        ds_chat_verdict="FIT", chat_matches_claude=1,
+        ds_chat_latency_ms=1200,
+        ds_chat_input_tokens=1_000_000, ds_chat_output_tokens=1_000_000,
+        ds_reasoner_verdict="FIT", reasoner_matches_claude=1,
+        ds_reasoner_latency_ms=18000,
+        ds_reasoner_input_tokens=1_000_000, ds_reasoner_output_tokens=1_000_000,
+    )
+    conn.close()
+
+    html = render_digest_block("paid", db_path=db_path)
+    # Claude row appears with model name and its computed cost.
+    assert "claude-sonnet-4-6" in html
+    assert "$18.00" in html  # 1M*$3 + 1M*$15
+    # Claude is the baseline so the match-rate cell is marked, not a percentage.
+    assert "baseline" in html
+    # DeepSeek costs still present.
+    assert "$1.37" in html
+    assert "$2.74" in html
+    # Savings line shows percentage delta vs Claude. DeepSeek is cheaper, so
+    # the deltas are negative.
+    assert "Claude today" in html
+    assert "DeepSeek would have cost" in html
+    # ds_chat is ~92% cheaper than Claude, ds_reasoner ~85% cheaper.
+    assert "-92%" in html
+    assert "-85%" in html
+
+
+def test_digest_savings_line_skipped_when_no_claude_tokens(db_path):
+    """If Claude tokens are zero/NULL, no savings line is rendered."""
+    conn = sqlite3.connect(db_path)
+    _insert(
+        conn,
+        claude_verdict="FIT",
+        # No claude_input_tokens / claude_output_tokens.
+        ds_chat_verdict="FIT", chat_matches_claude=1,
+        ds_chat_latency_ms=1200,
+        ds_chat_input_tokens=1_000_000, ds_chat_output_tokens=0,
+        ds_reasoner_verdict="FIT", reasoner_matches_claude=1,
+        ds_reasoner_latency_ms=18000,
+    )
+    conn.close()
+    html = render_digest_block("paid", db_path=db_path)
+    assert "DeepSeek would have cost" not in html
+
+
+def test_digest_null_claude_model_falls_back_to_default(db_path):
+    """A row without claude_model is priced as DEFAULT_CLAUDE_MODEL."""
+    conn = sqlite3.connect(db_path)
+    _insert(
+        conn,
+        claude_verdict="FIT",
+        claude_input_tokens=1_000_000, claude_output_tokens=0,
+        claude_latency_ms=2000,
+        # claude_model intentionally omitted (NULL).
+        ds_chat_verdict="FIT", chat_matches_claude=1, ds_chat_latency_ms=1000,
+        ds_reasoner_verdict="FIT", reasoner_matches_claude=1,
+        ds_reasoner_latency_ms=15000,
+    )
+    conn.close()
+    html = render_digest_block("paid", db_path=db_path)
+    # Default model name surfaces in the rendered table.
+    assert DEFAULT_CLAUDE_MODEL in html
+    # 1M input at $3/M → $3.00 should appear.
+    expected = ANTHROPIC_PRICING[DEFAULT_CLAUDE_MODEL]["input"]
+    assert f"${expected:.2f}" in html
 
 
 def test_digest_archive_link_uses_env(db_path, monkeypatch):
@@ -358,3 +440,26 @@ def test_archive_page_summary_includes_per_call_site_rows(db_path):
     assert "Claude" in html
     assert "p50 latency" in html
     assert "p95 latency" in html
+
+
+def test_archive_page_renders_claude_cost(db_path):
+    """The cost & latency totals section shows a non-empty cost for Claude."""
+    conn = sqlite3.connect(db_path)
+    _insert(
+        conn,
+        claude_verdict="FIT",
+        claude_input_tokens=1_000_000, claude_output_tokens=1_000_000,
+        claude_latency_ms=2500,
+        claude_model="claude-sonnet-4-6",
+        ds_chat_verdict="FIT", chat_matches_claude=1, ds_chat_latency_ms=1000,
+        ds_chat_input_tokens=500_000, ds_chat_output_tokens=500_000,
+        ds_reasoner_verdict="FIT", reasoner_matches_claude=1,
+        ds_reasoner_latency_ms=15000,
+        ds_reasoner_input_tokens=500_000, ds_reasoner_output_tokens=500_000,
+    )
+    conn.close()
+    html = render_archive_page(db_path=db_path)
+    # Claude row's cost cell is now populated. 1M*$3 + 1M*$15 = $18.00.
+    assert "$18.00" in html
+    # The old "Claude cost is not estimated here" disclaimer is gone.
+    assert "Claude cost is not estimated here" not in html

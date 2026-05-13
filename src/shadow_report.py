@@ -5,8 +5,8 @@ Two entry points:
 
 - ``render_digest_block(mode) -> str`` — small HTML block injected at the top
   of the daily digest email. Shows today's match rate, median latency, and
-  estimated cost per DeepSeek model, plus a count of disagreements awaiting
-  review and a link to the archive site.
+  estimated cost per model (Claude baseline + each DeepSeek shadow), plus a
+  one-line savings comparison and a count of disagreements awaiting review.
 
 - ``render_archive_page() -> str`` — full HTML document published to
   ``/shadow/index.html`` on the GitHub Pages archive site. Three sections:
@@ -37,14 +37,25 @@ from datetime import datetime, timezone
 
 
 # ---------------------------------------------------------------------------
-# DeepSeek pricing — USD per 1M tokens
+# Pricing — USD per 1M tokens
 # ---------------------------------------------------------------------------
-# Source: platform.deepseek.com pricing as of 2026-05.
+# DeepSeek source: platform.deepseek.com pricing as of 2026-05.
+# Anthropic source: anthropic.com/pricing as of 2026-05.
 # If pricing changes, bump these and re-run the report.
 DEEPSEEK_PRICING = {
     "deepseek-chat": {"input": 0.27, "output": 1.10},
     "deepseek-reasoner": {"input": 0.55, "output": 2.19},
 }
+
+ANTHROPIC_PRICING = {
+    "claude-sonnet-4-6": {"input": 3.00, "output": 15.00},
+}
+
+# Used when a row's claude_model is NULL (rows written before the column
+# existed). Matches the production default in shadow.shadowed_completion.
+DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6"
+
+_ALL_PRICING: dict[str, dict] = {**DEEPSEEK_PRICING, **ANTHROPIC_PRICING}
 
 
 # Mapping from our internal column prefix to the DeepSeek model name used
@@ -71,8 +82,12 @@ _PREFIX_TO_MATCH_COL = {
 
 
 def _estimate_cost(input_tokens: int, output_tokens: int, model: str) -> float:
-    """Return USD cost for a given token usage at the listed DeepSeek price."""
-    rates = DEEPSEEK_PRICING.get(model)
+    """Return USD cost for a given token usage at the listed price.
+
+    Looks up the model in the combined DeepSeek + Anthropic pricing table.
+    Returns 0.0 for unknown models so the report still renders cleanly.
+    """
+    rates = _ALL_PRICING.get(model)
     if not rates:
         return 0.0
     return (input_tokens / 1_000_000.0) * rates["input"] + (
@@ -143,6 +158,8 @@ def _aggregate_for_today(
     cur = conn.execute(
         """
         SELECT
+            claude_latency_ms,   claude_input_tokens,   claude_output_tokens,
+            claude_model,
             ds_chat_latency_ms,  ds_chat_input_tokens,  ds_chat_output_tokens,
             ds_chat_error,       chat_matches_claude,
             ds_reasoner_latency_ms, ds_reasoner_input_tokens, ds_reasoner_output_tokens,
@@ -167,13 +184,31 @@ def _aggregate_for_today(
             "errors": 0,
         }
 
+    # Claude rows grouped by model name (NULL → DEFAULT_CLAUDE_MODEL) so a
+    # day with mixed Claude models renders one row per model.
+    claude_by_model: dict[str, dict] = {}
+
     disagreements = 0
 
     for r in rows:
         (
+            cl_lat, cl_in, cl_out, cl_model,
             chat_lat, chat_in, chat_out, chat_err, chat_match,
             reas_lat, reas_in, reas_out, reas_err, reas_match,
         ) = r
+
+        # claude
+        model_name = cl_model or DEFAULT_CLAUDE_MODEL
+        bucket = claude_by_model.setdefault(model_name, {
+            "latencies": [],
+            "cost_usd": 0.0,
+        })
+        if cl_lat is not None:
+            bucket["latencies"].append(cl_lat)
+        if cl_in or cl_out:
+            bucket["cost_usd"] += _estimate_cost(
+                cl_in or 0, cl_out or 0, model_name
+            )
 
         # ds_chat
         if chat_lat is not None:
@@ -213,6 +248,7 @@ def _aggregate_for_today(
         "rows": len(rows),
         "disagreements": disagreements,
         "per_model": per_model,
+        "claude_by_model": claude_by_model,
     }
 
 
@@ -245,6 +281,24 @@ def render_digest_block(mode: str, db_path: str | None = None) -> str:
         return ""
 
     rows_html = []
+    # Claude rows first (one per distinct claude_model used today). Claude is
+    # the baseline so the match-rate cell is "—".
+    claude_total_cost = 0.0
+    for model_name in sorted(agg["claude_by_model"].keys()):
+        b = agg["claude_by_model"][model_name]
+        claude_total_cost += b["cost_usd"]
+        median_lat = _format_ms(_median(b["latencies"]))
+        cost = _format_cost(b["cost_usd"])
+        rows_html.append(
+            f'<tr>'
+            f'<td style="padding:4px 8px;font-family:ui-monospace,monospace;">'
+            f'{html.escape(model_name)}</td>'
+            f'<td style="padding:4px 8px;color:#666;">— (baseline)</td>'
+            f'<td style="padding:4px 8px;">{median_lat}</td>'
+            f'<td style="padding:4px 8px;">{cost}</td>'
+            f'</tr>'
+        )
+
     for prefix in ("ds_chat", "ds_reasoner"):
         m = agg["per_model"][prefix]
         label = _PREFIX_TO_LABEL[prefix]
@@ -262,6 +316,29 @@ def render_digest_block(mode: str, db_path: str | None = None) -> str:
             f'<td style="padding:4px 8px;">{cost}{errors_cell}</td>'
             f'</tr>'
         )
+
+    # Savings line: only meaningful when Claude actually spent money today and
+    # at least one DeepSeek model produced a non-zero estimate to compare.
+    savings_html = ""
+    if claude_total_cost > 0:
+        deltas = []
+        for prefix in ("ds_chat", "ds_reasoner"):
+            ds_cost = agg["per_model"][prefix]["cost_usd"]
+            if ds_cost <= 0:
+                continue
+            pct = (ds_cost - claude_total_cost) / claude_total_cost * 100
+            sign = "+" if pct >= 0 else ""
+            deltas.append(
+                f'{_PREFIX_TO_LABEL[prefix]} {_format_cost(ds_cost)} '
+                f'({sign}{pct:.0f}%)'
+            )
+        if deltas:
+            savings_html = (
+                f'<p style="margin:8px 0 0 0;color:#37474f;font-size:13px;">'
+                f'Claude today: <strong>{_format_cost(claude_total_cost)}</strong>'
+                f' — DeepSeek would have cost: {", ".join(deltas)}'
+                f'</p>'
+            )
 
     link = _archive_link()
     if link:
@@ -292,6 +369,7 @@ def render_digest_block(mode: str, db_path: str | None = None) -> str:
         '</tr></thead>'
         f'<tbody>{"".join(rows_html)}</tbody>'
         '</table>'
+        f'{savings_html}'
         f'<p style="margin:8px 0 0 0;">{disagreement_html} — {link_html}</p>'
         '</div>'
     )
@@ -423,6 +501,7 @@ def _fetch_overall_stats(conn: sqlite3.Connection) -> dict:
     cur = conn.execute(
         """
         SELECT claude_latency_ms, claude_input_tokens, claude_output_tokens,
+               claude_model,
                ds_chat_latency_ms, ds_chat_input_tokens, ds_chat_output_tokens,
                ds_reasoner_latency_ms, ds_reasoner_input_tokens, ds_reasoner_output_tokens
         FROM shadow_comparisons
@@ -437,11 +516,14 @@ def _fetch_overall_stats(conn: sqlite3.Connection) -> dict:
         "row_count": len(rows),
     }
     for r in rows:
-        (cl, ci, co, chl, chi, cho, rl, ri, ro) = r
+        (cl, ci, co, cl_model, chl, chi, cho, rl, ri, ro) = r
         if cl is not None:
             stats["claude"]["latencies"].append(cl)
         stats["claude"]["input"] += ci or 0
         stats["claude"]["output"] += co or 0
+        stats["claude"]["cost"] += _estimate_cost(
+            ci or 0, co or 0, cl_model or DEFAULT_CLAUDE_MODEL
+        )
         if chl is not None:
             stats["ds_chat"]["latencies"].append(chl)
         stats["ds_chat"]["input"] += chi or 0
@@ -649,7 +731,7 @@ def _render_stats_section(stats: dict) -> str:
     ):
         s = stats[key]
         total_tokens = s["input"] + s["output"]
-        cost_cell = _format_cost(s["cost"]) if key != "claude" else "—"
+        cost_cell = _format_cost(s["cost"])
         rows_html.append(
             '<tr>'
             f'<td>{html.escape(label)}</td>'
@@ -664,8 +746,11 @@ def _render_stats_section(stats: dict) -> str:
     return (
         '<section>'
         f'<h2>Cost &amp; latency totals <span class="muted">({stats["row_count"]} rows)</span></h2>'
-        '<p class="muted small">Cost is estimated using DeepSeek\'s published per-token pricing. '
-        'Claude cost is not estimated here.</p>'
+        '<p class="muted small">Cost is estimated using each provider\'s published '
+        'per-token pricing (see <code>DEEPSEEK_PRICING</code> and '
+        '<code>ANTHROPIC_PRICING</code> in <code>shadow_report.py</code>). '
+        'Rows missing <code>claude_model</code> are priced as '
+        f'<code>{DEFAULT_CLAUDE_MODEL}</code>.</p>'
         '<table class="summary">'
         '<thead><tr>'
         '<th>Provider</th><th>Input tokens</th><th>Output tokens</th>'
