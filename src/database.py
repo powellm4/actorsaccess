@@ -79,6 +79,7 @@ class Database:
                 claude_latency_ms         INTEGER,
                 claude_input_tokens       INTEGER,
                 claude_output_tokens      INTEGER,
+                claude_model              TEXT,
 
                 ds_chat_response          TEXT,
                 ds_chat_verdict           TEXT,
@@ -192,6 +193,10 @@ class Database:
         # used by the digest to render an "Open on Backstage" link.
         try:
             self.conn.execute("ALTER TABLE flagged_roles ADD COLUMN draft_app_id INTEGER")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            self.conn.execute("ALTER TABLE shadow_comparisons ADD COLUMN claude_model TEXT")
         except sqlite3.OperationalError:
             pass
         self.conn.commit()
