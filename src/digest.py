@@ -153,12 +153,32 @@ def build_digest_html(
             passed_section += '\n</div>\n'
         passed_section += '</div>\n'
 
-    # Build "Manually Applied" section (overrides processed since last digest).
+    # Apply Anyway section: overrides processed since last digest. The wording
+    # and orange accent intentionally mirror the GitHub "apply-anyway" label
+    # (color ff6f00 in overrides.ensure_label_exists) so the user immediately
+    # connects this section to the issues they opened.
     manually_applied_section = ""
     if overrides:
         repo = overrides_cfg.get("repo") if overrides_cfg else None
+        count = len(overrides)
+        applied_count = sum(1 for ov in overrides if ov.get("outcome") == "applied")
+        summary_bits = [f"{count} override{'' if count == 1 else 's'} processed"]
+        if applied_count and applied_count != count:
+            summary_bits.append(f"{applied_count} applied")
+        summary_line = " — ".join(summary_bits)
         manually_applied_section = '<div style="margin-bottom:24px;">\n'
-        manually_applied_section += '<h2 style="color:#00695c;margin-bottom:12px;">Manually Applied</h2>\n'
+        manually_applied_section += (
+            '<div style="background:#ff6f00;color:white;padding:12px 16px;'
+            'border-radius:4px 4px 0 0;">\n'
+            '<h2 style="margin:0;color:white;font-size:18px;">Apply Anyway Results</h2>\n'
+            f'<div style="margin-top:2px;font-size:13px;color:#fff3e0;">'
+            f'Roles you force-applied via GitHub issues · {summary_line}</div>\n'
+            '</div>\n'
+        )
+        manually_applied_section += (
+            '<div style="background:#fff8e1;border:1px solid #ffb74d;'
+            'border-top:none;border-radius:0 0 4px 4px;padding:12px;">\n'
+        )
         for ov in overrides:
             outcome = ov.get("outcome", "")
             outcome_label = {
@@ -168,12 +188,18 @@ def build_digest_html(
             }.get(outcome, (outcome.title(), "#444"))
             label_text, label_color = outcome_label
             platform_badge = _platform_badge(ov.get("platform", "aa"))
+            apply_anyway_pill = (
+                '<span style="background:#ff6f00;color:white;font-size:10px;'
+                'padding:2px 6px;border-radius:3px;font-weight:bold;'
+                'letter-spacing:0.5px;vertical-align:middle;">APPLY ANYWAY</span>'
+            )
             manually_applied_section += (
-                '<div style="background:#e0f2f1;border-left:4px solid #00695c;'
+                '<div style="background:white;border-left:4px solid #ff6f00;'
                 'padding:12px;border-radius:4px;margin-bottom:8px;">\n'
             )
             manually_applied_section += (
-                f'{platform_badge} <strong>{ov.get("project_name", "")}</strong> — '
+                f'{apply_anyway_pill} {platform_badge} '
+                f'<strong>{ov.get("project_name", "")}</strong> — '
                 f'<strong>{ov.get("role_name", "")}</strong>'
             )
             manually_applied_section += (
@@ -186,10 +212,11 @@ def build_digest_html(
             if repo and issue_number:
                 manually_applied_section += (
                     f' <a href="https://github.com/{repo}/issues/{issue_number}" '
-                    f'style="color:#00695c;font-size:12px;">(issue #{issue_number})</a>'
+                    f'style="color:#e65100;font-size:12px;">(issue #{issue_number})</a>'
                 )
             manually_applied_section += '\n</div>\n'
-        manually_applied_section += '</div>\n'
+        manually_applied_section += '</div>\n'  # close inner banner body
+        manually_applied_section += '</div>\n'  # close outer section
 
     # Build per-project "Applied" sections (bottom of email).
     sections = []
