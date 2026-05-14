@@ -544,7 +544,15 @@ def test_manually_applied_section_renders_outcomes():
         ],
     }
     html = build_digest_html(data, overrides_cfg=OVERRIDES_CFG)
-    assert "Manually Applied" in html
+    # Section header explicitly names the user-facing action so it's not
+    # mistaken for an "auto-applied" section.
+    assert "Apply Anyway Results" in html
+    # Per-card pill makes each row obviously an override outcome.
+    assert "APPLY ANYWAY" in html
+    # Summary line tells the user how many overrides this section covers.
+    assert "3 overrides processed" in html
+    # Mixed outcomes → summary also calls out the applied count.
+    assert "1 applied" in html
     # Each role surfaces by name.
     assert "Lead" in html
     assert "Hero" in html
@@ -566,7 +574,7 @@ def test_manually_applied_section_omitted_when_no_overrides():
         "overrides": [],
     }
     html = build_digest_html(data, overrides_cfg=OVERRIDES_CFG)
-    assert "Manually Applied" not in html
+    assert "Apply Anyway Results" not in html
 
 
 def test_gather_digest_data_includes_overrides(db):
