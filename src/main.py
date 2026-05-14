@@ -54,60 +54,6 @@ def _print_role_decision(tag: str, project_name: str, role: dict, reason: str = 
         print(f"  {desc}")
 
 
-def _override_config(cfg: dict) -> tuple[dict | None, str | None]:
-    """Return (config, token) for the override flow, or (None, None) if disabled."""
-    overrides_cfg = cfg.get("overrides")
-    token = os.environ.get("OVERRIDE_GITHUB_TOKEN")
-    if not overrides_cfg or not token:
-        return None, None
-    if not overrides_cfg.get("repo") or not overrides_cfg.get("label"):
-        logger.warning("[OVERRIDE] config.overrides missing 'repo' or 'label' — skipping override processing")
-        return None, None
-    return overrides_cfg, token
-
-
-def _ingest_override_issues(overrides_cfg: dict, token: str, db: Database):
-    """Pull open GitHub issues with the configured label, queue them locally,
-    comment + close. Malformed issues get a parsing-error comment."""
-    # Idempotent label create (no-op if it already exists). Means the user
-    # only has to create the repo + token; the label appears on first run.
-    try:
-        overrides_mod.ensure_label_exists(
-            overrides_cfg["repo"], overrides_cfg["label"], token,
-        )
-    except Exception as e:
-        logger.warning(f"[OVERRIDE] Could not ensure label exists: {e}")
-
-    try:
-        ok, malformed = overrides_mod.fetch_pending_with_errors(
-            overrides_cfg["repo"], overrides_cfg["label"], token,
-        )
-    except Exception as e:
-        logger.error(f"[OVERRIDE] Failed to fetch override issues: {e}")
-        return
-
-    for req in ok:
-        db.add_pending_override(
-            issue_number=req.issue_number,
-            project_name=req.project_name,
-            role_name=req.role_name,
-            platform=req.platform,
-            mode=req.mode,
-        )
-        overrides_mod.comment_and_close(
-            overrides_cfg["repo"], req.issue_number,
-            "Queued — will apply on this run.", token,
-        )
-
-    for issue_num in malformed:
-        overrides_mod.comment_and_close(
-            overrides_cfg["repo"], issue_num,
-            "Could not parse override request. Expected fields:\n"
-            "`project_name`, `role_name`, `platform` (aa|backstage|cn), `mode` (paid|unpaid).",
-            token,
-        )
-
-
 def _apply_aa_override(
     cfg: dict, db: Database, browser, override: dict,
     overrides_cfg: dict, token: str, dry_run: bool,
@@ -214,11 +160,11 @@ def process_aa_overrides(
 
     Non-AA-platform overrides are left in the queue for whichever run
     handles that platform (no-op here)."""
-    overrides_cfg, token = _override_config(cfg)
+    overrides_cfg, token = overrides_mod.load_run_config(cfg)
     if not overrides_cfg:
         return
 
-    _ingest_override_issues(overrides_cfg, token, db)
+    overrides_mod.ingest_issues(overrides_cfg, token, db)
 
     pending = [
         o for o in db.list_pending_overrides()

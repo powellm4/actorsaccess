@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -180,6 +181,75 @@ def comment_and_close(repo: str, issue_number: int, comment: str, token: str) ->
         _github_patch(f"/repos/{repo}/issues/{issue_number}", {"state": "closed"}, token)
     except (urllib.error.URLError, urllib.error.HTTPError) as e:
         logger.warning(f"[OVERRIDE] Failed to close #{issue_number}: {e}")
+
+
+# --- Cross-platform run orchestration helpers ---
+#
+# Each platform's main.py calls load_run_config() at startup, then (if it
+# returned non-None) ingest_issues() to queue pending requests, then loops
+# pending overrides for that platform with its own platform-specific applier.
+
+
+def load_run_config(cfg: dict) -> tuple[dict | None, str | None]:
+    """Return (overrides_cfg, token) for this run, or (None, None) if the
+    override flow is disabled (missing config or OVERRIDE_GITHUB_TOKEN).
+
+    Logs a warning when the config is partial (repo or label missing) so
+    misconfigurations are visible without crashing the run.
+    """
+    overrides_cfg = cfg.get("overrides")
+    token = os.environ.get("OVERRIDE_GITHUB_TOKEN")
+    if not overrides_cfg or not token:
+        return None, None
+    if not overrides_cfg.get("repo") or not overrides_cfg.get("label"):
+        logger.warning(
+            "[OVERRIDE] config.overrides missing 'repo' or 'label' — "
+            "skipping override processing"
+        )
+        return None, None
+    return overrides_cfg, token
+
+
+def ingest_issues(overrides_cfg: dict, token: str, db) -> None:
+    """Pull open GitHub override issues, queue valid ones into the local DB,
+    and acknowledge by commenting + closing the issue.
+
+    Malformed issues get a parse-error comment and close. Idempotent label
+    creation is best-effort.
+    """
+    try:
+        ensure_label_exists(overrides_cfg["repo"], overrides_cfg["label"], token)
+    except Exception as e:
+        logger.warning(f"[OVERRIDE] Could not ensure label exists: {e}")
+
+    try:
+        ok, malformed = fetch_pending_with_errors(
+            overrides_cfg["repo"], overrides_cfg["label"], token,
+        )
+    except Exception as e:
+        logger.error(f"[OVERRIDE] Failed to fetch override issues: {e}")
+        return
+
+    for req in ok:
+        db.add_pending_override(
+            issue_number=req.issue_number,
+            project_name=req.project_name,
+            role_name=req.role_name,
+            platform=req.platform,
+            mode=req.mode,
+        )
+        comment_and_close(
+            overrides_cfg["repo"], req.issue_number,
+            "Queued — will apply on this run.", token,
+        )
+
+    for issue_num in malformed:
+        comment_and_close(
+            overrides_cfg["repo"], issue_num,
+            "Could not parse override request. Expected fields:\n"
+            "`project_name`, `role_name`, `platform` (aa|backstage|cn), `mode` (paid|unpaid).",
+            token,
+        )
 
 
 def ensure_label_exists(repo: str, label: str, token: str, color: str = "ff6f00") -> None:

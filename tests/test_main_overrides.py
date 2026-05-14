@@ -24,6 +24,7 @@ if "playwright" not in sys.modules:
     sys.modules["playwright.sync_api"] = sync_api
 
 from src import main as main_mod  # noqa: E402
+from src import overrides as overrides_mod  # noqa: E402
 from src.database import Database  # noqa: E402
 from src.overrides import OverrideRequest  # noqa: E402
 
@@ -47,27 +48,27 @@ def fake_browser():
     return MagicMock()
 
 
-# --- _override_config gating ---
+# --- load_run_config gating ---
 
 def test_override_config_returns_none_when_section_missing():
     cfg = {"submission": {}}
     with patch.dict(os.environ, {"OVERRIDE_GITHUB_TOKEN": "tok"}):
-        assert main_mod._override_config(cfg) == (None, None)
+        assert overrides_mod.load_run_config(cfg) == (None, None)
 
 
 def test_override_config_returns_none_when_token_missing(cfg):
     with patch.dict(os.environ, {}, clear=True):
-        assert main_mod._override_config(cfg) == (None, None)
+        assert overrides_mod.load_run_config(cfg) == (None, None)
 
 
 def test_override_config_returns_pair_when_present(cfg):
     with patch.dict(os.environ, {"OVERRIDE_GITHUB_TOKEN": "tok"}):
-        result = main_mod._override_config(cfg)
+        result = overrides_mod.load_run_config(cfg)
     assert result[0] == cfg["overrides"]
     assert result[1] == "tok"
 
 
-# --- _ingest_override_issues queues and closes ---
+# --- ingest_issues queues and closes ---
 
 def test_ingest_queues_valid_and_closes_malformed(db, cfg):
     overrides_cfg = cfg["overrides"]
@@ -75,9 +76,13 @@ def test_ingest_queues_valid_and_closes_malformed(db, cfg):
         issue_number=11, project_name="P", role_name="R",
         platform="aa", mode="paid",
     )
-    with patch("src.main.overrides_mod") as om:
-        om.fetch_pending_with_errors.return_value = ([valid], [42])
-        main_mod._ingest_override_issues(overrides_cfg, "tok", db)
+    # Patch the helpers in src.overrides — those names are what the
+    # ingest_issues body resolves to.
+    with patch("src.overrides.fetch_pending_with_errors") as fp, \
+         patch("src.overrides.comment_and_close") as cc, \
+         patch("src.overrides.ensure_label_exists"):
+        fp.return_value = ([valid], [42])
+        overrides_mod.ingest_issues(overrides_cfg, "tok", db)
 
     # Valid issue queued.
     row = db.get_pending_override("P", "R", "aa", "paid")
@@ -85,17 +90,18 @@ def test_ingest_queues_valid_and_closes_malformed(db, cfg):
     assert row["issue_number"] == 11
 
     # Both valid + malformed got commented + closed.
-    closed_issues = [c.args[1] for c in om.comment_and_close.call_args_list]
+    closed_issues = [c.args[1] for c in cc.call_args_list]
     assert 11 in closed_issues
     assert 42 in closed_issues
 
 
 def test_ingest_swallows_fetch_errors(db, cfg):
     """Network failure on GitHub fetch must not abort the run."""
-    with patch("src.main.overrides_mod") as om:
-        om.fetch_pending_with_errors.side_effect = RuntimeError("boom")
+    with patch("src.overrides.fetch_pending_with_errors") as fp, \
+         patch("src.overrides.ensure_label_exists"):
+        fp.side_effect = RuntimeError("boom")
         # Should not raise.
-        main_mod._ingest_override_issues(cfg["overrides"], "tok", db)
+        overrides_mod.ingest_issues(cfg["overrides"], "tok", db)
     assert db.list_pending_overrides() == []
 
 
@@ -268,6 +274,7 @@ def test_process_aa_overrides_only_processes_aa_for_this_mode(db, cfg, fake_brow
 
     with patch.dict(os.environ, {"OVERRIDE_GITHUB_TOKEN": "tok"}), \
          patch("src.main.overrides_mod") as om:
+        om.load_run_config.return_value = (cfg["overrides"], "tok")
         om.fetch_pending_with_errors.return_value = ([], [])
         main_mod.process_aa_overrides(cfg, db, fake_browser, run_id, mode="paid", dry_run=False)
 
@@ -284,6 +291,7 @@ def test_process_aa_overrides_noop_without_config_or_token(db, fake_browser):
     cfg_no = {"submission": {}}
     with patch.dict(os.environ, {}, clear=True), \
          patch("src.main.overrides_mod") as om:
+        om.load_run_config.return_value = (None, None)
         main_mod.process_aa_overrides(cfg_no, db, fake_browser, 1, mode="paid", dry_run=False)
     om.fetch_pending_with_errors.assert_not_called()
     fake_browser.scrape_roles_on_project.assert_not_called()

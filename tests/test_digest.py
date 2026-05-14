@@ -265,6 +265,52 @@ def test_build_email_message_no_archive_omits_attachment():
     assert attachments == []
 
 
+def test_manually_applied_section_appears_at_top_of_digest():
+    """Manually-applied results must render BEFORE Needs Attention / Passed /
+    Applied. The user explicitly opened an issue for each, and burying the
+    outcome under other sections defeats the confirmation purpose.
+    """
+    data = {
+        "applications": [
+            {
+                "project_name": "Other Project", "project_url": "",
+                "role_name": "Lead", "role_description": "",
+                "ai_reason": "Great fit", "platform": "aa",
+                "candidates_considered": 1,
+            }
+        ],
+        "rejections": [],
+        "flagged": [
+            {
+                "project_name": "Flagged Project", "project_url": "",
+                "role_name": "Hero", "role_description": "",
+                "flag_reason": "Needs SAG-AFTRA number", "platform": "aa",
+                "flagged_at": "2026-04-24 10:00:00",
+            }
+        ],
+        "overrides": [
+            {
+                "issue_number": 42, "project_name": "Override Project",
+                "role_name": "Hero", "platform": "aa", "mode": "paid",
+                "outcome": "applied", "detail": "",
+                "processed_at": "2026-04-24 11:00:00",
+            }
+        ],
+        "runs": [],
+    }
+    html = build_digest_html(data)
+
+    idx_manually = html.find("Manually Applied")
+    idx_attention = html.find("Needs Your Attention")
+    idx_applied = html.find(">Applied<")
+
+    assert idx_manually != -1, "Manually Applied section must render when an override exists"
+    assert idx_attention != -1
+    assert idx_applied != -1
+    assert idx_manually < idx_attention
+    assert idx_manually < idx_applied
+
+
 def test_passed_roles_appear_above_applied_in_digest():
     """The review block (calendar / flagged / passed) must render above the
     'Applied' section so the user sees what to review without scrolling past
