@@ -7,6 +7,7 @@ import sys
 from collections import defaultdict
 from datetime import datetime
 
+from src import overrides as overrides_mod
 from src.cn.config import load_cn_config, CnConfigError
 from src.cn.browser import CastingNetworksBrowser
 from src.database import Database
@@ -77,6 +78,127 @@ def _is_cn_background(role: dict) -> bool:
     return _is_background(role)
 
 
+def _apply_cn_override(
+    cfg: dict, db: Database, browser: CastingNetworksBrowser, override: dict,
+    overrides_cfg: dict, token: str, dry_run: bool,
+):
+    """Force-apply a single CN-platform override. Bypasses filters and AI
+    selection — the user explicitly asked for this role to go through.
+
+    CN's submit_for_role navigates to role['url'] directly, so we only need
+    the stored role URL plus enough of the role dict to satisfy the browser
+    API and the dedup check.
+    """
+    project_name = override["project_name"]
+    role_name = override["role_name"]
+    issue_num = override["issue_number"]
+    mode = override["mode"]
+
+    def _finish(outcome: str, detail: str, comment: str):
+        db.record_override_outcome(
+            issue_number=issue_num, project_name=project_name, role_name=role_name,
+            platform="cn", mode=mode, outcome=outcome, detail=detail,
+        )
+        db.clear_pending_override(project_name, role_name, "cn", mode)
+        overrides_mod.comment_and_close(overrides_cfg["repo"], issue_num, comment, token)
+
+    role_url = db.get_known_project_url(role_name, project_name, "cn")
+    if not role_url:
+        logger.warning(f"[OVERRIDE] No role URL on file for {project_name} — {role_name}")
+        _finish(
+            "failed", "Role URL not on file in db.",
+            "Failed: no role URL on file. The role may have been removed before it was queued.",
+        )
+        return
+
+    # CN role URLs look like https://app.castingnetworks.com/project/{pid}/role/{rid}/...
+    id_match = re.search(r"/project/(\d+)/role/(\d+)", role_url)
+    if not id_match:
+        _finish(
+            "failed", f"Could not parse project/role id from URL: {role_url}",
+            f"Failed: stored role URL didn't match CN's expected /project/{{id}}/role/{{id}}/ format.",
+        )
+        return
+    project_id, role_id = id_match.group(1), id_match.group(2)
+    unique_id = f"cn_{project_id}_{role_id}"
+
+    if db.is_applied(unique_id):
+        db.delete_rejection(role_name, project_name, "cn")
+        db.delete_flagged(role_name, project_name, "cn")
+        _finish(
+            "applied", "Already applied — no action needed",
+            "Already applied — no action needed.",
+        )
+        return
+
+    if dry_run:
+        print(f"\n[OVERRIDE - DRY RUN] would re-apply: {project_name} — {role_name}")
+        return
+
+    sub_cfg = cfg["submission"].copy()
+    sub_cfg["default_note"] = ""
+    role = {
+        "url": role_url,
+        "role_name": role_name,
+        "project_name": project_name,
+        "role_id": role_id,
+        "project_id": project_id,
+    }
+
+    try:
+        result = browser.submit_for_role(role, sub_cfg)
+        err_detail = "" if result else "browser.submit_for_role returned False"
+    except Exception as e:
+        logger.error(f"[OVERRIDE] CN submit raised on {project_name} / {role_name}: {e}")
+        result = False
+        err_detail = str(e)
+
+    if result:
+        db.record_application(
+            unique_id, project_name, role_name,
+            role_description="",
+            ai_reason="OVERRIDE: applied via Apply Anyway",
+            candidates_considered=1, platform="cn",
+            project_url=role_url, submission_note="", mode=mode,
+        )
+        db.delete_rejection(role_name, project_name, "cn")
+        db.delete_flagged(role_name, project_name, "cn")
+        _finish(
+            "applied", "Submitted successfully via override",
+            f"Applied successfully on **{project_name}** — *{role_name}*.",
+        )
+    else:
+        _finish("failed", err_detail, f"Failed to apply: {err_detail}")
+
+
+def process_cn_overrides(
+    cfg: dict, db: Database, browser: CastingNetworksBrowser,
+    run_id: int, mode: str, dry_run: bool,
+):
+    """Pull GitHub override issues, queue them, then apply pending CN
+    overrides for this mode. Called once per run, right after login.
+
+    Non-CN-platform overrides are left in the queue for whichever run
+    handles that platform.
+    """
+    overrides_cfg, token = overrides_mod.load_run_config(cfg)
+    if not overrides_cfg:
+        return
+
+    overrides_mod.ingest_issues(overrides_cfg, token, db)
+
+    pending = [
+        o for o in db.list_pending_overrides()
+        if o["platform"] == "cn" and o["mode"] == mode
+    ]
+    if not pending:
+        return
+
+    logger.info(f"[OVERRIDE] Processing {len(pending)} CN override(s) for mode={mode}")
+    for override in pending:
+        _apply_cn_override(cfg, db, browser, override, overrides_cfg, token, dry_run)
+
+
 def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid"):
     run_id = db.start_run(platform="cn", mode=mode)
     set_run_context(platform="cn", mode=mode, run_id=run_id)
@@ -97,6 +219,11 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
             logger.warning("Login failed, retrying once...")
             if not browser.login(creds["email"], creds["password"]):
                 raise RuntimeError("Login failed after retry")
+
+        # Apply Anyway: pull queued GitHub overrides and force-apply them
+        # before the normal scrape. CN's submit_for_role navigates directly
+        # to role URLs, so this doesn't depend on the billboard listing.
+        process_cn_overrides(cfg, db, browser, run_id, mode, dry_run)
 
         # Optional saved search on CN. Paid mode typically leaves this empty
         # and lets the user's default saved search auto-load. Unpaid mode

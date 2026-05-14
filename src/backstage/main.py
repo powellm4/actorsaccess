@@ -12,6 +12,7 @@ import sys
 from collections import defaultdict
 from datetime import datetime
 
+from src import overrides as overrides_mod
 from src.backstage.config import load_backstage_config, BackstageConfigError
 from src.backstage.client import BackstageClient
 from src.database import Database
@@ -151,6 +152,157 @@ def _parse_shoot_info(production: dict) -> str | None:
     return info
 
 
+def _apply_backstage_override(
+    cfg: dict, db: Database, client: BackstageClient, override: dict,
+    overrides_cfg: dict, token: str, dry_run: bool,
+):
+    """Force-apply a single Backstage override. Bypasses filters and AI
+    selection — the user explicitly asked for this role to go through.
+
+    Backstage's submit_for_role takes a numeric role_id rather than a URL,
+    so we fetch the role detail page using the stored URL and pick the
+    nested role whose name matches.
+    """
+    project_name = override["project_name"]
+    role_name = override["role_name"]
+    issue_num = override["issue_number"]
+    mode = override["mode"]
+
+    def _finish(outcome: str, detail: str, comment: str):
+        db.record_override_outcome(
+            issue_number=issue_num, project_name=project_name, role_name=role_name,
+            platform="backstage", mode=mode, outcome=outcome, detail=detail,
+        )
+        db.clear_pending_override(project_name, role_name, "backstage", mode)
+        overrides_mod.comment_and_close(overrides_cfg["repo"], issue_num, comment, token)
+
+    role_url = db.get_known_project_url(role_name, project_name, "backstage")
+    if not role_url:
+        logger.warning(f"[OVERRIDE] No role URL on file for {project_name} — {role_name}")
+        _finish(
+            "failed", "Role URL not on file in db.",
+            "Failed: no role URL on file. The role may have been removed before it was queued.",
+        )
+        return
+
+    try:
+        production = client.fetch_role_detail(role_url)
+    except Exception as e:
+        logger.error(f"[OVERRIDE] Backstage role-detail fetch raised: {e}")
+        _finish("failed", f"role-detail fetch raised: {e}", f"Failed: could not load role detail page ({e}).")
+        return
+
+    if not production:
+        _finish(
+            "not_found", "Role detail unavailable (page gone or Cloudflare blocked).",
+            "Role detail page no longer loads. (The casting call may have been pulled.)",
+        )
+        return
+
+    project_id = production.get("id")
+    matched = next(
+        (r for r in production.get("roles", []) if r.get("name") == role_name),
+        None,
+    )
+    if not matched:
+        _finish(
+            "not_found",
+            f"Role '{role_name}' not on detail page roles list.",
+            "Role no longer visible on the project page. (The role may have been removed.)",
+        )
+        return
+
+    role_id = matched.get("id")
+    if role_id is None:
+        _finish(
+            "failed", "Matched role has no id field.",
+            "Failed: role found on page but had no usable id.",
+        )
+        return
+
+    unique_id = f"backstage_{project_id}_{role_id}"
+
+    if db.is_applied(unique_id):
+        db.delete_rejection(role_name, project_name, "backstage")
+        db.delete_flagged(role_name, project_name, "backstage")
+        _finish(
+            "applied", "Already applied — no action needed",
+            "Already applied — no action needed.",
+        )
+        return
+
+    if dry_run:
+        print(f"\n[OVERRIDE - DRY RUN] would re-apply: {project_name} — {role_name}")
+        return
+
+    submission_cfg = cfg.get("submission", {})
+    media_ids = list(submission_cfg.get("video_reel_ids", []))
+    resume_id = submission_cfg.get("resume_id")
+    if resume_id:
+        media_ids.append(resume_id)
+
+    try:
+        result = client.submit_for_role(role_id, note="", media_ids=media_ids, answers=None)
+    except Exception as e:
+        logger.error(f"[OVERRIDE] Backstage submit raised on {project_name} / {role_name}: {e}")
+        _finish("failed", str(e), f"Failed to apply: {e}")
+        return
+
+    if isinstance(result, dict) and result.get("_rejected"):
+        reason = result.get("reason", "Unknown rejection")
+        _finish("failed", reason, f"Failed to apply: Backstage rejected the submission ({reason}).")
+        return
+
+    if not result:
+        _finish(
+            "failed", "submit_for_role returned None",
+            "Failed to apply: submission did not complete.",
+        )
+        return
+
+    db.record_application(
+        unique_id, project_name, role_name,
+        role_description="",
+        ai_reason="OVERRIDE: applied via Apply Anyway",
+        candidates_considered=1, platform="backstage",
+        project_url=role_url, submission_note="", mode=mode,
+    )
+    db.delete_rejection(role_name, project_name, "backstage")
+    db.delete_flagged(role_name, project_name, "backstage")
+    _finish(
+        "applied", "Submitted successfully via override",
+        f"Applied successfully on **{project_name}** — *{role_name}*.",
+    )
+
+
+def process_backstage_overrides(
+    cfg: dict, db: Database, client: BackstageClient,
+    run_id: int, mode: str, dry_run: bool,
+):
+    """Pull GitHub override issues, queue them, then apply pending Backstage
+    overrides for this mode. Called once per run, right after login.
+
+    Non-Backstage-platform overrides are left in the queue for whichever run
+    handles that platform.
+    """
+    overrides_cfg, token = overrides_mod.load_run_config(cfg)
+    if not overrides_cfg:
+        return
+
+    overrides_mod.ingest_issues(overrides_cfg, token, db)
+
+    pending = [
+        o for o in db.list_pending_overrides()
+        if o["platform"] == "backstage" and o["mode"] == mode
+    ]
+    if not pending:
+        return
+
+    logger.info(f"[OVERRIDE] Processing {len(pending)} Backstage override(s) for mode={mode}")
+    for override in pending:
+        _apply_backstage_override(cfg, db, client, override, overrides_cfg, token, dry_run)
+
+
 def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid"):
     run_id = db.start_run(platform="backstage", mode=mode)
     set_run_context(platform="backstage", mode=mode, run_id=run_id)
@@ -167,6 +319,11 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
         creds = cfg["credentials"]
         if not client.login(creds["email"], creds["password"]):
             raise RuntimeError("Backstage login failed")
+
+        # Apply Anyway: pull queued GitHub overrides and force-apply them
+        # before the normal scrape. Backstage's submit goes through a direct
+        # role_id, so this doesn't need the listings to surface the role first.
+        process_backstage_overrides(cfg, db, client, run_id, mode, dry_run)
 
         max_pages = cfg.get("max_pages", 5)
         max_subs = cfg.get("max_submissions")

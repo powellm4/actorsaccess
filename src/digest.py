@@ -249,11 +249,14 @@ def build_digest_html(
             footer += f'<br><span style="color:red;">Failed ({fr.get("platform","?")}): {fr.get("error_message","unknown")}</span>'
     footer += '\n</div>\n'
 
+    # Manually-applied results go first — the user explicitly opened an
+    # issue for each of these and is waiting to hear back. Burying them
+    # below other sections means they're easy to miss.
     body = (
-        calendar_section
+        manually_applied_section
+        + calendar_section
         + flagged_section
         + passed_section
-        + manually_applied_section
         + "\n".join(sections)
         + footer
     )
