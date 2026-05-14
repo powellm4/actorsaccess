@@ -68,18 +68,21 @@ def test_override_config_returns_pair_when_present(cfg):
     assert result[1] == "tok"
 
 
-# --- ingest_issues queues and closes ---
+# --- ingest_issues queues, comments once, never closes valid issues ---
 
-def test_ingest_queues_valid_and_closes_malformed(db, cfg):
+def test_ingest_queues_valid_acks_with_comment_does_not_close(db, cfg):
+    """Valid override issues must stay OPEN after ingest — the apply path is
+    what closes them with the outcome. Malformed issues are terminal and
+    still get the close-on-parse-error behavior.
+    """
     overrides_cfg = cfg["overrides"]
     valid = OverrideRequest(
         issue_number=11, project_name="P", role_name="R",
         platform="aa", mode="paid",
     )
-    # Patch the helpers in src.overrides — those names are what the
-    # ingest_issues body resolves to.
     with patch("src.overrides.fetch_pending_with_errors") as fp, \
          patch("src.overrides.comment_and_close") as cc, \
+         patch("src.overrides._github_post") as post, \
          patch("src.overrides.ensure_label_exists"):
         fp.return_value = ([valid], [42])
         overrides_mod.ingest_issues(overrides_cfg, "tok", db)
@@ -89,10 +92,51 @@ def test_ingest_queues_valid_and_closes_malformed(db, cfg):
     assert row is not None
     assert row["issue_number"] == 11
 
-    # Both valid + malformed got commented + closed.
+    # Malformed issue 42 was closed via comment_and_close. Valid issue 11
+    # was NOT — closing valid issues before they apply was the regression.
     closed_issues = [c.args[1] for c in cc.call_args_list]
-    assert 11 in closed_issues
     assert 42 in closed_issues
+    assert 11 not in closed_issues
+
+    # The valid issue got exactly one acknowledgement comment via _github_post
+    # to the comments endpoint — and nothing was PATCHed to "closed".
+    comment_calls = [
+        c for c in post.call_args_list
+        if "/issues/11/comments" in c.args[0]
+    ]
+    assert len(comment_calls) == 1
+    assert "Queued" in comment_calls[0].args[1]["body"]
+
+
+def test_ingest_does_not_re_comment_on_already_queued_override(db, cfg):
+    """Every platform's run calls ingest, so if an override was queued on a
+    previous run we must stay quiet on subsequent ingests — otherwise the
+    issue gets the same 'Queued' comment 3× per workflow tick."""
+    overrides_cfg = cfg["overrides"]
+    valid = OverrideRequest(
+        issue_number=11, project_name="P", role_name="R",
+        platform="aa", mode="paid",
+    )
+    # Pre-seed: row already exists in pending_overrides from a previous run.
+    db.add_pending_override(
+        issue_number=11, project_name="P", role_name="R",
+        platform="aa", mode="paid",
+    )
+
+    with patch("src.overrides.fetch_pending_with_errors") as fp, \
+         patch("src.overrides._github_post") as post, \
+         patch("src.overrides.comment_and_close"), \
+         patch("src.overrides.ensure_label_exists"):
+        fp.return_value = ([valid], [])
+        overrides_mod.ingest_issues(overrides_cfg, "tok", db)
+
+    # No comments posted — the row already existed, so add_pending_override
+    # returned False and ingest skipped the acknowledgement.
+    comment_calls = [
+        c for c in post.call_args_list
+        if "/issues/11/comments" in c.args[0]
+    ]
+    assert comment_calls == []
 
 
 def test_ingest_swallows_fetch_errors(db, cfg):

@@ -300,11 +300,11 @@ def test_manually_applied_section_appears_at_top_of_digest():
     }
     html = build_digest_html(data)
 
-    idx_manually = html.find("Manually Applied")
+    idx_manually = html.find("Apply Anyway Results")
     idx_attention = html.find("Needs Your Attention")
     idx_applied = html.find(">Applied<")
 
-    assert idx_manually != -1, "Manually Applied section must render when an override exists"
+    assert idx_manually != -1, "Apply Anyway Results section must render when an override exists"
     assert idx_attention != -1
     assert idx_applied != -1
     assert idx_manually < idx_attention

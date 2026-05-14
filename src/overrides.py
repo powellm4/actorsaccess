@@ -211,11 +211,16 @@ def load_run_config(cfg: dict) -> tuple[dict | None, str | None]:
 
 
 def ingest_issues(overrides_cfg: dict, token: str, db) -> None:
-    """Pull open GitHub override issues, queue valid ones into the local DB,
-    and acknowledge by commenting + closing the issue.
+    """Pull open GitHub override issues and queue valid ones into the local DB.
 
-    Malformed issues get a parse-error comment and close. Idempotent label
-    creation is best-effort.
+    Valid issues are left OPEN until the apply path closes them with the
+    outcome — closing on ingest would leave the user with no signal beyond
+    "queued," which they reported as confusing. We post a one-time
+    acknowledgement comment on first queue, then stay quiet on subsequent
+    runs (gated by add_pending_override's return value).
+
+    Malformed issues still get a parse-error comment + close — they're
+    terminal and won't ever produce an outcome to communicate.
     """
     try:
         ensure_label_exists(overrides_cfg["repo"], overrides_cfg["label"], token)
@@ -231,17 +236,29 @@ def ingest_issues(overrides_cfg: dict, token: str, db) -> None:
         return
 
     for req in ok:
-        db.add_pending_override(
+        is_new = db.add_pending_override(
             issue_number=req.issue_number,
             project_name=req.project_name,
             role_name=req.role_name,
             platform=req.platform,
             mode=req.mode,
         )
-        comment_and_close(
-            overrides_cfg["repo"], req.issue_number,
-            "Queued — will apply on this run.", token,
-        )
+        # Only acknowledge the first time we see this override — every
+        # platform's run calls ingest, so re-commenting would spam the issue.
+        if is_new:
+            try:
+                _github_post(
+                    f"/repos/{overrides_cfg['repo']}/issues/{req.issue_number}/comments",
+                    {"body": (
+                        "Queued — will apply on the next run for this platform. "
+                        "I'll comment again with the outcome and close this issue once it's processed."
+                    )},
+                    token,
+                )
+            except (urllib.error.URLError, urllib.error.HTTPError) as e:
+                logger.warning(
+                    f"[OVERRIDE] Failed to post queued-ack on #{req.issue_number}: {e}"
+                )
 
     for issue_num in malformed:
         comment_and_close(

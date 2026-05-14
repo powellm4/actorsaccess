@@ -489,19 +489,25 @@ class Database:
     def add_pending_override(
         self, issue_number: int, project_name: str, role_name: str,
         platform: str, mode: str = "paid",
-    ):
+    ) -> bool:
         """Queue a role to be force-applied on the next run, even if it's
         currently in rejected_roles or flagged_roles. Idempotent: a duplicate
         (project, role, platform, mode) is silently dropped (UNIQUE constraint),
-        keeping the first issue_number that queued it."""
+        keeping the first issue_number that queued it.
+
+        Returns True if a new row was inserted, False if this (project, role,
+        platform, mode) was already queued — callers use this to avoid
+        re-posting acknowledgement comments on every run.
+        """
         logger.info(f"[DB] Queuing override: {project_name} — {role_name} (issue #{issue_number}, platform={platform}, mode={mode})")
-        self.conn.execute(
+        cursor = self.conn.execute(
             """INSERT OR IGNORE INTO pending_overrides
                (issue_number, project_name, role_name, platform, mode, queued_at)
                VALUES (?, ?, ?, ?, ?, ?)""",
             (issue_number, project_name, role_name, platform, mode, self._utcnow()),
         )
         self.conn.commit()
+        return cursor.rowcount > 0
 
     def get_pending_override(
         self, project_name: str, role_name: str, platform: str, mode: str,
