@@ -202,7 +202,7 @@ def test_digest_includes_claude_row_and_savings_line(db_path):
     assert "$2.74" in html
     # Savings line shows percentage delta vs Claude. DeepSeek is cheaper, so
     # the deltas are negative.
-    assert "Claude today" in html
+    assert "Claude this digest" in html
     assert "DeepSeek would have cost" in html
     # ds_chat is ~92% cheaper than Claude, ds_reasoner ~85% cheaper.
     assert "-92%" in html
@@ -247,6 +247,76 @@ def test_digest_null_claude_model_falls_back_to_default(db_path):
     # 1M input at $3/M → $3.00 should appear.
     expected = ANTHROPIC_PRICING[DEFAULT_CLAUDE_MODEL]["input"]
     assert f"${expected:.2f}" in html
+
+
+def test_digest_window_cost_excludes_pre_digest_rows(db_path):
+    """With a prior digest_history row, only rows AFTER that timestamp are
+    counted as 'this digest'. Earlier rows still contribute to the 'today'
+    secondary number, so both numbers appear with different values.
+    """
+    import datetime
+    today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+
+    conn = sqlite3.connect(db_path)
+    # Earlier row: $18 of Claude usage that the previous digest already covered.
+    _insert(
+        conn,
+        created_at=f"{today} 00:00:01",
+        claude_verdict="FIT",
+        claude_input_tokens=1_000_000, claude_output_tokens=1_000_000,
+        claude_model="claude-sonnet-4-6", claude_latency_ms=2000,
+        ds_chat_verdict="FIT", chat_matches_claude=1, ds_chat_latency_ms=1000,
+        ds_reasoner_verdict="FIT", reasoner_matches_claude=1,
+        ds_reasoner_latency_ms=15000,
+    )
+    # Boundary: previous digest sent between the two rows.
+    conn.execute(
+        "INSERT INTO digest_history (sent_at) VALUES (?)",
+        (f"{today} 00:00:02",),
+    )
+    # Later row: $3 of Claude usage — this is what 'this digest' represents.
+    _insert(
+        conn,
+        created_at=f"{today} 00:00:03",
+        claude_verdict="FIT",
+        claude_input_tokens=1_000_000, claude_output_tokens=0,
+        claude_model="claude-sonnet-4-6", claude_latency_ms=1800,
+        ds_chat_verdict="FIT", chat_matches_claude=1, ds_chat_latency_ms=1100,
+        ds_chat_input_tokens=1_000_000, ds_chat_output_tokens=0,
+        ds_reasoner_verdict="FIT", reasoner_matches_claude=1,
+        ds_reasoner_latency_ms=14000,
+        ds_reasoner_input_tokens=1_000_000, ds_reasoner_output_tokens=0,
+    )
+    conn.commit()
+    conn.close()
+
+    html = render_digest_block("paid", db_path=db_path)
+    # This-digest Claude cost: 1M input × $3 = $3.00 (the later row only).
+    # Today's total Claude cost: $3 + $18 = $21.00 (both rows).
+    assert "$3.00" in html
+    assert "today $21.00" in html
+    # Savings line is anchored to the digest-window cost, not the daily total.
+    assert "Claude this digest: <strong>$3.00</strong>" in html
+
+
+def test_digest_window_collapses_when_no_prior_digest(db_path):
+    """When digest_history is empty, the 'today' secondary annotation is
+    suppressed so the cost cell shows a single number.
+    """
+    conn = sqlite3.connect(db_path)
+    _insert(
+        conn,
+        claude_verdict="FIT",
+        claude_input_tokens=1_000_000, claude_output_tokens=0,
+        claude_model="claude-sonnet-4-6", claude_latency_ms=2000,
+        ds_chat_verdict="FIT", chat_matches_claude=1, ds_chat_latency_ms=1000,
+        ds_reasoner_verdict="FIT", reasoner_matches_claude=1,
+        ds_reasoner_latency_ms=15000,
+    )
+    conn.close()
+    html = render_digest_block("paid", db_path=db_path)
+    # No "today $X" annotation when the two windows are the same.
+    assert "today $" not in html
 
 
 def test_digest_archive_link_uses_env(db_path, monkeypatch):

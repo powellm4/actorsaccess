@@ -146,30 +146,66 @@ def _archive_link() -> str | None:
 # ---------------------------------------------------------------------------
 
 
+def _last_digest_sent(conn: sqlite3.Connection) -> str | None:
+    """Return the timestamp of the most recent digest_history row, or None.
+
+    Used to scope the "this digest" cost window. Returns None if the table
+    is missing (shadow may be enabled before digest_history is initialized)
+    or empty.
+    """
+    try:
+        row = conn.execute(
+            "SELECT sent_at FROM digest_history ORDER BY sent_at DESC LIMIT 1"
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    return row[0] if row else None
+
+
 def _aggregate_for_today(
-    conn: sqlite3.Connection, mode: str
+    conn: sqlite3.Connection, mode: str, since: str | None = None
 ) -> dict[str, dict] | None:
     """Compute per-model stats for shadow rows created today (UTC).
 
-    Returns None if no rows exist for today/mode.
+    When ``since`` is provided, restrict to rows with ``created_at > since``
+    (a UTC timestamp string). Otherwise return today's full UTC-date window.
+
+    Returns None if no rows match.
     """
     # SQLite's CURRENT_TIMESTAMP / created_at is UTC. Filter via date('now')
     # to get rows whose created_at is on today's UTC date.
-    cur = conn.execute(
-        """
-        SELECT
-            claude_latency_ms,   claude_input_tokens,   claude_output_tokens,
-            claude_model,
-            ds_chat_latency_ms,  ds_chat_input_tokens,  ds_chat_output_tokens,
-            ds_chat_error,       chat_matches_claude,
-            ds_reasoner_latency_ms, ds_reasoner_input_tokens, ds_reasoner_output_tokens,
-            ds_reasoner_error,   reasoner_matches_claude
-        FROM shadow_comparisons
-        WHERE mode = ?
-          AND date(created_at) = date('now')
-        """,
-        (mode,),
-    )
+    if since is None:
+        cur = conn.execute(
+            """
+            SELECT
+                claude_latency_ms,   claude_input_tokens,   claude_output_tokens,
+                claude_model,
+                ds_chat_latency_ms,  ds_chat_input_tokens,  ds_chat_output_tokens,
+                ds_chat_error,       chat_matches_claude,
+                ds_reasoner_latency_ms, ds_reasoner_input_tokens, ds_reasoner_output_tokens,
+                ds_reasoner_error,   reasoner_matches_claude
+            FROM shadow_comparisons
+            WHERE mode = ?
+              AND date(created_at) = date('now')
+            """,
+            (mode,),
+        )
+    else:
+        cur = conn.execute(
+            """
+            SELECT
+                claude_latency_ms,   claude_input_tokens,   claude_output_tokens,
+                claude_model,
+                ds_chat_latency_ms,  ds_chat_input_tokens,  ds_chat_output_tokens,
+                ds_chat_error,       chat_matches_claude,
+                ds_reasoner_latency_ms, ds_reasoner_input_tokens, ds_reasoner_output_tokens,
+                ds_reasoner_error,   reasoner_matches_claude
+            FROM shadow_comparisons
+            WHERE mode = ?
+              AND created_at > ?
+            """,
+            (mode, since),
+        )
     rows = cur.fetchall()
     if not rows:
         return None
@@ -256,9 +292,11 @@ def render_digest_block(mode: str, db_path: str | None = None) -> str:
     """Return an HTML snippet for the daily digest email.
 
     Filters shadow_comparisons by ``mode`` (``"paid"`` or ``"unpaid"``) and
-    computes today's match rate, median latency, and estimated cost per
-    DeepSeek model. Returns an empty string when there's no shadow data for
-    today — the digest then gracefully renders without a shadow section.
+    computes per-model match rate, median latency, and estimated cost. Cost
+    is shown for the "this digest" window (rows added since the previous
+    digest_history entry) with the daily total as a small secondary line;
+    when there is no prior digest the two collapse to a single number.
+    Returns an empty string when no shadow rows exist for today.
 
     ``db_path`` is optional; when omitted, falls back to the ``SHADOW_DB_PATH``
     env var, then to ``data/applied.db``.
@@ -270,72 +308,114 @@ def render_digest_block(mode: str, db_path: str | None = None) -> str:
         return ""
     try:
         try:
-            agg = _aggregate_for_today(conn, mode)
+            today_agg = _aggregate_for_today(conn, mode)
+            last_sent = _last_digest_sent(conn)
+            # "This digest" = rows added since the previous digest was sent.
+            # When there's no prior digest (first send, or fresh DB) the two
+            # windows are identical — fall back to today's aggregation so the
+            # cost cell still has a number.
+            window_agg = (
+                _aggregate_for_today(conn, mode, since=last_sent)
+                if last_sent else today_agg
+            )
         except sqlite3.OperationalError:
             # Table missing (shadow never enabled on this DB).
             return ""
     finally:
         conn.close()
 
-    if not agg:
+    if not today_agg:
         return ""
+
+    # When the window query returned nothing (e.g. this digest fires but no new
+    # shadow rows landed since the last one), fall back so the table still
+    # renders today's numbers rather than going blank.
+    show_window = window_agg is not None and last_sent is not None
+    if window_agg is None:
+        window_agg = today_agg
+
+    def _cost_cell(window_cost: float, today_cost: float) -> str:
+        primary = _format_cost(window_cost)
+        if not show_window or abs(window_cost - today_cost) < 1e-9:
+            return primary
+        return (
+            f'{primary}'
+            f'<div style="color:#90a4ae;font-size:11px;">'
+            f'today {_format_cost(today_cost)}</div>'
+        )
 
     rows_html = []
     # Claude rows first (one per distinct claude_model used today). Claude is
     # the baseline so the match-rate cell is "—".
-    claude_total_cost = 0.0
-    for model_name in sorted(agg["claude_by_model"].keys()):
-        b = agg["claude_by_model"][model_name]
-        claude_total_cost += b["cost_usd"]
-        median_lat = _format_ms(_median(b["latencies"]))
-        cost = _format_cost(b["cost_usd"])
+    claude_window_cost = 0.0
+    claude_today_cost = 0.0
+    claude_models = sorted(
+        set(today_agg["claude_by_model"].keys())
+        | set(window_agg["claude_by_model"].keys())
+    )
+    for model_name in claude_models:
+        w = window_agg["claude_by_model"].get(model_name, {"latencies": [], "cost_usd": 0.0})
+        t = today_agg["claude_by_model"].get(model_name, {"latencies": [], "cost_usd": 0.0})
+        claude_window_cost += w["cost_usd"]
+        claude_today_cost += t["cost_usd"]
+        # Latency uses the window if available, else today — same fallback
+        # rule as the cost cell.
+        median_lat = _format_ms(_median(w["latencies"] or t["latencies"]))
         rows_html.append(
             f'<tr>'
             f'<td style="padding:4px 8px;font-family:ui-monospace,monospace;">'
             f'{html.escape(model_name)}</td>'
             f'<td style="padding:4px 8px;color:#666;">— (baseline)</td>'
             f'<td style="padding:4px 8px;">{median_lat}</td>'
-            f'<td style="padding:4px 8px;">{cost}</td>'
+            f'<td style="padding:4px 8px;">{_cost_cell(w["cost_usd"], t["cost_usd"])}</td>'
             f'</tr>'
         )
 
     for prefix in ("ds_chat", "ds_reasoner"):
-        m = agg["per_model"][prefix]
+        w = window_agg["per_model"][prefix]
+        t = today_agg["per_model"][prefix]
         label = _PREFIX_TO_LABEL[prefix]
-        match_rate = _format_pct(m["matches"], m["compared"])
-        match_detail = f'{m["matches"]}/{m["compared"]}'
-        median_lat = _format_ms(_median(m["latencies"]))
-        cost = _format_cost(m["cost_usd"])
-        errors_cell = f' <span style="color:#b71c1c;">{m["errors"]} err</span>' if m["errors"] else ""
+        match_rate = _format_pct(w["matches"], w["compared"])
+        match_detail = f'{w["matches"]}/{w["compared"]}'
+        median_lat = _format_ms(_median(w["latencies"] or t["latencies"]))
+        errors_cell = f' <span style="color:#b71c1c;">{w["errors"]} err</span>' if w["errors"] else ""
         rows_html.append(
             f'<tr>'
             f'<td style="padding:4px 8px;font-family:ui-monospace,monospace;">{label}</td>'
             f'<td style="padding:4px 8px;"><strong>{match_rate}</strong> '
             f'<span style="color:#666;font-size:12px;">({match_detail})</span></td>'
             f'<td style="padding:4px 8px;">{median_lat}</td>'
-            f'<td style="padding:4px 8px;">{cost}{errors_cell}</td>'
+            f'<td style="padding:4px 8px;">{_cost_cell(w["cost_usd"], t["cost_usd"])}{errors_cell}</td>'
             f'</tr>'
         )
 
-    # Savings line: only meaningful when Claude actually spent money today and
-    # at least one DeepSeek model produced a non-zero estimate to compare.
+    # Savings line: anchored to this-digest cost so the percentages reflect
+    # what THIS email represents, not a running daily total that drifts as
+    # successive digests fire through the day.
     savings_html = ""
-    if claude_total_cost > 0:
+    if claude_window_cost > 0:
         deltas = []
         for prefix in ("ds_chat", "ds_reasoner"):
-            ds_cost = agg["per_model"][prefix]["cost_usd"]
+            ds_cost = window_agg["per_model"][prefix]["cost_usd"]
             if ds_cost <= 0:
                 continue
-            pct = (ds_cost - claude_total_cost) / claude_total_cost * 100
+            pct = (ds_cost - claude_window_cost) / claude_window_cost * 100
             sign = "+" if pct >= 0 else ""
             deltas.append(
                 f'{_PREFIX_TO_LABEL[prefix]} {_format_cost(ds_cost)} '
                 f'({sign}{pct:.0f}%)'
             )
         if deltas:
+            today_suffix = (
+                f' <span style="color:#90a4ae;">'
+                f'(today {_format_cost(claude_today_cost)})</span>'
+                if show_window and abs(claude_today_cost - claude_window_cost) > 1e-9
+                else ""
+            )
             savings_html = (
                 f'<p style="margin:8px 0 0 0;color:#37474f;font-size:13px;">'
-                f'Claude today: <strong>{_format_cost(claude_total_cost)}</strong>'
+                f'Claude this digest: <strong>{_format_cost(claude_window_cost)}</strong>'
+                f'{today_suffix}'
                 f' — DeepSeek would have cost: {", ".join(deltas)}'
                 f'</p>'
             )
@@ -350,8 +430,8 @@ def render_digest_block(mode: str, db_path: str | None = None) -> str:
         link_html = 'see <code>/shadow/</code> on the archive site'
 
     disagreement_html = (
-        f'<strong>{agg["disagreements"]} disagreement'
-        f'{"" if agg["disagreements"] == 1 else "s"}</strong> awaiting review'
+        f'<strong>{today_agg["disagreements"]} disagreement'
+        f'{"" if today_agg["disagreements"] == 1 else "s"}</strong> awaiting review'
     )
 
     return (
@@ -359,7 +439,7 @@ def render_digest_block(mode: str, db_path: str | None = None) -> str:
         'background:#f3f6fa;border-left:4px solid #455a64;border-radius:4px;'
         'color:#263238;font-size:14px;">'
         '<h3 style="margin:0 0 8px 0;font-size:15px;color:#37474f;">'
-        'Shadow eval (today)</h3>'
+        'Shadow eval (this digest)</h3>'
         '<table style="border-collapse:collapse;font-size:13px;">'
         '<thead><tr style="color:#546e7a;">'
         '<th style="text-align:left;padding:2px 8px;">model</th>'
