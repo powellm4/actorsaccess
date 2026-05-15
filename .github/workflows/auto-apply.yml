@@ -35,6 +35,23 @@ jobs:
           playwright install chromium
           playwright install-deps chromium
 
+      - name: Install Claude CLI
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          claude --version
+
+      - name: Restore Claude CLI credentials
+        env:
+          CLAUDE_CREDENTIALS_JSON: ${{ secrets.CLAUDE_CREDENTIALS_JSON }}
+        run: |
+          if [ -z "$CLAUDE_CREDENTIALS_JSON" ]; then
+            echo "::error::CLAUDE_CREDENTIALS_JSON secret is not set. Generate it locally with 'claude' login, then paste ~/.claude/.credentials.json into the repo secret."
+            exit 1
+          fi
+          mkdir -p "$HOME/.claude"
+          printf '%s' "$CLAUDE_CREDENTIALS_JSON" > "$HOME/.claude/.credentials.json"
+          chmod 600 "$HOME/.claude/.credentials.json"
+
       - name: Download database
         env:
           GH_TOKEN: ${{ github.token }}
@@ -46,8 +63,6 @@ jobs:
         env:
           AA_USERNAME: ${{ secrets.AA_USERNAME }}
           AA_PASSWORD: ${{ secrets.AA_PASSWORD }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GOOGLE_CALENDAR_SA_KEY: ${{ secrets.GOOGLE_CALENDAR_SA_KEY }}
           OVERRIDE_GITHUB_TOKEN: ${{ secrets.OVERRIDE_GITHUB_TOKEN }}
         run: python -m src.main --once
@@ -61,8 +76,6 @@ jobs:
         env:
           CN_EMAIL: ${{ secrets.CN_EMAIL }}
           CN_PASSWORD: ${{ secrets.CN_PASSWORD }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GOOGLE_CALENDAR_SA_KEY: ${{ secrets.GOOGLE_CALENDAR_SA_KEY }}
           OVERRIDE_GITHUB_TOKEN: ${{ secrets.OVERRIDE_GITHUB_TOKEN }}
         run: xvfb-run --auto-servernum python -m src.cn.main --once
@@ -76,8 +89,6 @@ jobs:
         env:
           BACKSTAGE_EMAIL: ${{ secrets.BACKSTAGE_EMAIL }}
           BACKSTAGE_PASSWORD: ${{ secrets.BACKSTAGE_PASSWORD }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GOOGLE_CALENDAR_SA_KEY: ${{ secrets.GOOGLE_CALENDAR_SA_KEY }}
           OVERRIDE_GITHUB_TOKEN: ${{ secrets.OVERRIDE_GITHUB_TOKEN }}
         run: python -m src.backstage.main --once
@@ -92,7 +103,6 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           DIGEST_SENDER_EMAIL: ${{ secrets.DIGEST_SENDER_EMAIL }}
           ARCHIVE_SITE_URL: ${{ vars.ARCHIVE_SITE_URL }}
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: python -m src.digest --mode paid
 
       - name: Upload database (after digest)

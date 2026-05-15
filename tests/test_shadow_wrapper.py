@@ -1,5 +1,16 @@
 # tests/test_shadow_wrapper.py
-"""Integration tests for src.shadow.shadowed_completion."""
+"""Integration tests for src.shadow.shadowed_completion.
+
+NOTE: paused during the Claude API → Claude CLI migration. The wrapper
+previously called `claude_client.messages.create()` (mocked here via
+FakeClaude) and fired DeepSeek shadow comparisons. With the migration:
+  - Claude calls now go through `subprocess.run(["claude", ...])`.
+  - `_shadow_enabled()` is hard-coded to False so no DeepSeek work runs.
+
+These tests are kept as documentation for the shadow-eval contract that
+should still hold once shadow is re-enabled, and skipped in the meantime
+so they don't try to call the real CLI.
+"""
 
 import os
 import sqlite3
@@ -14,6 +25,11 @@ from src.shadow import (
     VERDICT_EXTRACTORS,
     flush_pending_shadows,
     shadowed_completion,
+)
+
+pytestmark = pytest.mark.skip(
+    reason="Shadow eval paused during Claude API → CLI migration; "
+    "re-enable when shadow.py is reactivated."
 )
 
 

@@ -8,6 +8,7 @@ to pick the single best fit based on the actor's profile.
 import logging
 import os
 import re
+import shutil
 
 from src.shadow import VERDICT_EXTRACTORS, shadowed_completion
 
@@ -19,15 +20,27 @@ TRANSIENT_REJECTION_PREFIX = "[transient] "
 
 
 def _is_transient_error(exc: Exception) -> bool:
-    """True for API errors worth re-trying on the next run (overload, rate-limit, network)."""
+    """True for errors worth re-trying on the next run (overload, rate-limit, network, CLI hang)."""
     status = getattr(exc, "status_code", None)
     if status in (408, 409, 425, 429, 500, 502, 503, 504, 529):
         return True
     name = type(exc).__name__
-    return name in (
+    if name in (
         "APIConnectionError", "APITimeoutError", "InternalServerError",
         "RateLimitError", "ConnectionError", "Timeout", "ReadTimeout",
-    )
+        "TimeoutExpired",  # subprocess.TimeoutExpired from Claude CLI
+    ):
+        return True
+    # subprocess.CalledProcessError with a non-deterministic exit (rate limit
+    # via paid plan, network blip): treat as transient so the next run retries.
+    if name == "CalledProcessError":
+        return True
+    return False
+
+
+def _claude_cli_available() -> bool:
+    """True when the Claude CLI is on PATH (assumed to be logged-in)."""
+    return shutil.which("claude") is not None
 
 ACTOR_PROFILE = """
 - Appears 25 but people often think he's younger; plays 17-29 convincingly (yes, including 17-22 college-aged roles)
@@ -378,20 +391,15 @@ def select_best_roles(
         - List of (role dict, reason string) for selected roles
         - Dict mapping rejected role names to rejection reasons
     """
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        logger.warning("No ANTHROPIC_API_KEY set — skipping all roles to be safe")
-        rejections = {r["role_name"]: "no API key, skipped" for r in roles}
+    if not _claude_cli_available():
+        logger.warning("Claude CLI not on PATH — skipping all roles to be safe")
+        rejections = {r["role_name"]: "no Claude CLI available, skipped" for r in roles}
         return [], rejections
 
     if len(roles) == 1:
-        return _check_single_role_fit(roles[0], project_name, api_key, mode=mode)
+        return _check_single_role_fit(roles[0], project_name, mode=mode)
 
     try:
-        import anthropic
-
-        client = anthropic.Anthropic(api_key=api_key, max_retries=8)
-
         # Build role summaries for the prompt
         role_options = []
         for i, role in enumerate(roles):
@@ -486,7 +494,6 @@ REJECTED: 4 - Background/extra role, actor does not do background work"""
             prompt,
             call_site="select_best_roles",
             max_tokens=1000,
-            claude_client=client,
             extract_verdict=VERDICT_EXTRACTORS["select_best_roles"],
             project_name=project_name,
         ).strip()
@@ -522,14 +529,10 @@ REJECTED: 4 - Background/extra role, actor does not do background work"""
 
 
 def _check_single_role_fit(
-    role: dict, project_name: str, api_key: str, mode: str = "paid",
+    role: dict, project_name: str, mode: str = "paid",
 ) -> tuple[list[tuple[dict, str]], dict[str, str]]:
     """Quick AI check: is this single role a physical/type fit?"""
     try:
-        import anthropic
-
-        client = anthropic.Anthropic(api_key=api_key, max_retries=8)
-
         desc = role.get("description", "No description")[:2000]
 
         if mode == "unpaid":
@@ -585,7 +588,6 @@ CRITICAL: Your response must start IMMEDIATELY with FIT or SKIP. Do NOT write an
             prompt,
             call_site="single_fit",
             max_tokens=500,
-            claude_client=client,
             extract_verdict=VERDICT_EXTRACTORS["single_fit"],
             project_name=project_name,
             role_name=role.get("role_name"),
@@ -714,16 +716,11 @@ def check_partial_availability(
     Returns:
         {"proceed": True/False, "reason": str}
     """
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        logger.warning("[CALENDAR] No API key for partial availability check, skipping project")
-        return {"proceed": False, "reason": "No API key for partial availability check"}
+    if not _claude_cli_available():
+        logger.warning("[CALENDAR] Claude CLI not available, skipping partial availability check")
+        return {"proceed": False, "reason": "Claude CLI not available for partial availability check"}
 
     try:
-        import anthropic
-
-        client = anthropic.Anthropic(api_key=api_key, max_retries=8)
-
         free_str = ", ".join(partial_info["free_dates"])
         busy_str = ", ".join(partial_info["busy_dates"])
 
@@ -758,7 +755,6 @@ SKIP - <brief reason>"""
             prompt,
             call_site="partial_availability",
             max_tokens=100,
-            claude_client=client,
             extract_verdict=VERDICT_EXTRACTORS["partial_availability"],
             project_name=project_name,
             role_name=role.get("role_name"),
@@ -798,17 +794,13 @@ def answer_prescreen_questions(
         {"needs_input": "<reason mentioning the unanswerable question>"}
             — if any question cannot be answered (subjective, open-ended pitch, missing info).
     """
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY not set — cannot answer prescreen questions")
+    if not _claude_cli_available():
+        raise RuntimeError("Claude CLI not on PATH — cannot answer prescreen questions")
 
     if not questions:
         return {"answers": []}
 
-    import anthropic
     import json as _json
-
-    client = anthropic.Anthropic(api_key=api_key, max_retries=8)
 
     availability_context = ""
     if confirmed_dates:
@@ -881,7 +873,6 @@ Rules:
             prompt,
             call_site="prescreen",
             max_tokens=600,
-            claude_client=client,
             extract_verdict=VERDICT_EXTRACTORS["prescreen"],
             project_name=project_name,
             role_name=role.get("role_name"),
@@ -964,17 +955,12 @@ def analyze_submission_requirements(role: dict, project_name: str, project_notes
          "note": str | None,
          "needs_input_reason": str | None}
     """
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY not set — cannot analyze submission requirements")
+    if not _claude_cli_available():
+        raise RuntimeError("Claude CLI not on PATH — cannot analyze submission requirements")
 
     desc = role.get("description", "")
     if not desc.strip() and not project_notes.strip():
         return {"action": "SUBMIT", "note": None, "needs_input_reason": None}
-
-    import anthropic
-
-    client = anthropic.Anthropic(api_key=api_key, max_retries=8)
 
     availability_context = ""
     if confirmed_dates:
@@ -1030,7 +1016,6 @@ Respond with ONLY the action line (and NOTE/REASON line if applicable). No other
         prompt,
         call_site="submission_requirements",
         max_tokens=200,
-        claude_client=client,
         extract_verdict=VERDICT_EXTRACTORS["submission_requirements"],
         project_name=project_name,
         role_name=role.get("role_name"),
@@ -1058,14 +1043,9 @@ def generate_cover_letter(role: dict, project_name: str) -> str:
 
     Returns empty string on error or if the output fails the note validator.
     """
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        logger.warning("ANTHROPIC_API_KEY not set — cannot generate cover letter")
+    if not _claude_cli_available():
+        logger.warning("Claude CLI not on PATH — cannot generate cover letter")
         return ""
-
-    import anthropic
-
-    client = anthropic.Anthropic(api_key=api_key, max_retries=8)
 
     desc = role.get("description", "")
     role_name = role.get("role_name", "")
@@ -1099,7 +1079,6 @@ Write the cover letter now."""
             prompt,
             call_site="cover_letter",
             max_tokens=300,
-            claude_client=client,
             extract_verdict=VERDICT_EXTRACTORS["cover_letter"],
             project_name=project_name,
             role_name=role_name,

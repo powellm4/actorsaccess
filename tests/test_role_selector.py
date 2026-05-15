@@ -1,11 +1,13 @@
 # tests/test_role_selector.py
 """Tests for the role selector's parsing and selection logic.
 
-These tests mock the Anthropic API to test parsing without making real API calls.
+These tests mock the Claude CLI subprocess to test parsing without invoking
+the real CLI.
 """
-import os
-import sys
-from unittest.mock import patch, MagicMock
+import subprocess
+from contextlib import contextmanager
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -19,35 +21,38 @@ SAMPLE_ROLES = [
 ]
 
 
-def _make_mock_anthropic(response_text: str):
-    """Create a mock anthropic module with a preset response."""
-    mock_module = MagicMock()
-    mock_client = MagicMock()
-    mock_module.Anthropic.return_value = mock_client
-    mock_response = MagicMock()
-    mock_content = MagicMock()
-    mock_content.text = response_text
-    mock_response.content = [mock_content]
-    mock_client.messages.create.return_value = mock_response
-    return mock_module, mock_client
+@contextmanager
+def _mock_claude_cli(response_text: str):
+    """Patch the Claude CLI subprocess to return a preset response.
+
+    Also makes shutil.which("claude") return a truthy path so the
+    availability check passes.
+    """
+    fake_proc = SimpleNamespace(stdout=response_text, stderr="", returncode=0)
+    with patch("src.role_selector.shutil.which", return_value="/usr/bin/claude"), \
+         patch("src.shadow.subprocess.run", return_value=fake_proc) as mock_run:
+        yield mock_run
 
 
-def _make_mock_anthropic_error():
-    """Create a mock anthropic module that raises on create."""
-    mock_module = MagicMock()
-    mock_client = MagicMock()
-    mock_module.Anthropic.return_value = mock_client
-    mock_client.messages.create.side_effect = Exception("API timeout")
-    return mock_module, mock_client
+@contextmanager
+def _mock_claude_cli_error(exc: Exception):
+    """Patch the Claude CLI subprocess to raise on call."""
+    with patch("src.role_selector.shutil.which", return_value="/usr/bin/claude"), \
+         patch("src.shadow.subprocess.run", side_effect=exc) as mock_run:
+        yield mock_run
+
+
+@contextmanager
+def _mock_no_claude_cli():
+    """Patch shutil.which to report the Claude CLI is missing."""
+    with patch("src.role_selector.shutil.which", return_value=None):
+        yield
 
 
 def test_single_role_fit_check():
     """Single candidate should pass AI fitness check."""
-    mock_module, mock_client = _make_mock_anthropic("FIT - Good physical and type match")
-    roles = [SAMPLE_ROLES[0]]
-    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
-        with patch.dict(sys.modules, {"anthropic": mock_module}):
-            selected, rejections = select_best_roles(roles, "Test Project")
+    with _mock_claude_cli("FIT - Good physical and type match"):
+        selected, rejections = select_best_roles([SAMPLE_ROLES[0]], "Test Project")
     assert len(selected) == 1
     assert selected[0][0]["role_name"] == "Jake"
     assert rejections == {}
@@ -55,11 +60,8 @@ def test_single_role_fit_check():
 
 def test_single_role_skip():
     """Single candidate that fails fitness check should be skipped."""
-    mock_module, mock_client = _make_mock_anthropic("SKIP - Requires heavyset build")
-    roles = [SAMPLE_ROLES[0]]
-    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
-        with patch.dict(sys.modules, {"anthropic": mock_module}):
-            selected, rejections = select_best_roles(roles, "Test Project")
+    with _mock_claude_cli("SKIP - Requires heavyset build"):
+        selected, rejections = select_best_roles([SAMPLE_ROLES[0]], "Test Project")
     assert len(selected) == 0
     assert "Jake" in rejections
 
@@ -78,11 +80,8 @@ def test_single_role_skip_with_preamble_still_parsed():
         "- Location: Denver, CO — travel required, pay doesn't cover travel.\n\n"
         "SKIP - Age range 29-49 has no meaningful overlap with actor's 17-29"
     )
-    mock_module, _ = _make_mock_anthropic(preamble_response)
-    roles = [SAMPLE_ROLES[0]]
-    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
-        with patch.dict(sys.modules, {"anthropic": mock_module}):
-            selected, rejections = select_best_roles(roles, "Test Project")
+    with _mock_claude_cli(preamble_response):
+        selected, rejections = select_best_roles([SAMPLE_ROLES[0]], "Test Project")
     assert len(selected) == 0
     assert "Jake" in rejections
     assert "29-49" in rejections["Jake"] or "Age range" in rejections["Jake"]
@@ -97,46 +96,31 @@ def test_single_role_fit_with_preamble_still_parsed():
         "athletic build, LA-based.\n\n"
         "FIT - Age and type match; LA local so no travel concern"
     )
-    mock_module, _ = _make_mock_anthropic(preamble_response)
-    roles = [SAMPLE_ROLES[0]]
-    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
-        with patch.dict(sys.modules, {"anthropic": mock_module}):
-            selected, rejections = select_best_roles(roles, "Test Project")
+    with _mock_claude_cli(preamble_response):
+        selected, rejections = select_best_roles([SAMPLE_ROLES[0]], "Test Project")
     assert len(selected) == 1
     assert selected[0][0]["role_name"] == "Jake"
     assert rejections == {}
 
 
-def test_single_role_no_api_key_returns_directly():
-    """Single candidate without API key should return without check."""
-    roles = [SAMPLE_ROLES[0]]
-    with patch.dict(os.environ, {}, clear=True):
-        os.environ.pop("ANTHROPIC_API_KEY", None)
-        selected, rejections = select_best_roles(roles, "Test Project")
-    assert len(selected) == 1
-    assert selected[0][0]["role_name"] == "Jake"
-    assert rejections == {}
-
-
-def test_no_api_key_falls_back_to_first():
-    """Missing API key should return first role."""
-    with patch.dict(os.environ, {}, clear=True):
-        os.environ.pop("ANTHROPIC_API_KEY", None)
+def test_no_cli_available_skips_all_roles():
+    """Without the Claude CLI on PATH, every role is rejected as 'skipped'."""
+    with _mock_no_claude_cli():
         selected, rejections = select_best_roles(SAMPLE_ROLES, "Test Project")
-    assert len(selected) == 1
-    assert selected[0][0]["role_name"] == "Jake"
-    assert "no API key" in selected[0][1]
-    assert rejections == {}
+    assert selected == []
+    assert set(rejections.keys()) == {"Jake", "Officer Dan", "Tommy"}
+    for reason in rejections.values():
+        assert "Claude CLI" in reason
 
 
 def test_single_selection_parsed():
     """AI selecting one role should parse correctly."""
-    mock_anthropic, _ = _make_mock_anthropic(
-        "SELECTED: 1 - Best physical and type match\nREJECTED: 2 - Age range too high for actor\nREJECTED: 3 - Similar to role 1 but less prominent"
-    )
-    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
-        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
-            selected, rejections = select_best_roles(SAMPLE_ROLES, "Test Project")
+    with _mock_claude_cli(
+        "SELECTED: 1 - Best physical and type match\n"
+        "REJECTED: 2 - Age range too high for actor\n"
+        "REJECTED: 3 - Similar to role 1 but less prominent"
+    ):
+        selected, rejections = select_best_roles(SAMPLE_ROLES, "Test Project")
 
     assert len(selected) == 1
     assert selected[0][0]["role_name"] == "Jake"
@@ -147,12 +131,12 @@ def test_single_selection_parsed():
 
 def test_double_selection_parsed():
     """AI selecting two roles should parse both."""
-    mock_anthropic, _ = _make_mock_anthropic(
-        "SELECTED: 1 - Great leading man fit\nSELECTED: 3 - Also a strong charming type\nREJECTED: 2 - Age range 40-50 is too old"
-    )
-    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
-        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
-            selected, rejections = select_best_roles(SAMPLE_ROLES, "Test Project")
+    with _mock_claude_cli(
+        "SELECTED: 1 - Great leading man fit\n"
+        "SELECTED: 3 - Also a strong charming type\n"
+        "REJECTED: 2 - Age range 40-50 is too old"
+    ):
+        selected, rejections = select_best_roles(SAMPLE_ROLES, "Test Project")
 
     assert len(selected) == 2
     assert selected[0][0]["role_name"] == "Jake"
@@ -162,52 +146,41 @@ def test_double_selection_parsed():
 
 def test_skip_returns_empty_selected():
     """AI returning SKIP should return empty selected list."""
-    mock_anthropic, _ = _make_mock_anthropic(
+    with _mock_claude_cli(
         "SKIP - All roles require age 40+ which doesn't match actor profile"
-    )
-    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
-        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
-            selected, rejections = select_best_roles(SAMPLE_ROLES, "Test Project")
+    ):
+        selected, rejections = select_best_roles(SAMPLE_ROLES, "Test Project")
 
     assert len(selected) == 0
     assert len(rejections) == 3
 
 
-def test_malformed_response_falls_back_to_first():
-    """Unparseable AI response should fall back to first role."""
-    mock_anthropic, _ = _make_mock_anthropic(
-        "I think role 1 is the best choice because..."
-    )
-    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
-        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
-            selected, rejections = select_best_roles(SAMPLE_ROLES, "Test Project")
+def test_malformed_response_skips_all_roles():
+    """Unparseable AI response should reject all roles (safer than fabricating selections)."""
+    with _mock_claude_cli("I think role 1 is the best choice because..."):
+        selected, rejections = select_best_roles(SAMPLE_ROLES, "Test Project")
 
-    assert len(selected) == 1
-    assert selected[0][0]["role_name"] == "Jake"
-    assert "unparseable" in selected[0][1].lower()
-    assert len(rejections) == 2
+    assert selected == []
+    assert set(rejections.keys()) == {"Jake", "Officer Dan", "Tommy"}
 
 
-def test_api_failure_falls_back_to_first():
-    """API exception should fall back to first role."""
-    mock_anthropic, _ = _make_mock_anthropic_error()
-    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
-        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
-            selected, rejections = select_best_roles(SAMPLE_ROLES, "Test Project")
+def test_api_failure_skips_all_roles():
+    """CLI subprocess failure should reject all roles."""
+    with _mock_claude_cli_error(Exception("CLI timeout")):
+        selected, rejections = select_best_roles(SAMPLE_ROLES, "Test Project")
 
-    assert len(selected) == 1
-    assert selected[0][0]["role_name"] == "Jake"
-    assert "API timeout" in selected[0][1]
+    assert selected == []
+    assert set(rejections.keys()) == {"Jake", "Officer Dan", "Tommy"}
+    for reason in rejections.values():
+        assert "CLI timeout" in reason
 
 
 def test_three_selections_all_kept():
     """AI returning 3 SELECTED lines should keep all 3."""
-    mock_anthropic, _ = _make_mock_anthropic(
+    with _mock_claude_cli(
         "SELECTED: 1 - Great fit\nSELECTED: 2 - Also good\nSELECTED: 3 - Third pick"
-    )
-    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
-        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
-            selected, rejections = select_best_roles(SAMPLE_ROLES, "Test Project")
+    ):
+        selected, rejections = select_best_roles(SAMPLE_ROLES, "Test Project")
 
     assert len(selected) == 3
     assert rejections == {}
@@ -236,11 +209,9 @@ _BLADES_DESC = (
 
 def test_override_local_hire_when_pay_clears_threshold_single_role():
     """AI SKIP citing 'local hire' should be overridden when pay clears threshold."""
-    mock_module, _ = _make_mock_anthropic(f"SKIP - {_BLADES_REASON}")
     role = {"role_name": "Ryan", "description": _BLADES_DESC}
-    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
-        with patch.dict(sys.modules, {"anthropic": mock_module}):
-            selected, rejections = select_best_roles([role], "BLADES OF LOVE")
+    with _mock_claude_cli(f"SKIP - {_BLADES_REASON}"):
+        selected, rejections = select_best_roles([role], "BLADES OF LOVE")
     assert len(selected) == 1, f"expected override → selected, got rejections={rejections}"
     assert selected[0][0]["role_name"] == "Ryan"
     assert "clears threshold" in selected[0][1].lower()
@@ -249,39 +220,33 @@ def test_override_local_hire_when_pay_clears_threshold_single_role():
 
 def test_no_override_when_pay_below_threshold():
     """Local-hire SKIP should stand if pay is too low for the location tier."""
-    mock_module, _ = _make_mock_anthropic("SKIP - Atlanta local hire only")
     role = {
         "role_name": "Bob",
         "description": "Local hire only to Atlanta, GA. $100/day for 1 day.",
     }
-    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
-        with patch.dict(sys.modules, {"anthropic": mock_module}):
-            selected, rejections = select_best_roles([role], "Cheap Atlanta")
+    with _mock_claude_cli("SKIP - Atlanta local hire only"):
+        selected, rejections = select_best_roles([role], "Cheap Atlanta")
     assert selected == []
     assert "Bob" in rejections
 
 
 def test_no_override_for_legitimate_skip_reason():
     """SKIP for height/skills/etc. must never be overridden, even with travel-pay."""
-    mock_module, _ = _make_mock_anthropic("SKIP - Requires 6'4\" minimum, actor is 6'0\"")
     role = {
         "role_name": "Tall",
         "description": "Must be 6'4\"+. Local hire only to LA. $5000 total.",
     }
-    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
-        with patch.dict(sys.modules, {"anthropic": mock_module}):
-            selected, rejections = select_best_roles([role], "Tall People Project")
+    with _mock_claude_cli("SKIP - Requires 6'4\" minimum, actor is 6'0\""):
+        selected, rejections = select_best_roles([role], "Tall People Project")
     assert selected == []
     assert "Tall" in rejections
 
 
 def test_no_override_in_unpaid_mode():
     """Unpaid mode has no pay-threshold rules; the override must not fire."""
-    mock_module, _ = _make_mock_anthropic(f"SKIP - {_BLADES_REASON}")
     role = {"role_name": "Ryan", "description": _BLADES_DESC}
-    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
-        with patch.dict(sys.modules, {"anthropic": mock_module}):
-            selected, rejections = select_best_roles([role], "BLADES", mode="unpaid")
+    with _mock_claude_cli(f"SKIP - {_BLADES_REASON}"):
+        selected, rejections = select_best_roles([role], "BLADES", mode="unpaid")
     assert selected == []
     assert "Ryan" in rejections
 
@@ -304,10 +269,8 @@ def test_override_in_multi_role_path():
         "REJECTED: 1 - Female-only, actor is male\n"
         f"REJECTED: 2 - {_BLADES_REASON}"
     )
-    mock_module, _ = _make_mock_anthropic(response)
-    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
-        with patch.dict(sys.modules, {"anthropic": mock_module}):
-            selected, rejections = select_best_roles(roles, "BLADES OF LOVE")
+    with _mock_claude_cli(response):
+        selected, rejections = select_best_roles(roles, "BLADES OF LOVE")
     selected_names = [s[0]["role_name"] for s in selected]
     assert "Ryan" in selected_names, f"Ryan should have been overridden; got {selected_names} / {rejections}"
     assert "Ava" in rejections  # legit female-only rejection should stand
@@ -323,11 +286,9 @@ SAMPLE_ROLE = {
 
 def test_analyze_submit_no_requirements():
     """No special requirements should return SUBMIT."""
-    mock_anthropic, _ = _make_mock_anthropic("ACTION: SUBMIT")
     role = {"role_name": "Jake", "description": "Male lead, 25-30."}
-    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
-        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
-            result = analyze_submission_requirements(role, "Test Project")
+    with _mock_claude_cli("ACTION: SUBMIT"):
+        result = analyze_submission_requirements(role, "Test Project")
     assert result["action"] == "SUBMIT"
     assert result["note"] is None
     assert result["needs_input_reason"] is None
@@ -335,12 +296,10 @@ def test_analyze_submit_no_requirements():
 
 def test_analyze_submit_with_note():
     """Answerable requirements should return SUBMIT_WITH_NOTE."""
-    mock_anthropic, _ = _make_mock_anthropic(
+    with _mock_claude_cli(
         "ACTION: SUBMIT_WITH_NOTE\nNOTE: I'm LA local with reliable transportation and open availability."
-    )
-    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
-        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
-            result = analyze_submission_requirements(SAMPLE_ROLE, "Test Project")
+    ):
+        result = analyze_submission_requirements(SAMPLE_ROLE, "Test Project")
     assert result["action"] == "SUBMIT_WITH_NOTE"
     assert "LA local" in result["note"]
     assert result["needs_input_reason"] is None
@@ -348,39 +307,37 @@ def test_analyze_submit_with_note():
 
 def test_analyze_needs_input():
     """Unanswerable requirements should return NEEDS_INPUT."""
-    mock_anthropic, _ = _make_mock_anthropic(
-        "ACTION: NEEDS_INPUT\nREASON: Casting requires SAG-AFTRA number"
-    )
     role = {"role_name": "Jake", "description": "Must provide SAG-AFTRA number."}
-    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
-        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
-            result = analyze_submission_requirements(role, "Test Project")
+    with _mock_claude_cli("ACTION: NEEDS_INPUT\nREASON: Casting requires SAG-AFTRA number"):
+        result = analyze_submission_requirements(role, "Test Project")
     assert result["action"] == "NEEDS_INPUT"
     assert result["note"] is None
     assert "SAG-AFTRA" in result["needs_input_reason"]
 
 
 def test_analyze_api_failure_raises():
-    """API failure should raise to stop the run."""
-    mock_anthropic, _ = _make_mock_anthropic_error()
-    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
-        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
-            with pytest.raises(Exception, match="API timeout"):
-                analyze_submission_requirements(SAMPLE_ROLE, "Test Project")
+    """CLI subprocess failure should raise to stop the run."""
+    with _mock_claude_cli_error(Exception("CLI timeout")):
+        with pytest.raises(Exception, match="CLI timeout"):
+            analyze_submission_requirements(SAMPLE_ROLE, "Test Project")
 
 
-def test_analyze_no_api_key_raises():
-    """Missing API key should raise to stop the run."""
-    with patch.dict(os.environ, {}, clear=True):
-        os.environ.pop("ANTHROPIC_API_KEY", None)
-        with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY not set"):
+def test_analyze_no_cli_raises():
+    """Missing Claude CLI should raise to stop the run."""
+    with _mock_no_claude_cli():
+        with pytest.raises(RuntimeError, match="Claude CLI not on PATH"):
             analyze_submission_requirements(SAMPLE_ROLE, "Test Project")
 
 
 def test_analyze_empty_description_defaults_to_submit():
-    """Empty description should return SUBMIT without API call."""
+    """Empty description should return SUBMIT without invoking the CLI."""
     role = {"role_name": "Jake", "description": ""}
-    result = analyze_submission_requirements(role, "Test Project")
+    # CLI must still be reported present so the early "no CLI" guard doesn't fire,
+    # but no subprocess call should be made.
+    with patch("src.role_selector.shutil.which", return_value="/usr/bin/claude"), \
+         patch("src.shadow.subprocess.run") as mock_run:
+        result = analyze_submission_requirements(role, "Test Project")
+        assert mock_run.call_count == 0
     assert result["action"] == "SUBMIT"
 
 
@@ -389,31 +346,27 @@ def test_analyze_empty_description_defaults_to_submit():
 
 def test_analyze_with_confirmed_dates():
     """When confirmed_dates is provided, AI should include dates in note."""
-    mock_anthropic, _ = _make_mock_anthropic(
+    with _mock_claude_cli(
         "ACTION: SUBMIT_WITH_NOTE\nNOTE: I have full availability April 5-12, 2026. LA local with reliable transportation."
-    )
-    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
-        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
-            result = analyze_submission_requirements(
-                {"role_name": "Jake", "description": "Must note availability April 5-12."},
-                "Test Project",
-                confirmed_dates="2026-04-05 to 2026-04-12",
-            )
+    ):
+        result = analyze_submission_requirements(
+            {"role_name": "Jake", "description": "Must note availability April 5-12."},
+            "Test Project",
+            confirmed_dates="2026-04-05 to 2026-04-12",
+        )
     assert result["action"] == "SUBMIT_WITH_NOTE"
     assert "April 5-12" in result["note"]
 
 
 def test_analyze_without_confirmed_dates():
     """Without confirmed_dates, AI should still generate notes for other requirements."""
-    mock_anthropic, _ = _make_mock_anthropic(
+    with _mock_claude_cli(
         "ACTION: SUBMIT_WITH_NOTE\nNOTE: I'm LA local with reliable transportation."
-    )
-    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
-        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
-            result = analyze_submission_requirements(
-                {"role_name": "Jake", "description": "LA local hire only."},
-                "Test Project",
-            )
+    ):
+        result = analyze_submission_requirements(
+            {"role_name": "Jake", "description": "LA local hire only."},
+            "Test Project",
+        )
     assert result["action"] == "SUBMIT_WITH_NOTE"
     assert "LA local" in result["note"]
 

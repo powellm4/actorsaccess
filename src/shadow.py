@@ -23,7 +23,9 @@ import json
 import logging
 import os
 import re
+import shutil
 import sqlite3
+import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -418,11 +420,35 @@ def _run_deepseek_task(
 
 
 def _shadow_enabled() -> bool:
-    if os.environ.get("SHADOW_ENABLED") == "0":
-        return False
-    if not os.environ.get("DEEPSEEK_API_KEY"):
-        return False
-    return True
+    # Paused while migrating Claude decisions from API to CLI. The CLI does
+    # not surface token counts and we don't want to keep paying DeepSeek for
+    # background comparisons during the migration. Flip back to the env-var
+    # gated logic below when ready to re-enable.
+    return False
+    # if os.environ.get("SHADOW_ENABLED") == "0":
+    #     return False
+    # if not os.environ.get("DEEPSEEK_API_KEY"):
+    #     return False
+    # return True
+
+
+def _run_claude_cli(prompt: str, model: str) -> str:
+    """Invoke the Claude CLI in headless print mode and return its stdout.
+
+    Uses the locally-authenticated `claude` CLI so calls bill against the
+    signed-in paid plan rather than an API key. The CLI must be on PATH and
+    already logged in (in CI, restore ~/.claude/.credentials.json from a
+    secret before the run).
+    """
+    proc = subprocess.run(
+        ["claude", "-p", "--model", model, "--output-format", "text"],
+        input=prompt,
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=True,
+    )
+    return proc.stdout
 
 
 def shadowed_completion(
@@ -430,7 +456,7 @@ def shadowed_completion(
     *,
     call_site: str,
     max_tokens: int,
-    claude_client,
+    claude_client=None,
     claude_model: str = "claude-sonnet-4-6",
     extract_verdict: Callable[[str], str | None] | None,
     platform: str | None = None,
@@ -439,14 +465,20 @@ def shadowed_completion(
     role_name: str | None = None,
     run_id: int | None = None,
 ) -> str:
-    """Call Claude synchronously, fire DeepSeek shadows in background, return Claude's text.
+    """Invoke Claude via the locally-logged-in CLI and return its text.
 
-    See module docstring for the kill switch. DeepSeek failures never bubble
-    up to the caller — they land in ds_*_error.
+    Historically this also fired DeepSeek background comparisons; that path
+    is paused (see _shadow_enabled). The `claude_client` and `max_tokens`
+    parameters are kept for call-site compatibility but unused: the CLI
+    handles authentication via the signed-in plan, and output length is
+    controlled by the prompt itself.
 
     platform/mode/run_id default to the values set by set_run_context() (or
     current_platform() context manager) when not passed explicitly.
     """
+    # claude_client and max_tokens are accepted for call-site compatibility.
+    # claude_client is unused (the CLI handles auth). max_tokens is only read
+    # when shadow eval is re-enabled and DeepSeek background tasks run.
     # Fill in any missing context from the module-level run context.
     if platform is None or mode is None or run_id is None:
         ctx_platform, ctx_mode, ctx_run_id = get_run_context()
@@ -456,16 +488,12 @@ def shadowed_completion(
             mode = ctx_mode
         if run_id is None:
             run_id = ctx_run_id
-    # Call Claude synchronously. If this raises, it propagates — exactly the
-    # behavior the caller had before the wrapper existed.
+    # Invoke the Claude CLI synchronously. If this raises (CLI missing, auth
+    # expired, non-zero exit, timeout), it propagates — callers in
+    # role_selector.py already wrap these in their own try/except.
     claude_started = time.monotonic()
-    response = claude_client.messages.create(
-        model=claude_model,
-        max_tokens=max_tokens,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    claude_text = _run_claude_cli(prompt, claude_model)
     claude_latency_ms = int((time.monotonic() - claude_started) * 1000)
-    claude_text = response.content[0].text
 
     if not _shadow_enabled():
         return claude_text
@@ -482,9 +510,9 @@ def shadowed_completion(
                 call_site, e,
             )
 
-    usage = getattr(response, "usage", None)
-    claude_input_tokens = getattr(usage, "input_tokens", None) if usage else None
-    claude_output_tokens = getattr(usage, "output_tokens", None) if usage else None
+    # CLI does not surface token usage; leave columns null.
+    claude_input_tokens = None
+    claude_output_tokens = None
 
     # Insert partial row. If the DB insert fails (e.g. table missing), log and
     # bail — we still return Claude's text. We never want shadow to crash prod.
