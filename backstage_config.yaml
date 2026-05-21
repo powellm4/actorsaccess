@@ -9,9 +9,9 @@ saved_search: "acting"
 submission:
   default_note: ""
   video_reel_ids:
+    - 50086411  # IMG_1514
     - 49385977  # IMG_5975
     - 49379289  # IMG_5964
-    - 49275576  # IMG_5721
   resume_id: 49686667  # marshall_powell_acting_resume.pdf
   # Cover letter text is hardcoded in src/backstage/main.py SELFTAPE_COVER_LETTER.
 
