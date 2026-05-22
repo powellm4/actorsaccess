@@ -16,6 +16,7 @@ from src import overrides as overrides_mod
 from src.backstage.config import load_backstage_config, BackstageConfigError
 from src.backstage.client import BackstageClient
 from src.database import Database
+from src.override_email import send_override_results_email
 from src.calendar_check import check_availability, parse_shoot_dates, parse_all_dates
 from src.filters import _is_background, _is_court_tv, _is_ugc, _is_unpaid, _COURT_TV_PATTERN, is_lead_or_supporting
 from src.role_selector import (
@@ -168,36 +169,38 @@ def _apply_backstage_override(
     issue_num = override["issue_number"]
     mode = override["mode"]
 
-    def _finish(outcome: str, detail: str, comment: str):
+    def _finish(outcome: str, detail: str, comment: str) -> dict:
         db.record_override_outcome(
             issue_number=issue_num, project_name=project_name, role_name=role_name,
             platform="backstage", mode=mode, outcome=outcome, detail=detail,
         )
         db.clear_pending_override(project_name, role_name, "backstage", mode)
         overrides_mod.comment_and_close(overrides_cfg["repo"], issue_num, comment, token)
+        return {
+            "issue_number": issue_num, "project_name": project_name,
+            "role_name": role_name, "platform": "backstage", "mode": mode,
+            "outcome": outcome, "detail": detail,
+        }
 
     role_url = db.get_known_project_url(role_name, project_name, "backstage")
     if not role_url:
         logger.warning(f"[OVERRIDE] No role URL on file for {project_name} — {role_name}")
-        _finish(
+        return _finish(
             "failed", "Role URL not on file in db.",
             "Failed: no role URL on file. The role may have been removed before it was queued.",
         )
-        return
 
     try:
         production = client.fetch_role_detail(role_url)
     except Exception as e:
         logger.error(f"[OVERRIDE] Backstage role-detail fetch raised: {e}")
-        _finish("failed", f"role-detail fetch raised: {e}", f"Failed: could not load role detail page ({e}).")
-        return
+        return _finish("failed", f"role-detail fetch raised: {e}", f"Failed: could not load role detail page ({e}).")
 
     if not production:
-        _finish(
+        return _finish(
             "not_found", "Role detail unavailable (page gone or Cloudflare blocked).",
             "Role detail page no longer loads. (The casting call may have been pulled.)",
         )
-        return
 
     project_id = production.get("id")
     matched = next(
@@ -205,35 +208,32 @@ def _apply_backstage_override(
         None,
     )
     if not matched:
-        _finish(
+        return _finish(
             "not_found",
             f"Role '{role_name}' not on detail page roles list.",
             "Role no longer visible on the project page. (The role may have been removed.)",
         )
-        return
 
     role_id = matched.get("id")
     if role_id is None:
-        _finish(
+        return _finish(
             "failed", "Matched role has no id field.",
             "Failed: role found on page but had no usable id.",
         )
-        return
 
     unique_id = f"backstage_{project_id}_{role_id}"
 
     if db.is_applied(unique_id):
         db.delete_rejection(role_name, project_name, "backstage")
         db.delete_flagged(role_name, project_name, "backstage")
-        _finish(
+        return _finish(
             "applied", "Already applied — no action needed",
             "Already applied — no action needed.",
         )
-        return
 
     if dry_run:
         print(f"\n[OVERRIDE - DRY RUN] would re-apply: {project_name} — {role_name}")
-        return
+        return None
 
     submission_cfg = cfg.get("submission", {})
     media_ids = list(submission_cfg.get("video_reel_ids", []))
@@ -245,20 +245,17 @@ def _apply_backstage_override(
         result = client.submit_for_role(role_id, note="", media_ids=media_ids, answers=None)
     except Exception as e:
         logger.error(f"[OVERRIDE] Backstage submit raised on {project_name} / {role_name}: {e}")
-        _finish("failed", str(e), f"Failed to apply: {e}")
-        return
+        return _finish("failed", str(e), f"Failed to apply: {e}")
 
     if isinstance(result, dict) and result.get("_rejected"):
         reason = result.get("reason", "Unknown rejection")
-        _finish("failed", reason, f"Failed to apply: Backstage rejected the submission ({reason}).")
-        return
+        return _finish("failed", reason, f"Failed to apply: Backstage rejected the submission ({reason}).")
 
     if not result:
-        _finish(
+        return _finish(
             "failed", "submit_for_role returned None",
             "Failed to apply: submission did not complete.",
         )
-        return
 
     db.record_application(
         unique_id, project_name, role_name,
@@ -269,7 +266,7 @@ def _apply_backstage_override(
     )
     db.delete_rejection(role_name, project_name, "backstage")
     db.delete_flagged(role_name, project_name, "backstage")
-    _finish(
+    return _finish(
         "applied", "Submitted successfully via override",
         f"Applied successfully on **{project_name}** — *{role_name}*.",
     )
@@ -299,8 +296,16 @@ def process_backstage_overrides(
         return
 
     logger.info(f"[OVERRIDE] Processing {len(pending)} Backstage override(s) for mode={mode}")
+    outcomes: list[dict] = []
     for override in pending:
-        _apply_backstage_override(cfg, db, client, override, overrides_cfg, token, dry_run)
+        result = _apply_backstage_override(cfg, db, client, override, overrides_cfg, token, dry_run)
+        if result:
+            outcomes.append(result)
+
+    if outcomes and not dry_run:
+        send_override_results_email(
+            outcomes, platform="backstage", mode=mode, repo=overrides_cfg.get("repo"),
+        )
 
 
 def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid"):
