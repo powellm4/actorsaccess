@@ -13,6 +13,7 @@ from src import overrides as overrides_mod
 from src.config import load_config, ConfigError
 from src.database import Database
 from src.browser import ActorsAccessBrowser
+from src.override_email import send_override_results_email
 from src.filters import role_matches, project_matches, is_sag_only, is_lead_or_supporting
 from src.role_selector import (
     TRANSIENT_REJECTION_PREFIX,
@@ -66,41 +67,45 @@ def _apply_aa_override(
     issue_num = override["issue_number"]
     mode = override["mode"]
 
-    def _finish(outcome: str, detail: str, comment: str):
+    def _finish(outcome: str, detail: str, comment: str) -> dict:
         db.record_override_outcome(
             issue_number=issue_num, project_name=project_name, role_name=role_name,
             platform="aa", mode=mode, outcome=outcome, detail=detail,
         )
         db.clear_pending_override(project_name, role_name, "aa", mode)
         overrides_mod.comment_and_close(overrides_cfg["repo"], issue_num, comment, token)
+        return {
+            "issue_number": issue_num, "project_name": project_name,
+            "role_name": role_name, "platform": "aa", "mode": mode,
+            "outcome": outcome, "detail": detail,
+        }
 
     project_url = db.get_known_project_url(role_name, project_name, "aa")
     if not project_url:
         logger.warning(f"[OVERRIDE] No project URL on file for {project_name} — {role_name}")
-        _finish("failed", "Project URL not on file in db.",
-                "Failed: no project URL on file. The role may have been removed before it was queued.")
-        return
+        return _finish(
+            "failed", "Project URL not on file in db.",
+            "Failed: no project URL on file. The role may have been removed before it was queued.",
+        )
 
     if dry_run:
         print(f"\n[OVERRIDE - DRY RUN] would re-apply: {project_name} — {role_name}")
         # Don't dequeue in dry-run so the real run still picks it up.
-        return
+        return None
 
     try:
         roles, _ = browser.scrape_roles_on_project(project_url)
     except Exception as e:
         logger.error(f"[OVERRIDE] Scrape failed for {project_url}: {e}")
-        _finish("failed", f"Scrape failed: {e}", f"Failed to scrape project page: {e}")
-        return
+        return _finish("failed", f"Scrape failed: {e}", f"Failed to scrape project page: {e}")
 
     matched = next((r for r in roles if r["role_name"] == role_name), None)
     if not matched:
-        _finish(
+        return _finish(
             "not_found",
             "Role no longer visible on project page",
             "Role no longer visible on the project page. (The breakdown may have been pulled or the role removed.)",
         )
-        return
 
     bid_match = re.search(r"breakdown=(\d+)", project_url)
     breakdown_id = bid_match.group(1) if bid_match else f"override{issue_num}"
@@ -109,12 +114,11 @@ def _apply_aa_override(
     if db.is_applied(unique_id):
         db.delete_rejection(role_name, project_name, "aa")
         db.delete_flagged(role_name, project_name, "aa")
-        _finish(
+        return _finish(
             "applied",
             "Already applied — no action needed",
             "Already applied — no action needed.",
         )
-        return
 
     sub_cfg = cfg["submission"].copy()
     # Apply Anyway = plain submit, no special note (per the brainstorm decision
@@ -139,17 +143,16 @@ def _apply_aa_override(
         )
         db.delete_rejection(role_name, project_name, "aa")
         db.delete_flagged(role_name, project_name, "aa")
-        _finish(
+        return _finish(
             "applied",
             "Submitted successfully via override",
             f"Applied successfully on **{project_name}** — *{role_name}*.",
         )
-    else:
-        _finish(
-            "failed",
-            err_detail,
-            f"Failed to apply: {err_detail}",
-        )
+    return _finish(
+        "failed",
+        err_detail,
+        f"Failed to apply: {err_detail}",
+    )
 
 
 def process_aa_overrides(
@@ -174,8 +177,16 @@ def process_aa_overrides(
         return
 
     logger.info(f"[OVERRIDE] Processing {len(pending)} AA override(s) for mode={mode}")
+    outcomes: list[dict] = []
     for override in pending:
-        _apply_aa_override(cfg, db, browser, override, overrides_cfg, token, dry_run)
+        result = _apply_aa_override(cfg, db, browser, override, overrides_cfg, token, dry_run)
+        if result:
+            outcomes.append(result)
+
+    if outcomes and not dry_run:
+        send_override_results_email(
+            outcomes, platform="aa", mode=mode, repo=overrides_cfg.get("repo"),
+        )
 
 
 def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid"):
