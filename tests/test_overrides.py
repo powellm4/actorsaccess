@@ -89,9 +89,9 @@ def test_build_override_url_includes_label_and_encoded_body():
         platform="aa",
         mode="paid",
     )
-    # www.github.com (not bare github.com) so iOS Universal Links don't
-    # hijack the link into the GitHub mobile app.
-    assert url.startswith("https://www.github.com/powellm4/aa-overrides/issues/new?")
+    # Bare github.com (not www.) so the GitHub mobile app claims the link
+    # via Universal/App Links and opens it while signed in.
+    assert url.startswith("https://github.com/powellm4/aa-overrides/issues/new?")
     # Both the label and the body fields show up in URL-encoded form.
     assert "labels=apply-anyway" in url
     assert "title=" in url
