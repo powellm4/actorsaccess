@@ -482,7 +482,7 @@ def test_passed_card_includes_apply_anyway_link_when_overrides_configured():
     assert "Apply anyway" in html
     # Link routes through /login (return_to the prefilled issue) so a
     # signed-out tap on the private repo gets a sign-in page, not a 404.
-    assert "github.com/login?return_to=%2Fpowellm4%2Faa-overrides%2Fissues%2Fnew" in html
+    assert "www.github.com/login?return_to=%2Fpowellm4%2Faa-overrides%2Fissues%2Fnew" in html
     # The label and the role identifiers must be in the (encoded) return_to.
     assert "labels%3Dapply-anyway" in html
     assert "Acme" in html
@@ -493,7 +493,7 @@ def test_flagged_card_includes_apply_anyway_link_when_overrides_configured():
     data = {"applications": [], "rejections": [], "flagged": [_flagged_role()], "runs": []}
     html = build_digest_html(data, overrides_cfg=OVERRIDES_CFG)
     assert "Apply anyway" in html
-    assert "github.com/login?return_to=%2Fpowellm4%2Faa-overrides%2Fissues%2Fnew" in html
+    assert "www.github.com/login?return_to=%2Fpowellm4%2Faa-overrides%2Fissues%2Fnew" in html
 
 
 def test_calendar_conflict_card_includes_apply_anyway_link():
