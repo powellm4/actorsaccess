@@ -48,11 +48,10 @@ def build_override_url(
     Clicking it opens the GitHub issue creation page; the user just hits
     "Submit new issue" to queue the override.
 
-    Uses `www.github.com` rather than `github.com` so iOS Universal Links
-    don't hijack the tap into the GitHub mobile app (which drops the
-    prefilled query params and lands on its home screen). `www.github.com`
-    redirects to `github.com` on the web layer, so desktop / Android /
-    iOS-without-the-app all still land on the prefilled issue page.
+    Uses bare `github.com` (not `www.github.com`) so the link is claimed by
+    the GitHub mobile app's Universal/App Links: on a phone the tap opens the
+    app, where the user is already signed in. The override repo is private,
+    so a signed-out browser tab would otherwise hit a bare 404.
     """
     body = (
         f"project_name: {project_name}\n"
@@ -65,7 +64,7 @@ def build_override_url(
         "title": f"Apply anyway: {role_name} @ {project_name}",
         "body": body,
     })
-    return f"https://www.github.com/{repo}/issues/new?{params}"
+    return f"https://github.com/{repo}/issues/new?{params}"
 
 
 # --- Issue body parser ---
