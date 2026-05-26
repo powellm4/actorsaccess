@@ -10,7 +10,12 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from src.database import Database
-from src.digest import build_digest_html, build_email_message, gather_digest_data
+from src.digest import (
+    _ensure_override_label,
+    build_digest_html,
+    build_email_message,
+    gather_digest_data,
+)
 
 
 @pytest.fixture
@@ -504,6 +509,31 @@ def test_calendar_conflict_card_includes_apply_anyway_link():
     }
     html = build_digest_html(data, overrides_cfg=OVERRIDES_CFG)
     assert "Apply anyway" in html
+
+
+def test_ensure_override_label_creates_label_when_token_present():
+    """The digest can be sent before the bot's ingest creates the label.
+    Since GitHub 404s a prefilled new-issue URL whose label doesn't exist,
+    the digest path must guarantee the label is present first."""
+    with patch.dict(os.environ, {"OVERRIDE_GITHUB_TOKEN": "tok"}), \
+            patch("src.digest.ensure_label_exists") as mock_ensure:
+        _ensure_override_label(OVERRIDES_CFG)
+    mock_ensure.assert_called_once_with("powellm4/aa-overrides", "apply-anyway", "tok")
+
+
+def test_ensure_override_label_noop_without_token():
+    env = {k: v for k, v in os.environ.items() if k != "OVERRIDE_GITHUB_TOKEN"}
+    with patch.dict(os.environ, env, clear=True), \
+            patch("src.digest.ensure_label_exists") as mock_ensure:
+        _ensure_override_label(OVERRIDES_CFG)
+    mock_ensure.assert_not_called()
+
+
+def test_ensure_override_label_swallows_errors():
+    """Never block sending the digest if label creation fails."""
+    with patch.dict(os.environ, {"OVERRIDE_GITHUB_TOKEN": "tok"}), \
+            patch("src.digest.ensure_label_exists", side_effect=RuntimeError("boom")):
+        _ensure_override_label(OVERRIDES_CFG)  # must not raise
 
 
 def test_no_apply_anyway_links_when_overrides_not_configured():

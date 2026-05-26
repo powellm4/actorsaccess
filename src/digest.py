@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 from src.archive import render_archive_html
 from src.database import Database
-from src.overrides import build_override_url
+from src.overrides import build_override_url, ensure_label_exists
 from src.shadow_report import render_digest_block
 
 logger = logging.getLogger("digest")
@@ -451,6 +451,24 @@ def _load_overrides_cfg() -> dict | None:
     return None
 
 
+def _ensure_override_label(overrides_cfg: dict | None) -> None:
+    """Make sure the override label exists in the repo before the digest goes
+    out. GitHub's prefilled new-issue URL returns a 404 when its `labels=`
+    param names a label the repo doesn't have yet, so an "Apply anyway" button
+    pointing at a not-yet-created label lands on a 404. The bot also creates
+    the label lazily during ingest, but the digest can be sent first. Best
+    effort — never block sending the digest on this."""
+    if not overrides_cfg:
+        return
+    token = os.environ.get("OVERRIDE_GITHUB_TOKEN")
+    if not token:
+        return
+    try:
+        ensure_label_exists(overrides_cfg["repo"], overrides_cfg["label"], token)
+    except Exception as e:
+        logger.warning(f"Could not ensure override label exists for digest: {e}")
+
+
 def main():
     """Entry point for the digest workflow."""
     parser = argparse.ArgumentParser(description="Send daily casting digest email")
@@ -470,6 +488,7 @@ def main():
     try:
         data = gather_digest_data(db, mode=args.mode)
         overrides_cfg = _load_overrides_cfg()
+        _ensure_override_label(overrides_cfg)
         html = build_digest_html(data, mode=args.mode, overrides_cfg=overrides_cfg)
         # Only attach the archive when we have no live site to point at.
         # When ARCHIVE_SITE_URL is configured, the body already links to it.
