@@ -80,6 +80,18 @@ def test_parse_issue_body_rejects_unknown_mode():
 
 # --- build_override_url ---
 
+def _decode_issue_url(login_url):
+    """Unwrap a /login?return_to=<issue url> link into the inner issue URL.
+
+    parse_qs decodes the return_to value once — exactly what GitHub does when
+    it issues the post-login redirect — leaving the single-encoded issue URL.
+    """
+    from urllib.parse import urlparse, parse_qs
+
+    qs = parse_qs(urlparse(login_url).query)
+    return qs["return_to"][0]
+
+
 def test_build_override_url_includes_label_and_encoded_body():
     url = build_override_url(
         repo="powellm4/aa-overrides",
@@ -89,24 +101,26 @@ def test_build_override_url_includes_label_and_encoded_body():
         platform="aa",
         mode="paid",
     )
-    # Bare github.com (not www.) so the GitHub mobile app claims the link
-    # via Universal/App Links and opens it while signed in.
-    assert url.startswith("https://github.com/powellm4/aa-overrides/issues/new?")
+    # The link routes through the public /login page so a signed-out tap on
+    # the private override repo gets a sign-in prompt instead of a bare 404.
+    assert url.startswith("https://github.com/login?return_to=")
+    # Unwrapping return_to yields the prefilled new-issue URL.
+    inner = _decode_issue_url(url)
+    assert inner.startswith("/powellm4/aa-overrides/issues/new?")
     # Both the label and the body fields show up in URL-encoded form.
-    assert "labels=apply-anyway" in url
-    assert "title=" in url
-    assert "body=" in url
-    # Spaces and slashes get encoded — verify a couple of fragments.
-    assert "Acme" in url
+    assert "labels=apply-anyway" in inner
+    assert "title=" in inner
+    assert "body=" in inner
+    assert "Acme" in inner
     # The body contains the four key/value lines URL-encoded.
-    assert "project_name" in url
-    assert "role_name" in url
-    assert "platform" in url
-    assert "mode" in url
+    assert "project_name" in inner
+    assert "role_name" in inner
+    assert "platform" in inner
+    assert "mode" in inner
 
 
 def test_build_override_url_round_trips_through_parse():
-    """URL → encoded body → parse should round-trip cleanly."""
+    """URL → return_to → encoded body → parse should round-trip cleanly."""
     from urllib.parse import urlparse, parse_qs
 
     url = build_override_url(
@@ -115,7 +129,8 @@ def test_build_override_url_round_trips_through_parse():
         role_name="Lead — Hero",
         platform="backstage", mode="unpaid",
     )
-    qs = parse_qs(urlparse(url).query)
+    inner = _decode_issue_url(url)
+    qs = parse_qs(urlparse(inner).query)
     body_text = qs["body"][0]
     parsed = parse_issue_body(body_text)
     assert parsed["project_name"] == "My Project: A Story"
