@@ -48,10 +48,13 @@ def build_override_url(
     Clicking it opens the GitHub issue creation page; the user just hits
     "Submit new issue" to queue the override.
 
-    Uses bare `github.com` (not `www.github.com`) so the link is claimed by
-    the GitHub mobile app's Universal/App Links: on a phone the tap opens the
-    app, where the user is already signed in. The override repo is private,
-    so a signed-out browser tab would otherwise hit a bare 404.
+    The override repo is private, so a signed-out browser tab would hit a
+    bare 404 (GitHub hides private repos rather than prompting to sign in).
+    To avoid that, the link points at the public `/login` page with the
+    prefilled issue path as `return_to`: a signed-out tap lands on the sign-in
+    page and is forwarded to the issue afterward, while an already-signed-in
+    tap is forwarded straight through. The prefill survives because GitHub
+    decodes `return_to` once when issuing the post-login redirect.
     """
     body = (
         f"project_name: {project_name}\n"
@@ -64,7 +67,9 @@ def build_override_url(
         "title": f"Apply anyway: {role_name} @ {project_name}",
         "body": body,
     })
-    return f"https://github.com/{repo}/issues/new?{params}"
+    issue_path = f"/{repo}/issues/new?{params}"
+    return_to = urllib.parse.quote(issue_path, safe="")
+    return f"https://github.com/login?return_to={return_to}"
 
 
 # --- Issue body parser ---
