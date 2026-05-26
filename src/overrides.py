@@ -55,6 +55,13 @@ def build_override_url(
     page and is forwarded to the issue afterward, while an already-signed-in
     tap is forwarded straight through. The prefill survives because GitHub
     decodes `return_to` once when issuing the post-login redirect.
+
+    The host is `www.github.com`, not bare `github.com`: bare `github.com`
+    links are claimed by the GitHub mobile app's Universal Links, so a phone
+    tap opens the app, which ignores the `/login?return_to` handoff. The `www.`
+    host isn't claimed, so the tap opens in the browser; its 301 to
+    `github.com/login` happens server-side (Universal Links don't fire on
+    redirects), so it stays in the browser.
     """
     body = (
         f"project_name: {project_name}\n"
@@ -69,7 +76,7 @@ def build_override_url(
     })
     issue_path = f"/{repo}/issues/new?{params}"
     return_to = urllib.parse.quote(issue_path, safe="")
-    return f"https://github.com/login?return_to={return_to}"
+    return f"https://www.github.com/login?return_to={return_to}"
 
 
 # --- Issue body parser ---

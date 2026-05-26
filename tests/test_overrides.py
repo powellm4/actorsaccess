@@ -103,7 +103,8 @@ def test_build_override_url_includes_label_and_encoded_body():
     )
     # The link routes through the public /login page so a signed-out tap on
     # the private override repo gets a sign-in prompt instead of a bare 404.
-    assert url.startswith("https://github.com/login?return_to=")
+    # www. host keeps the GitHub mobile app from hijacking the link.
+    assert url.startswith("https://www.github.com/login?return_to=")
     # Unwrapping return_to yields the prefilled new-issue URL.
     inner = _decode_issue_url(url)
     assert inner.startswith("/powellm4/aa-overrides/issues/new?")
