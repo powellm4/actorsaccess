@@ -308,7 +308,7 @@ def process_backstage_overrides(
         )
 
 
-def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid"):
+def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid", overrides_only: bool = False):
     run_id = db.start_run(platform="backstage", mode=mode)
     set_run_context(platform="backstage", mode=mode, run_id=run_id)
     cal_ids = cfg.get("google_calendar", {}).get("calendar_ids", [])
@@ -329,6 +329,11 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
         # before the normal scrape. Backstage's submit goes through a direct
         # role_id, so this doesn't need the listings to surface the role first.
         process_backstage_overrides(cfg, db, client, run_id, mode, dry_run)
+
+        if overrides_only:
+            db.complete_run(run_id, 0, 0, 0)
+            logger.info("[RUN] overrides-only pass complete")
+            return
 
         max_pages = cfg.get("max_pages", 5)
         max_subs = cfg.get("max_submissions")
@@ -969,6 +974,7 @@ def main():
         help="paid (default) or unpaid (LA-local Lead/Supporting only)",
     )
     parser.add_argument("--dry-run", action="store_true", help="Preview without submitting")
+    parser.add_argument("--overrides-only", action="store_true", help="Apply only queued Apply-Anyway overrides, then exit (skip the scrape)")
     parser.add_argument("--max-pages", type=int, default=None, help="Max pages to process")
     parser.add_argument("--max-submissions", type=int, default=None, help="Max roles to submit for")
     args = parser.parse_args()
@@ -998,7 +1004,7 @@ def main():
 
     if args.once:
         logger.info(f"Running single pass (mode={args.mode})" + (" (dry run)" if args.dry_run else ""))
-        run_once(cfg, db, dry_run=args.dry_run, mode=args.mode)
+        run_once(cfg, db, dry_run=args.dry_run, mode=args.mode, overrides_only=args.overrides_only)
     else:
         import schedule as sched
         interval = 4

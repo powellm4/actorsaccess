@@ -339,3 +339,26 @@ def test_process_aa_overrides_noop_without_config_or_token(db, fake_browser):
         main_mod.process_aa_overrides(cfg_no, db, fake_browser, 1, mode="paid", dry_run=False)
     om.fetch_pending_with_errors.assert_not_called()
     fake_browser.scrape_roles_on_project.assert_not_called()
+
+
+# --- overrides_only early exit (fast path for the dispatch-triggered run) ---
+
+def test_run_once_overrides_only_skips_scrape(db, fake_browser):
+    """--overrides-only must process overrides then return before the scrape:
+    no breakdown navigation, no filters. The run is still marked complete."""
+    cfg = {
+        "browser": {"headless": True},
+        "credentials": {"username": "u", "password": "p"},
+        "filters": {"regions": ["Los Angeles"]},
+        "google_calendar": {"calendar_ids": []},
+    }
+    fake_browser.login.return_value = True
+
+    with patch("src.main.ActorsAccessBrowser", return_value=fake_browser), \
+         patch("src.main.process_aa_overrides") as proc:
+        main_mod.run_once(cfg, db, mode="paid", overrides_only=True)
+
+    proc.assert_called_once()
+    fake_browser.navigate_to_breakdowns.assert_not_called()
+    fake_browser.apply_filters.assert_not_called()
+    fake_browser.close.assert_called_once()

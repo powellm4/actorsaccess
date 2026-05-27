@@ -209,7 +209,7 @@ def process_cn_overrides(
         )
 
 
-def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid"):
+def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid", overrides_only: bool = False):
     run_id = db.start_run(platform="cn", mode=mode)
     set_run_context(platform="cn", mode=mode, run_id=run_id)
     cal_ids = cfg.get("google_calendar", {}).get("calendar_ids", [])
@@ -234,6 +234,11 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
         # before the normal scrape. CN's submit_for_role navigates directly
         # to role URLs, so this doesn't depend on the billboard listing.
         process_cn_overrides(cfg, db, browser, run_id, mode, dry_run)
+
+        if overrides_only:
+            db.complete_run(run_id, 0, 0, 0)
+            logger.info("[RUN] overrides-only pass complete")
+            return
 
         # Optional saved search on CN. Paid mode typically leaves this empty
         # and lets the user's default saved search auto-load. Unpaid mode
@@ -639,6 +644,7 @@ def main():
         help="paid (default) or unpaid (LA-local Lead/Supporting only)",
     )
     parser.add_argument("--dry-run", action="store_true", help="Preview without submitting")
+    parser.add_argument("--overrides-only", action="store_true", help="Apply only queued Apply-Anyway overrides, then exit (skip the scrape)")
     parser.add_argument("--max-pages", type=int, default=None, help="Max pages to process")
     parser.add_argument("--max-submissions", type=int, default=None, help="Max roles to submit for")
     args = parser.parse_args()
@@ -668,7 +674,7 @@ def main():
 
     if args.once:
         logger.info(f"Running single pass (mode={args.mode})" + (" (dry run)" if args.dry_run else ""))
-        run_once(cfg, db, dry_run=args.dry_run, mode=args.mode)
+        run_once(cfg, db, dry_run=args.dry_run, mode=args.mode, overrides_only=args.overrides_only)
     else:
         import schedule as sched
         interval = 4

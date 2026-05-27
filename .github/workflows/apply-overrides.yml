@@ -1,0 +1,102 @@
+name: Apply Anyway Overrides
+
+# Fast path for the "Apply anyway" button. The override repo (aa-overrides)
+# fires a repository_dispatch (event type "apply-anyway") when a new override
+# issue is created, so a queued override applies within a minute or two instead
+# of waiting for the next scheduled auto-apply run. Can also be triggered
+# manually from the Actions tab.
+on:
+  repository_dispatch:
+    types: [apply-anyway]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Same group as the scheduled workflows so this serializes on the shared
+# database release and never runs concurrently with a full run.
+concurrency:
+  group: db-access
+  cancel-in-progress: false
+
+jobs:
+  apply-overrides:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          pip install -r requirements.txt
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Download database
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p data
+          gh release download db-storage --pattern applied.db --dir data/ --clobber
+
+      - name: Apply AA overrides
+        env:
+          AA_USERNAME: ${{ secrets.AA_USERNAME }}
+          AA_PASSWORD: ${{ secrets.AA_PASSWORD }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GOOGLE_CALENDAR_SA_KEY: ${{ secrets.GOOGLE_CALENDAR_SA_KEY }}
+          OVERRIDE_GITHUB_TOKEN: ${{ secrets.OVERRIDE_GITHUB_TOKEN }}
+        run: python -m src.main --once --overrides-only
+
+      - name: Upload database (after AA)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload db-storage data/applied.db --clobber
+
+      - name: Apply CN overrides (headed via xvfb)
+        env:
+          CN_EMAIL: ${{ secrets.CN_EMAIL }}
+          CN_PASSWORD: ${{ secrets.CN_PASSWORD }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GOOGLE_CALENDAR_SA_KEY: ${{ secrets.GOOGLE_CALENDAR_SA_KEY }}
+          OVERRIDE_GITHUB_TOKEN: ${{ secrets.OVERRIDE_GITHUB_TOKEN }}
+        run: xvfb-run --auto-servernum python -m src.cn.main --once --overrides-only
+
+      - name: Upload database (after CN)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload db-storage data/applied.db --clobber
+
+      - name: Apply Backstage overrides
+        env:
+          BACKSTAGE_EMAIL: ${{ secrets.BACKSTAGE_EMAIL }}
+          BACKSTAGE_PASSWORD: ${{ secrets.BACKSTAGE_PASSWORD }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GOOGLE_CALENDAR_SA_KEY: ${{ secrets.GOOGLE_CALENDAR_SA_KEY }}
+          OVERRIDE_GITHUB_TOKEN: ${{ secrets.OVERRIDE_GITHUB_TOKEN }}
+        run: python -m src.backstage.main --once --overrides-only
+
+      - name: Upload database (after Backstage)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload db-storage data/applied.db --clobber
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: override-logs-${{ github.run_number }}
+          path: logs/
+          retention-days: 90

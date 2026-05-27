@@ -189,7 +189,7 @@ def process_aa_overrides(
         )
 
 
-def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid"):
+def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid", overrides_only: bool = False):
     """Execute a single scrape-and-apply run.
 
     Flow:
@@ -230,6 +230,11 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
         # before the normal scrape. They use direct project-URL navigation,
         # so they don't depend on the breakdown filter pulling the project up.
         process_aa_overrides(cfg, db, browser, run_id, mode, dry_run)
+
+        if overrides_only:
+            db.complete_run(run_id, 0, 0, 0)
+            logger.info("[RUN] overrides-only pass complete")
+            return
 
         # Navigate and filter
         filters = cfg["filters"]
@@ -679,6 +684,10 @@ def main():
         help="Preview what would be submitted without actually submitting",
     )
     parser.add_argument(
+        "--overrides-only", action="store_true",
+        help="Apply only queued Apply-Anyway overrides, then exit (skip the scrape)",
+    )
+    parser.add_argument(
         "--max-pages", type=int, default=None,
         help="Max pages of breakdowns to process (default: 5)",
     )
@@ -718,7 +727,7 @@ def main():
 
     if args.once:
         logger.info(f"Running single pass (mode={args.mode})" + (" (dry run)" if args.dry_run else ""))
-        run_once(cfg, db, dry_run=args.dry_run, mode=args.mode)
+        run_once(cfg, db, dry_run=args.dry_run, mode=args.mode, overrides_only=args.overrides_only)
     else:
         interval = cfg["schedule"]["interval_hours"]
         logger.info(f"Starting scheduler (mode={args.mode}) — running every {interval} hours")
