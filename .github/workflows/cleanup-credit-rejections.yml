@@ -1,0 +1,61 @@
+name: Cleanup credit-balance rejections
+
+# One-shot: delete rows from rejected_roles that were caused by the Anthropic
+# "credit balance too low" 400 outage on 2026-06-03. After PR #19, those would
+# have been re-queued as transient — but rows already in the DB need a manual
+# wipe so the affected roles get re-evaluated on the next run.
+#
+# Trigger via the Actions tab → "Cleanup credit-balance rejections" → Run workflow.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: db-access
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download database
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p data
+          gh release download db-storage --pattern applied.db --dir data/ --clobber --repo "${{ github.repository }}"
+
+      - name: Show what will be deleted
+        run: |
+          sqlite3 data/applied.db <<'SQL'
+          .mode column
+          .headers on
+          SELECT id, run_id, platform, project_name, role_name,
+                 substr(rejection_reason, 1, 80) AS reason_preview
+            FROM rejected_roles
+           WHERE rejection_reason LIKE '%credit balance%'
+              OR rejection_reason LIKE '%Plans & Billing%';
+          SELECT COUNT(*) AS will_delete
+            FROM rejected_roles
+           WHERE rejection_reason LIKE '%credit balance%'
+              OR rejection_reason LIKE '%Plans & Billing%';
+          SQL
+
+      - name: Delete credit-balance rejections
+        run: |
+          sqlite3 data/applied.db <<'SQL'
+          BEGIN;
+          DELETE FROM rejected_roles
+           WHERE rejection_reason LIKE '%credit balance%'
+              OR rejection_reason LIKE '%Plans & Billing%';
+          COMMIT;
+          SELECT changes() AS deleted_rows;
+          SQL
+
+      - name: Upload database
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload db-storage data/applied.db --clobber --repo "${{ github.repository }}"
