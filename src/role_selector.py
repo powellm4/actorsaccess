@@ -19,15 +19,32 @@ TRANSIENT_REJECTION_PREFIX = "[transient] "
 
 
 def _is_transient_error(exc: Exception) -> bool:
-    """True for API errors worth re-trying on the next run (overload, rate-limit, network)."""
+    """True for API errors worth re-trying on the next run (overload, rate-limit, network).
+
+    Also covers Anthropic billing failures (HTTP 400 with a "credit balance too
+    low"/quota/billing message): the API key just needs a top-up, so the role
+    should be retried later instead of being permanently rejected.
+    """
     status = getattr(exc, "status_code", None)
-    if status in (408, 409, 425, 429, 500, 502, 503, 504, 529):
+    if status in (402, 408, 409, 425, 429, 500, 502, 503, 504, 529):
         return True
     name = type(exc).__name__
-    return name in (
+    if name in (
         "APIConnectionError", "APITimeoutError", "InternalServerError",
         "RateLimitError", "ConnectionError", "Timeout", "ReadTimeout",
+    ):
+        return True
+    msg = str(exc).lower()
+    billing_signals = (
+        "credit balance",
+        "plans & billing",
+        "plans and billing",
+        "insufficient_quota",
+        "insufficient quota",
+        "billing",
+        "quota",
     )
+    return any(sig in msg for sig in billing_signals)
 
 ACTOR_PROFILE = """
 - Appears 25 but people often think he's younger; plays 17-29 convincingly (yes, including 17-22 college-aged roles)

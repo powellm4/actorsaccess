@@ -9,7 +9,11 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from src.role_selector import select_best_roles, analyze_submission_requirements
+from src.role_selector import (
+    _is_transient_error,
+    analyze_submission_requirements,
+    select_best_roles,
+)
 
 
 SAMPLE_ROLES = [
@@ -447,3 +451,46 @@ def test_parse_shoot_dates_no_dates():
     from src.calendar_check import parse_shoot_dates
     result = parse_shoot_dates("No dates mentioned here")
     assert result is None
+
+
+# --- _is_transient_error classification ---
+
+
+def _exc_with_status(status: int, msg: str = "boom"):
+    e = RuntimeError(msg)
+    e.status_code = status
+    return e
+
+
+def test_transient_classifies_overload_and_rate_limit():
+    assert _is_transient_error(_exc_with_status(429))
+    assert _is_transient_error(_exc_with_status(500))
+    assert _is_transient_error(_exc_with_status(529))
+
+
+def test_transient_classifies_402_payment_required():
+    assert _is_transient_error(_exc_with_status(402))
+
+
+def test_transient_classifies_anthropic_credit_balance_400():
+    # Real Anthropic billing error: HTTP 400 invalid_request_error whose
+    # message points the operator at Plans & Billing. Must NOT be persisted
+    # as a permanent rejection.
+    msg = (
+        "Error code: 400 - {'type': 'error', 'error': {'type': "
+        "'invalid_request_error', 'message': 'Your credit balance is too low "
+        "to access the Anthropic API. Please go to Plans & Billing to upgrade "
+        "or purchase credits.'}}"
+    )
+    assert _is_transient_error(_exc_with_status(400, msg))
+
+
+def test_transient_classifies_quota_or_billing_mentions():
+    assert _is_transient_error(RuntimeError("you have exceeded your quota"))
+    assert _is_transient_error(RuntimeError("insufficient_quota"))
+
+
+def test_non_transient_for_generic_400():
+    # A plain malformed-prompt 400 (no billing/quota signal) should NOT be
+    # treated as transient — we want it persisted so we don't keep retrying.
+    assert not _is_transient_error(_exc_with_status(400, "bad prompt format"))
