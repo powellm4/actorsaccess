@@ -14,7 +14,7 @@ from src.config import load_config, ConfigError
 from src.database import Database
 from src.browser import ActorsAccessBrowser
 from src.override_email import send_override_results_email
-from src.filters import role_matches, project_matches, is_sag_only, is_lead_or_supporting
+from src.filters import role_matches, project_matches, is_sag_only, is_lead_or_supporting, project_has_female_cast
 from src.role_selector import (
     TRANSIENT_REJECTION_PREFIX,
     analyze_submission_requirements,
@@ -438,9 +438,15 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                             continue
 
                         # Unpaid mode: require Lead/Principal/Series Regular
-                        # marker in the description (AA has no structured role_type field)
+                        # marker in the description (AA has no structured role_type field),
+                        # unless the project has a female on the cast — then any role type
+                        # is accepted.
                         if mode == "unpaid":
-                            lead_ok, lead_reason = is_lead_or_supporting(role, "aa", project.get("project_type", ""))
+                            has_female = project_has_female_cast(roles, role, "aa")
+                            lead_ok, lead_reason = is_lead_or_supporting(
+                                role, "aa", project.get("project_type", ""),
+                                has_female_cast=has_female,
+                            )
                             if not lead_ok:
                                 roles_filtered += 1
                                 if dry_run:
@@ -451,6 +457,11 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                                         f"{role['role_name']} ({lead_reason})"
                                     )
                                 continue
+                            if has_female:
+                                logger.info(
+                                    f"Unpaid bypass (female cast): {project['project_name']} — "
+                                    f"{role['role_name']}"
+                                )
 
                         # Enrich description with project context so AI
                         # can apply travel pay rules

@@ -13,7 +13,7 @@ from src.cn.browser import CastingNetworksBrowser
 from src.database import Database
 from src.override_email import send_override_results_email
 from src.calendar_check import check_work_date_conflicts, parse_work_dates, check_availability
-from src.filters import _is_background, _is_court_tv, _is_ugc, _is_unpaid, _is_voiceover, _COURT_TV_PATTERN, is_lead_or_supporting
+from src.filters import _is_background, _is_court_tv, _is_ugc, _is_unpaid, _is_voiceover, _COURT_TV_PATTERN, is_lead_or_supporting, project_has_female_cast
 from src.role_selector import (
     TRANSIENT_REJECTION_PREFIX,
     analyze_submission_requirements,
@@ -329,8 +329,13 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                         # Just enforce the role-type whitelist (CN's saved
                         # search only filters at the coarse principal/background
                         # level, so we still need to narrow to Lead/Principal/
-                        # Series Regular here).
-                        lead_ok, lead_reason = is_lead_or_supporting(role, "cn", role.get("project_type", ""))
+                        # Series Regular here) — unless the project has a
+                        # female on the cast, in which case any role type is OK.
+                        has_female = project_has_female_cast(proj_roles, role, "cn")
+                        lead_ok, lead_reason = is_lead_or_supporting(
+                            role, "cn", role.get("project_type", ""),
+                            has_female_cast=has_female,
+                        )
                         if not lead_ok:
                             roles_filtered += 1
                             if dry_run:
@@ -338,6 +343,10 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                             else:
                                 logger.info(f"Filtered out (unpaid role-type): {project_name} — {role['role_name']} ({lead_reason})")
                             continue
+                        if has_female:
+                            logger.info(
+                                f"Unpaid bypass (female cast): {project_name} — {role['role_name']}"
+                            )
                     else:
                         if _is_unpaid(role):
                             roles_filtered += 1

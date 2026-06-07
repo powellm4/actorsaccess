@@ -18,7 +18,7 @@ from src.backstage.client import BackstageClient
 from src.database import Database
 from src.override_email import send_override_results_email
 from src.calendar_check import check_availability, parse_shoot_dates, parse_all_dates
-from src.filters import _is_background, _is_court_tv, _is_ugc, _is_unpaid, _COURT_TV_PATTERN, is_lead_or_supporting
+from src.filters import _is_background, _is_court_tv, _is_ugc, _is_unpaid, _COURT_TV_PATTERN, is_lead_or_supporting, project_has_female_cast
 from src.role_selector import (
     TRANSIENT_REJECTION_PREFIX,
     analyze_submission_requirements,
@@ -440,15 +440,20 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                 if skip_project:
                     continue
 
+                # Normalize all roles up front so project_has_female_cast()
+                # sees the full structured gender field across the cast.
+                all_roles = [
+                    _normalize_role(ar, production) for ar in production.get("roles", [])
+                ]
+
                 # Process roles within the production
                 candidates = []
-                for api_role in production.get("roles", []):
-                    role = _normalize_role(api_role, production)
+                for role in all_roles:
                     roles_found += 1
                     unique_id = f"backstage_{project_id}_{role['role_id']}"
 
                     # Skip already applied (via Backstage's tracking or our DB)
-                    if role["has_submission"] or api_role["id"] in backstage_applied or db.is_applied(unique_id):
+                    if role["has_submission"] or role["role_id"] in backstage_applied or db.is_applied(unique_id):
                         roles_skipped += 1
                         continue
 
@@ -471,8 +476,13 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                         # when the role is categorized unpaid on the site, so
                         # our text _is_unpaid() check would reject things it
                         # shouldn't. Saved search is the source of truth.
-                        # Still require Lead/Principal/Series Regular.
-                        lead_ok, lead_reason = is_lead_or_supporting(role, "backstage", role.get("project_type", ""))
+                        # Require Lead/Principal/Series Regular unless the project
+                        # has a female on the cast — then any role type is OK.
+                        has_female = project_has_female_cast(all_roles, role, "backstage")
+                        lead_ok, lead_reason = is_lead_or_supporting(
+                            role, "backstage", role.get("project_type", ""),
+                            has_female_cast=has_female,
+                        )
                         if not lead_ok:
                             roles_filtered += 1
                             if dry_run:
@@ -480,6 +490,10 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                             else:
                                 logger.info(f"Filtered (unpaid role-type): {project_name} — {role['role_name']} ({lead_reason})")
                             continue
+                        if has_female:
+                            logger.info(
+                                f"Unpaid bypass (female cast): {project_name} — {role['role_name']}"
+                            )
                     else:
                         if _is_unpaid(role):
                             roles_filtered += 1

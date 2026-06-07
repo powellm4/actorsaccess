@@ -137,6 +137,11 @@ _ROLE_TYPE_MARKER = re.compile(
     r"\b(LEAD|SUPPORTING|PRINCIPAL|SERIES\s+REGULAR|RECURRING|DAY\s+PLAYER|FEATURED|CO-?STAR)\b"
 )
 
+# ALL-CAPS only: AA breakdowns format demographic markers ("FEMALE", "MALE")
+# in caps. Matching lowercase would false-positive on prose like "his female
+# cousin" in a male role's backstory.
+_FEMALE_AA_MARKER = re.compile(r"\b(?:FEMALE|WOMAN|GIRL)\b")
+
 
 def extract_role_type_marker(description: str) -> str | None:
     """Find the first uppercase role-type marker in an AA description.
@@ -152,7 +157,46 @@ def extract_role_type_marker(description: str) -> str | None:
     return re.sub(r"\s+", " ", m.group(1)).upper()
 
 
-def is_lead_or_supporting(role: dict, platform: str, project_type: str = "") -> tuple[bool, str]:
+def _gender_indicates_female(value: str) -> bool:
+    """True if a structured gender field value indicates a female actor.
+
+    Accepts "Female", "Female and Male", "Trans Female", "Cisgender Female",
+    "Female/Non-binary"; rejects "Male", "All Genders", "Non-binary", "".
+    Substring on "female" is intentionally strict — "All Genders" is too
+    ambiguous about who actually shows up to count.
+    """
+    return "female" in (value or "").strip().lower()
+
+
+def project_has_female_cast(roles: list[dict], current_role: dict, platform: str) -> bool:
+    """True if any role in the project other than current_role is for a female.
+
+    Identity-based exclusion (`r is not current_role`) — name equality would
+    wrongly conflate two unnamed peer roles like "Cop #1" / "Cop #2".
+
+    Platform detection:
+      - CN / Backstage: structured `gender` field.
+      - AA: ALL-CAPS marker in role_name + description.
+    """
+    for r in roles:
+        if r is current_role:
+            continue
+        if platform == "aa":
+            blob = f"{r.get('role_name', '')}\n{r.get('description', '')}"
+            if _FEMALE_AA_MARKER.search(blob):
+                return True
+        else:
+            if _gender_indicates_female(r.get("gender", "")):
+                return True
+    return False
+
+
+def is_lead_or_supporting(
+    role: dict,
+    platform: str,
+    project_type: str = "",
+    has_female_cast: bool = False,
+) -> tuple[bool, str]:
     """Check whether a role is Lead / Principal / Series Regular.
 
     Named for historical reasons — the accepted set has since tightened to
@@ -163,15 +207,24 @@ def is_lead_or_supporting(role: dict, platform: str, project_type: str = "") -> 
     Modeling / print / photo / stills gigs short-circuit to accepted —
     they don't have acting role types and the actor accepts them.
 
+    `has_female_cast=True` also short-circuits to accepted: in unpaid mode the
+    actor opens the role-type aperture for projects with a female on the cast,
+    independent of role tier. Background/voiceover/court-TV remain filtered by
+    `role_matches()` upstream.
+
     Args:
         role: Dict with role_type (CN/Backstage) or description (AA).
         platform: "aa", "cn", or "backstage".
         project_type: Optional project_type string (e.g. "Print", "Photo").
+        has_female_cast: If True, bypass the role-type whitelist.
 
     Returns:
         (True, "") if accepted, or (False, reason) if rejected.
     """
     if is_modeling_role(role, project_type):
+        return True, ""
+
+    if has_female_cast:
         return True, ""
 
     if platform == "aa":
