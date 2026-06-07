@@ -11,6 +11,8 @@ import pytest
 
 from src.database import Database
 from src.digest import (
+    PASS_CATEGORY_DISPLAY_ORDER,
+    _categorize_rejection,
     _ensure_override_label,
     build_digest_html,
     build_email_message,
@@ -607,6 +609,164 @@ def test_manually_applied_section_omitted_when_no_overrides():
     }
     html = build_digest_html(data, overrides_cfg=OVERRIDES_CFG)
     assert "Apply Anyway Results" not in html
+
+
+# --- Passed-section categorization ---
+
+# Verbatim reasons pulled from the user's recent digests, paired with the
+# bucket they should land in. Keeping the source strings exact protects
+# the categorizer from regressing on real phrasing.
+@pytest.mark.parametrize("reason,expected_key", [
+    ("Role is female only (Ellen, 'her friend,' female character trying on clothes)", "gender"),
+    ("Female-only, actor is male", "gender"),
+    ("Role requires playing age 13-15; actor cannot convincingly portray a child this young", "age"),
+    ("Age range 29-49 has no meaningful overlap with actor's 17-29", "age"),
+    ("plays under 17", "age"),
+    ("Ethnicity requirement is 'White / European Descent' only, which excludes Latino/Hispanic", "ethnicity_look"),
+    ("Role requires Black/White mixed ethnicity and Black hair", "ethnicity_look"),
+    ("Requires a beard or facial hair", "ethnicity_look"),
+    ("Explicitly requires a heavyset actor; actor is athletic at 185 lbs", "build_height"),
+    ("Requires 6'4\" minimum, actor is 6'0\"", "build_height"),
+    ("Travel pay too low: $600 for fly-to location (TX), minimum $1000", "travel_pay"),
+    ("Pay not listed; Birmingham, AL requires air travel and minimum $1000 threshold cannot be confirmed", "travel_pay"),
+    ("Charlotte, NC local hire only; pay below threshold", "travel_pay"),
+    ("Role requires real stunt driving experience including off-road driving", "skill"),
+    ("Requires authentic British accent", "skill"),
+    ("Singing skill required", "skill"),
+    ("Role requires a real couple; actor cannot satisfy this personal relationship requirement", "personal_status"),
+    ("Must own a dog", "personal_status"),
+    ("No-dialogue, entirely physical-presence role with plural/ensemble framing; effectively background/extra work", "non_acting"),
+    ("this is a live performance/volunteer event at a VA, not an acting or modeling role", "non_acting"),
+    ("Consumer study / Focus group / Medical study", "non_acting"),
+    ("no video reel available and reel is required media", "missing_materials"),
+    ("Needs SAG-AFTRA number", "missing_materials"),
+    ("Cover letter required", "missing_materials"),
+    ("", "other"),
+    (None, "other"),
+    ("some inscrutable AI explanation that matches no pattern", "other"),
+])
+def test_categorize_rejection_buckets_real_reasons(reason, expected_key):
+    assert _categorize_rejection(reason) == expected_key
+
+
+def test_categorize_rejection_prefers_fundamental_disqualifier():
+    """When a reason mentions both a hard mismatch (gender) and a softer
+    issue (travel pay), the hard mismatch wins so the user sees the right
+    'why' at the top of the bucket."""
+    multi = (
+        "Role is female only; additionally travel pay is too low for the "
+        "fly-to location."
+    )
+    assert _categorize_rejection(multi) == "gender"
+
+    multi2 = (
+        "Ethnicity requirement excludes actor; no demo reel available either."
+    )
+    assert _categorize_rejection(multi2) == "ethnicity_look"
+
+
+def _rej(reason, role="Lead", project="Proj", platform="aa"):
+    return {
+        "project_name": project, "project_url": "https://example.com",
+        "role_name": role, "role_description": "",
+        "rejection_reason": reason, "platform": platform, "mode": "paid",
+    }
+
+
+def test_passed_section_renders_subheaders_in_configured_order():
+    """Buckets appear in PASS_CATEGORY_DISPLAY_ORDER, each with its count,
+    and empty buckets are suppressed."""
+    data = {
+        "applications": [],
+        "rejections": [
+            _rej("Role is female only", role="Ellen"),
+            _rej("Age range too high for actor", role="Old Man"),
+            _rej("Age too high for the role", role="Senior"),
+            _rej("Travel pay too low: $300 for fly-to (TX)", role="Out-of-Town"),
+            _rej("Needs demo reel", role="Reel-Required"),
+        ],
+        "flagged": [],
+        "runs": [],
+    }
+    html = build_digest_html(data)
+
+    # Section header still present.
+    assert ">Passed<" in html
+
+    # Each expected subheader present with its count.
+    assert "Missing materials (1)" in html
+    assert "Pay too low for travel (1)" in html
+    assert "Outside age range (2)" in html
+    assert "Wrong gender (1)" in html
+
+    # Empty buckets must not render a header at all.
+    assert "Required skill or experience" not in html
+    assert "Personal status / ownership" not in html
+    assert "Not an acting role / background" not in html
+    assert "Build / height" not in html
+    assert "Ethnicity / look" not in html
+    assert "Other" not in html
+
+    # Subheaders appear in display order (most-actionable first).
+    idx_missing = html.find("Missing materials")
+    idx_pay = html.find("Pay too low for travel")
+    idx_age = html.find("Outside age range")
+    idx_gender = html.find("Wrong gender")
+    assert -1 < idx_missing < idx_pay < idx_age < idx_gender
+
+
+def test_passed_section_groups_cards_under_their_subheader():
+    """Each role card must render under the right subheader."""
+    data = {
+        "applications": [],
+        "rejections": [
+            _rej("Role is female only", role="Ellen", project="Fashion Short"),
+            _rej("Travel pay too low: $300 for fly-to (TX)", role="OOT", project="Texas Spot"),
+        ],
+        "flagged": [],
+        "runs": [],
+    }
+    html = build_digest_html(data)
+
+    idx_pay_header = html.find("Pay too low for travel")
+    idx_pay_role = html.find("OOT")
+    idx_gender_header = html.find("Wrong gender")
+    idx_gender_role = html.find("Ellen")
+
+    # Each role appears after its subheader, before the next one starts.
+    assert idx_pay_header < idx_pay_role < idx_gender_header
+    assert idx_gender_header < idx_gender_role
+
+
+def test_passed_section_omits_subheader_when_only_other_bucket():
+    """A single 'other'-bucket pass still renders cleanly with the one
+    'Other' subheader — no missing header, no crash."""
+    data = {
+        "applications": [],
+        "rejections": [_rej("AI: not a strong fit for this part")],
+        "flagged": [],
+        "runs": [],
+    }
+    html = build_digest_html(data)
+    assert ">Passed<" in html
+    assert "Other (1)" in html
+    # The card still renders inside the section.
+    assert "Lead" in html
+    assert "Proj" in html
+
+
+def test_pass_category_display_order_is_complete_and_unique():
+    """The display order list and the categorizer priority list must stay
+    in sync — every key emitted by _categorize_rejection must have a label."""
+    display_keys = {k for k, _ in PASS_CATEGORY_DISPLAY_ORDER}
+    # Every real bucket has a display entry, plus the 'other' catch-all.
+    assert "other" in display_keys
+    for sample in [
+        "Role is female only", "Age range too high", "Ethnicity requirement",
+        "heavyset actor", "Travel pay too low", "stunt driving",
+        "real couple", "background work", "demo reel", "",
+    ]:
+        assert _categorize_rejection(sample) in display_keys
 
 
 def test_gather_digest_data_includes_overrides(db):

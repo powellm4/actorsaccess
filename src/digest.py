@@ -4,6 +4,7 @@
 import argparse
 import logging
 import os
+import re
 import sys
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -29,6 +30,116 @@ def gather_digest_data(db: Database, mode: str | None = None) -> dict:
         "runs": db.get_daily_run_summary(mode=mode),
         "overrides": db.get_daily_override_outcomes(mode=mode),
     }
+
+
+# Display order for the "Passed" subheaders — most-actionable first so the
+# user can quickly scan the buckets they might want to override or fix,
+# and skip past the immutable mismatches (gender / age / look) at the end.
+PASS_CATEGORY_DISPLAY_ORDER = [
+    ("missing_materials", "Missing materials"),
+    ("travel_pay",        "Pay too low for travel"),
+    ("skill",             "Required skill or experience"),
+    ("personal_status",   "Personal status / ownership"),
+    ("non_acting",        "Not an acting role / background"),
+    ("build_height",      "Build / height"),
+    ("ethnicity_look",    "Ethnicity / look"),
+    ("age",               "Outside age range"),
+    ("gender",            "Wrong gender"),
+    ("other",             "Other"),
+]
+
+# When a free-text reason matches multiple patterns, route it to the most
+# fundamental disqualifier — gender > age > look > build > everything else.
+# This is independent of display order: a "female-only AND pay too low"
+# reason still buckets as gender, then renders wherever gender sits above.
+_CATEGORIZER_PRIORITY = [
+    "gender", "age", "ethnicity_look", "build_height",
+    "travel_pay", "skill", "personal_status",
+    "non_acting", "missing_materials",
+]
+
+# Patterns are tuned to the AI selector's actual phrasing in real digests
+# (see the plan file for verbatim samples). All matched case-insensitively.
+_PASS_CATEGORY_PATTERNS: dict[str, list[str]] = {
+    "gender": [
+        r"\b(fe)?male[\s-]?only\b",
+        r"\bwoman[\s-]?only\b", r"\bmen[\s-]?only\b", r"\bwomen[\s-]?only\b",
+        r"\bactor is (?:fe)?male\b",
+        r"\bgender[\s-]restricted\b",
+        r"\brole is (?:fe)?male\b",
+    ],
+    "age": [
+        r"\bage range\b", r"\bage too\b",
+        r"\bplaying age\b", r"\bto play \d", r"\bplays under\b",
+        r"\btoo (?:young|old)\b",
+        r"\bunder 17\b",
+        r"\bconvincingly (?:portray|play|appear)\b.*\b(?:young|old|child|under)\b",
+        r"\bage \d{1,2}[-–]\d{1,2}\b",
+        r"\bage appearance\b",
+    ],
+    "ethnicity_look": [
+        r"\bethnicit", r"\bhair color\b", r"\bblack hair\b", r"\bblonde\b",
+        r"\bredhead\b", r"\bbeard\b", r"\bfacial hair\b",
+        r"\bresemblance\b", r"\bmust look like\b", r"\bresemble\b.*\bphoto\b",
+        r"\bskin tone\b",
+    ],
+    "build_height": [
+        r"\bheavyset\b", r"\bstocky\b", r"\boverweight\b", r"\bslender\b",
+        r"\brequires?\s.*\bbuild\b", r"\b\d'\d", r"\bheight (?:outside|too|requirement)\b",
+        r"\bpetite\b",
+    ],
+    "travel_pay": [
+        r"\btravel pay\b", r"\bfly[\s-]?to\b", r"\bair travel\b",
+        r"\bpay too low\b", r"\$\d[\d,]*\b.*\bthreshold\b",
+        r"\blocal hire\b",
+        r"\b(?:drive|driving)\b.*\bpay\b", r"\bpay\b.*\b(?:drive|driving)\b",
+        r"\bbelow\b.*\b(?:\$\d|threshold)\b",
+    ],
+    "skill": [
+        r"\bstunt\b", r"\bsinging\b", r"\bmust be able to sing\b",
+        r"\bplay\s+(?:an?\s+)?instrument\b", r"\bmusical instrument\b",
+        r"\baccent\b", r"\bbilingual\b", r"\bnative\b.*\bspeaker\b",
+        r"\bmartial arts\b", r"\bdance experience\b",
+        r"\bskill (?:required|not|gap)\b", r"\brequires?\s.*\bexperience\b",
+    ],
+    "personal_status": [
+        r"\breal couple\b", r"\binterracial couple\b", r"\breal couples?\b",
+        r"\bmust own\b", r"\bowns? an?\b",
+        r"\breal[\s-]life\b", r"\bpersonal relationship requirement\b",
+    ],
+    "non_acting": [
+        r"\bbackground\b", r"\bextra work\b", r"\bensemble\b",
+        r"\blive performance\b", r"\bvolunteer\b",
+        r"\bfocus group\b", r"\bmedical study\b", r"\bresearch study\b",
+        r"\bconsumer study\b", r"\bnot an? acting\b",
+        r"\bnot an? modeling\b",
+    ],
+    "missing_materials": [
+        r"\bdemo reel\b", r"\bvideo reel\b", r"\breel is required\b",
+        r"\bsag[\s-]?aftra\b", r"\bcover letter\b",
+        r"\bself[\s-]?tape\b", r"\brequired media\b",
+    ],
+}
+
+# Compile once at import time. Maps category key → single combined regex.
+_PASS_CATEGORY_REGEX = {
+    key: re.compile("|".join(patterns), re.IGNORECASE)
+    for key, patterns in _PASS_CATEGORY_PATTERNS.items()
+}
+
+
+def _categorize_rejection(reason: str | None) -> str:
+    """Bucket a free-text pass reason into a PASS_CATEGORY_DISPLAY_ORDER key.
+
+    Patterns are tried in _CATEGORIZER_PRIORITY order; the first hit wins.
+    Empty/None reasons land in 'other'.
+    """
+    if not reason:
+        return "other"
+    for key in _CATEGORIZER_PRIORITY:
+        if _PASS_CATEGORY_REGEX[key].search(reason):
+            return key
+    return "other"
 
 
 def _apply_anyway_link(overrides_cfg: dict | None, item: dict, accent: str) -> str:
@@ -133,24 +244,39 @@ def build_digest_html(
     for app in applications:
         projects[app["project_name"]]["applied"].append(app)
 
-    # Build top-level "Passed" review section (flat list with a platform
-    # badge on each card so the user can still tell where it came from).
+    # Build top-level "Passed" review section. Cards are grouped into
+    # category buckets (Wrong gender / Travel pay / …) with a subheader
+    # per non-empty bucket so the user can scan totals without reading
+    # every reason line. Per-card markup is unchanged from before.
     passed_section = ""
     if rejections:
+        buckets = defaultdict(list)
+        for rej in rejections:
+            buckets[_categorize_rejection(rej.get("rejection_reason", ""))].append(rej)
+
         passed_section = '<div style="margin-bottom:24px;">\n'
         passed_section += '<h2 style="color:#e65100;margin-bottom:12px;">Passed</h2>\n'
-        for rej in rejections:
-            platform_badge = _platform_badge(rej.get("platform", "aa"))
-            desc = rej.get("role_description") or ""
-            rej_url = rej.get("project_url", "")
-            role_label = f'<a href="{rej_url}" style="color:#e65100;text-decoration:underline;">{rej["role_name"]}</a>' if rej_url else rej["role_name"]
-            passed_section += '<div style="background:#fff3e0;padding:12px;border-radius:4px;margin-bottom:8px;">\n'
-            passed_section += f'<strong style="color:#e65100;">PASSED</strong> {platform_badge} — <strong>{rej.get("project_name", "")}</strong> — <strong>{role_label}</strong>'
-            if desc:
-                passed_section += f'<br><span style="color:#555;">{desc}</span>'
-            passed_section += f'<br><strong>Reason:</strong> {rej.get("rejection_reason", "N/A")}'
-            passed_section += _apply_anyway_link(overrides_cfg, rej, "#e65100")
-            passed_section += '\n</div>\n'
+        for key, label in PASS_CATEGORY_DISPLAY_ORDER:
+            items = buckets.get(key, [])
+            if not items:
+                continue
+            passed_section += (
+                f'<h3 style="color:#e65100;margin:16px 0 8px 0;'
+                f'font-size:15px;border-bottom:1px solid #ffe0b2;'
+                f'padding-bottom:4px;">{label} ({len(items)})</h3>\n'
+            )
+            for rej in items:
+                platform_badge = _platform_badge(rej.get("platform", "aa"))
+                desc = rej.get("role_description") or ""
+                rej_url = rej.get("project_url", "")
+                role_label = f'<a href="{rej_url}" style="color:#e65100;text-decoration:underline;">{rej["role_name"]}</a>' if rej_url else rej["role_name"]
+                passed_section += '<div style="background:#fff3e0;padding:12px;border-radius:4px;margin-bottom:8px;">\n'
+                passed_section += f'<strong style="color:#e65100;">PASSED</strong> {platform_badge} — <strong>{rej.get("project_name", "")}</strong> — <strong>{role_label}</strong>'
+                if desc:
+                    passed_section += f'<br><span style="color:#555;">{desc}</span>'
+                passed_section += f'<br><strong>Reason:</strong> {rej.get("rejection_reason", "N/A")}'
+                passed_section += _apply_anyway_link(overrides_cfg, rej, "#e65100")
+                passed_section += '\n</div>\n'
         passed_section += '</div>\n'
 
     # Apply Anyway section: overrides processed since last digest. The wording
