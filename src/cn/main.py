@@ -12,7 +12,7 @@ from src.cn.config import load_cn_config, CnConfigError
 from src.cn.browser import CastingNetworksBrowser
 from src.database import Database
 from src.override_email import send_override_results_email
-from src.calendar_check import check_work_date_conflicts, parse_work_dates, check_availability
+from src.calendar_check import check_work_date_conflicts, parse_work_dates, check_availability, get_busy_dates
 from src.filters import _is_background, _is_court_tv, _is_ugc, _is_unpaid, _is_voiceover, _COURT_TV_PATTERN, is_lead_or_supporting, project_has_female_cast
 from src.role_selector import (
     TRANSIENT_REJECTION_PREFIX,
@@ -489,8 +489,10 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                         if role_instructions:
                             logger.info(f"Found submission instructions for {best['role_name']}: {role_instructions[:200]}")
 
-                    # Check calendar for work date conflicts FIRST (before self-tape check)
-                    # If busy, skip entirely — don't bother flagging for self-tape
+                    # Check calendar for work date conflicts FIRST (before self-tape check).
+                    # CN "Work" ranges describe a window — the actual shoot is usually
+                    # 1 day inside it. Only skip if EVERY day in the window is busy;
+                    # if any day is free, submit and let the AI note the free dates.
                     cal_ids = cfg.get("google_calendar", {}).get("calendar_ids", [])
                     work_dates = parse_work_dates(best.get("submission_date", ""))
                     confirmed_dates = None
@@ -499,23 +501,39 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                         logger.info(f"[CALENDAR] Work dates found for {best['role_name']}: {start} to {end}")
                         available, conflicts = check_availability(start, end, cal_ids)
                         if not available:
-                            conflict_list = ", ".join(conflicts[:5])
-                            flag_reason = f"Calendar conflict with work dates: {conflict_list}"
-                            db.record_flagged_role(
-                                project_name=project_name,
-                                project_url=project_url,
-                                role_name=best["role_name"],
-                                role_description=best.get("description", ""),
-                                flag_reason=flag_reason,
-                                run_id=run_id,
-                                platform="cn",
-                                mode=mode,
+                            from datetime import date as _date, timedelta as _td
+                            busy_dates = get_busy_dates(start, end, cal_ids)
+                            start_d = _date.fromisoformat(start)
+                            end_d = _date.fromisoformat(end)
+                            total_days = (end_d - start_d).days + 1
+                            free_days = total_days - len(busy_dates)
+                            if free_days == 0:
+                                conflict_list = ", ".join(conflicts[:5])
+                                flag_reason = f"Calendar conflict with work dates: {conflict_list}"
+                                db.record_flagged_role(
+                                    project_name=project_name,
+                                    project_url=project_url,
+                                    role_name=best["role_name"],
+                                    role_description=best.get("description", ""),
+                                    flag_reason=flag_reason,
+                                    run_id=run_id,
+                                    platform="cn",
+                                    mode=mode,
+                                )
+                                logger.info(f"Skipping {best['role_name']} — {flag_reason}")
+                                if dry_run:
+                                    _print_role_decision("FLAGGED", project_name, best, flag_reason)
+                                continue
+                            # Partial availability — submit anyway and tell the AI which dates are free.
+                            all_dates = {(start_d + _td(days=i)).isoformat() for i in range(total_days)}
+                            free_dates = sorted(all_dates - set(busy_dates))
+                            confirmed_dates = ", ".join(free_dates)
+                            logger.info(
+                                f"[CALENDAR] Partial availability for {best['role_name']}: "
+                                f"{free_days}/{total_days} days free ({confirmed_dates}) — submitting"
                             )
-                            logger.info(f"Skipping {best['role_name']} — {flag_reason}")
-                            if dry_run:
-                                _print_role_decision("FLAGGED", project_name, best, flag_reason)
-                            continue
-                        confirmed_dates = f"{start} to {end}"
+                        else:
+                            confirmed_dates = f"{start} to {end}"
                     else:
                         logger.info(f"[CALENDAR] No work dates parsed for {best['role_name']}")
 

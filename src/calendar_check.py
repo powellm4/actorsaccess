@@ -5,6 +5,7 @@ import base64
 import json
 import logging
 import os
+from datetime import date, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,45 @@ def get_calendar_service():
         return None
 
 
+def _event_dates(event: dict) -> set[str]:
+    """Return the set of ISO date strings (YYYY-MM-DD) an event actually covers.
+
+    Google's events.list returns anything whose UTC interval overlaps the query
+    window, so an all-day event on Jun 7 (end.date Jun 8 exclusive) gets
+    returned for a Jun 8 query. Expanding to actual covered dates lets callers
+    filter those out instead of treating them as conflicts.
+    """
+    event_start = event.get("start", {})
+    event_end = event.get("end", {})
+    dates: set[str] = set()
+
+    if "date" in event_start:
+        # All-day event: end.date is exclusive.
+        try:
+            ev_start = date.fromisoformat(event_start["date"])
+            ev_end = date.fromisoformat(event_end.get("date", event_start["date"]))
+        except ValueError:
+            return dates
+        current = ev_start
+        while current < ev_end:
+            dates.add(current.isoformat())
+            current += timedelta(days=1)
+    elif "dateTime" in event_start:
+        # Timed event: take the date portion of start/end (both inclusive).
+        try:
+            ev_start = date.fromisoformat(event_start["dateTime"][:10])
+            ev_end = date.fromisoformat(
+                event_end.get("dateTime", event_start["dateTime"])[:10]
+            )
+        except ValueError:
+            return dates
+        current = ev_start
+        while current <= ev_end:
+            dates.add(current.isoformat())
+            current += timedelta(days=1)
+    return dates
+
+
 def check_availability(
     start_date: str, end_date: str, calendar_ids: list[str],
 ) -> tuple[bool, list[str]]:
@@ -66,9 +106,26 @@ def check_availability(
         return True, []
 
     logger.info(f"[CALENDAR] Checking {start_date} to {end_date} against {len(calendar_ids)} calendar(s)")
-    conflicts = []
+
+    try:
+        range_start = date.fromisoformat(start_date)
+        range_end = date.fromisoformat(end_date)
+    except ValueError as e:
+        logger.warning(f"[CALENDAR] Invalid date range {start_date}..{end_date}: {e}")
+        return True, []
+    requested_dates = {
+        (range_start + timedelta(days=i)).isoformat()
+        for i in range((range_end - range_start).days + 1)
+    }
+
+    # Query with the exact range; the per-event date expansion below filters
+    # out events that the API returned solely because of UTC overlap (e.g.,
+    # an all-day Jun 7 event whose end.date is Jun 8).
     time_min = f"{start_date}T00:00:00Z"
     time_max = f"{end_date}T23:59:59Z"
+
+    conflicts: list[str] = []
+    seen_conflicts: set[str] = set()
 
     try:
         for cal_id in calendar_ids:
@@ -84,7 +141,13 @@ def check_availability(
                 .execute()
             )
             for event in events_result.get("items", []):
-                conflicts.append(event.get("summary", "Untitled event"))
+                if not _event_dates(event) & requested_dates:
+                    continue
+                name = event.get("summary", "Untitled event")
+                if name in seen_conflicts:
+                    continue
+                seen_conflicts.add(name)
+                conflicts.append(name)
     except Exception as e:
         logger.warning(f"Calendar API error: {e}")
         return True, []
@@ -110,8 +173,6 @@ def get_busy_dates(
         List of ISO date strings that have events (e.g., ["2026-03-28"]).
         Returns [] if calendar service is unavailable.
     """
-    from datetime import date, timedelta
-
     service = get_calendar_service()
     if service is None or not calendar_ids:
         return []
@@ -120,7 +181,7 @@ def get_busy_dates(
     end = date.fromisoformat(end_date)
     total_days = (end - start).days + 1
 
-    busy_dates = set()
+    busy_dates: set[str] = set()
     time_min = f"{start_date}T00:00:00Z"
     time_max = f"{end_date}T23:59:59Z"
 
@@ -138,27 +199,7 @@ def get_busy_dates(
                 .execute()
             )
             for event in events_result.get("items", []):
-                event_start = event.get("start", {})
-                event_end = event.get("end", {})
-                # Expand multi-day events into all constituent dates
-                if "date" in event_start:
-                    # All-day events: 'date' is inclusive start, end 'date' is exclusive
-                    ev_start = date.fromisoformat(event_start["date"])
-                    ev_end = date.fromisoformat(event_end.get("date", event_start["date"]))
-                    # Google Calendar all-day event end is exclusive, so don't subtract 1
-                    current = ev_start
-                    while current < ev_end:
-                        busy_dates.add(current.isoformat())
-                        current += timedelta(days=1)
-                elif "dateTime" in event_start:
-                    # Timed events: extract date from start and end
-                    ev_start = date.fromisoformat(event_start["dateTime"][:10])
-                    ev_end_str = event_end.get("dateTime", event_start["dateTime"])[:10]
-                    ev_end = date.fromisoformat(ev_end_str)
-                    current = ev_start
-                    while current <= ev_end:
-                        busy_dates.add(current.isoformat())
-                        current += timedelta(days=1)
+                busy_dates |= _event_dates(event)
     except Exception as e:
         logger.warning(f"[CALENDAR] API error getting busy dates: {e}")
         return []
