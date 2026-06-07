@@ -86,8 +86,8 @@ class BackstageClient:
             return response_body
 
         except urllib.error.HTTPError as e:
-            body = e.read().decode("utf-8", errors="replace")[:200]
-            logger.error(f"HTTP {e.code} for {url}: {body}")
+            body = e.read().decode("utf-8", errors="replace")[:500]
+            logger.error(f"HTTP {e.code} for {url}: {body[:200]}")
             # Return structured error for 400s so callers can inspect the reason
             if e.code == 400:
                 try:
@@ -95,6 +95,11 @@ class BackstageClient:
                     return {"_error": True, "code": 400, "detail": error_data}
                 except (json.JSONDecodeError, ValueError):
                     pass
+            # Cloudflare's JS interstitial comes back as 403 with a "Just a
+            # moment..." page. Surface it as structured so callers can retry
+            # rather than treating a transient challenge as a permanent failure.
+            if e.code == 403 and ("just a moment" in body.lower() or "cloudflare" in body.lower()):
+                return {"_error": True, "code": 403, "cloudflare": True}
             return None
         except Exception as e:
             logger.error(f"Request error for {url}: {e}")
@@ -177,14 +182,38 @@ class BackstageClient:
         if not full_url.endswith("/"):
             full_url += "/"
 
-        _random_delay(1, 2)
-        html = self._request(full_url)
-        if not isinstance(html, str):
+        # Cloudflare occasionally throws a transient 403 JS challenge on detail
+        # pages. Retry once after a longer delay so a brief blip doesn't flag
+        # the role into "Needs Your Attention".
+        html: str | None = None
+        for attempt in (1, 2):
+            if attempt == 1:
+                _random_delay(1, 2)
+            else:
+                _random_delay(5, 10)
+            result = self._request(full_url)
+            if isinstance(result, dict) and result.get("cloudflare"):
+                logger.warning(
+                    f"Cloudflare 403 on role detail (attempt {attempt}/2): {full_url}"
+                )
+                continue
+            if isinstance(result, str) and (
+                "just a moment" in result[:500].lower()
+                or "cloudflare" in result[:500].lower()
+                or "blocked" in result[:500].lower()
+            ):
+                logger.warning(
+                    f"Cloudflare challenge page on role detail (attempt {attempt}/2): {full_url}"
+                )
+                continue
+            if isinstance(result, str):
+                html = result
+                break
             logger.warning(f"Role detail returned non-HTML for {full_url}")
             return None
 
-        if "cloudflare" in html[:500].lower() or "blocked" in html[:500].lower():
-            logger.warning(f"Cloudflare blocked role detail page: {full_url}")
+        if html is None:
+            logger.warning(f"Cloudflare blocked role detail after retry: {full_url}")
             return None
 
         # Find the embedded JSON: {"id": <casting_call_id>, ... "roles": [...]}

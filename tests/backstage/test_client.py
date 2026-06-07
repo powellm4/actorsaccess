@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from src.backstage.client import BackstageClient, APPLICATION_URL
+from src.backstage.client import BackstageClient, APPLICATION_URL, BASE_URL
 
 
 @pytest.fixture
@@ -99,3 +99,77 @@ def test_submit_for_role_regular_path_still_submits(client):
     assert len(puts) == 1
     assert puts[0][1] == {"applicant_status": "C"}
     assert isinstance(result, dict) and result.get("id") == 88
+
+
+# fetch_role_detail: Cloudflare retry behaviour
+# A transient 403 JS challenge on the first request should not flag the role —
+# we retry once with a longer backoff. Persistent challenges still return None.
+
+VALID_DETAIL_HTML = (
+    '<html><head></head><body>'
+    '<script>window.__data = {"id": 12345, "legacy_id": 999, '
+    '"roles": [{"id": 1, "role_name": "Lead"}]};</script>'
+    '</body></html>'
+)
+CLOUDFLARE_403 = {"_error": True, "code": 403, "cloudflare": True}
+
+
+def test_fetch_role_detail_retries_after_cloudflare_403(client):
+    """Transient Cloudflare 403 on attempt 1 → retry → success on attempt 2."""
+    responses = [CLOUDFLARE_403, VALID_DETAIL_HTML]
+    calls = []
+
+    def fake_request(url, data=None, method=None):
+        calls.append(url)
+        return responses[len(calls) - 1]
+
+    with patch.object(client, "_request", side_effect=fake_request), \
+         patch("src.backstage.client._random_delay"):
+        result = client.fetch_role_detail("/casting/foo/bar/")
+
+    assert len(calls) == 2
+    assert result == {"id": 12345, "legacy_id": 999, "roles": [{"id": 1, "role_name": "Lead"}]}
+
+
+def test_fetch_role_detail_gives_up_after_two_cloudflare_403s(client):
+    """Two consecutive Cloudflare 403s → return None (flag the role)."""
+    with patch.object(client, "_request", return_value=CLOUDFLARE_403), \
+         patch("src.backstage.client._random_delay"):
+        result = client.fetch_role_detail("/casting/foo/bar/")
+
+    assert result is None
+
+
+def test_fetch_role_detail_retries_on_inline_cloudflare_challenge_page(client):
+    """200 OK with a Cloudflare 'Just a moment...' body is also retried."""
+    cf_page = '<html><head><title>Just a moment...</title></head><body></body></html>'
+    responses = [cf_page, VALID_DETAIL_HTML]
+    calls = []
+
+    def fake_request(url, data=None, method=None):
+        calls.append(url)
+        return responses[len(calls) - 1]
+
+    with patch.object(client, "_request", side_effect=fake_request), \
+         patch("src.backstage.client._random_delay"):
+        result = client.fetch_role_detail("/casting/foo/bar/")
+
+    assert len(calls) == 2
+    assert isinstance(result, dict) and result.get("id") == 12345
+
+
+def test_request_returns_cloudflare_marker_for_403_challenge(client):
+    """_request should surface a 403 'Just a moment...' as a structured error."""
+    import urllib.error
+    import io
+
+    cf_body = b'<!DOCTYPE html><html><head><title>Just a moment...</title></head></html>'
+    err = urllib.error.HTTPError(
+        url=f"{BASE_URL}/casting/foo/", code=403, msg="Forbidden",
+        hdrs=None, fp=io.BytesIO(cf_body),
+    )
+
+    with patch.object(client._opener, "open", side_effect=err):
+        result = client._request(f"{BASE_URL}/casting/foo/")
+
+    assert result == {"_error": True, "code": 403, "cloudflare": True}
