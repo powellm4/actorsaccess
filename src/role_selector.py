@@ -969,12 +969,16 @@ Rules:
     return {"answers": answered}
 
 
-def analyze_submission_requirements(role: dict, project_name: str, project_notes: str = "", confirmed_dates: str | None = None) -> dict:
+def analyze_submission_requirements(role: dict, project_name: str, project_notes: str = "", confirmed_dates: str | None = None, mode: str = "paid") -> dict:
     """Analyze role description and project-level notes for submission requirements.
 
     Args:
         confirmed_dates: If set (e.g., "2026-04-12 to 2026-04-25"), calendar has already been
             checked and actor is available. The AI can reference these dates in notes.
+        mode: "paid" (default) or "unpaid". In paid mode, NEEDS_INPUT reasons
+            that boil down to "actor isn't local to [shoot city]" are
+            overridden to SUBMIT when travel pay clears the threshold —
+            the actor flies in as a local hire.
 
     Returns:
         {"action": "SUBMIT" | "SUBMIT_WITH_NOTE" | "NEEDS_INPUT",
@@ -1023,6 +1027,7 @@ Analyze BOTH the role description AND any project-level instructions to determin
 IMPORTANT RULES:
 - ONLY use SUBMIT_WITH_NOTE when the post has a clear, explicit, DIRECT request for information IN the submission notes — e.g., "note your availability in your submission", "include your contact info in notes", "let us know about X experience"
 - Statements like "LOCAL SELF-REPORT TO SET", "Los Angeles Local Hire", or "must have reliable transportation" are REQUIREMENTS, not requests for notes. They describe who should apply, not what to write. Respond with ACTION: SUBMIT
+- "Must be local to [city]" / "local hire to [city] only" / "talent must be based in [city]" / "[city] locals only" — for ANY city (SF, NYC, Atlanta, Chicago, Vancouver, etc.) — is a casting REQUIREMENT, NOT a request for info, and NEVER a reason to respond NEEDS_INPUT. The actor is willing to work as a local hire anywhere — a separate travel-pay check decides whether the role is worth applying to. Respond with ACTION: SUBMIT. Do NOT flag the role for needing the actor's "local status" or "residency confirmation" — these are not questions casting is asking the actor to answer in submission notes.
 - If the post asks "are you local hire?" or "note if you are local" for a NON-Los Angeles location (e.g., NYC, Atlanta, Chicago), respond that you are willing to travel / available to work on location. Do NOT say "LA local" — say you can travel to that city. Example: "Available to work in NYC for the shoot dates." Never claim to be local to a city you're not in.
 - A role description describing the character is NOT a request for info — do not respond to it
 - ABSOLUTELY NEVER include acting skills, improv training, UCB, Groundlings, dance experience, guitar, or ANY training/experience in submission notes. These are NEVER relevant to submission notes regardless of what the casting asks. If a casting says "let us know about your experience" — respond with ACTION: SUBMIT (no note). The actor's profile/resume already covers this.
@@ -1060,6 +1065,20 @@ Respond with ONLY the action line (and NOTE/REASON line if applicable). No other
         if not _validate_note(result["note"], role, project_name):
             result["action"] = "SUBMIT"
             result["note"] = None
+
+    # Override NEEDS_INPUT when it boils down to "actor isn't local to [shoot city]".
+    # The actor will work as a local hire anywhere; travel pay is the only gate.
+    if result["action"] == "NEEDS_INPUT" and result.get("needs_input_reason"):
+        overridden, _ = _maybe_override_local_hire_skip(
+            role, project_name, result["needs_input_reason"], mode,
+            project_notes=project_notes,
+        )
+        if overridden:
+            logger.info(
+                f"[LOCAL HIRE OVERRIDE] {project_name} — {role.get('role_name', '?')}: "
+                f"converting NEEDS_INPUT to SUBMIT (reason was local-hire framing)"
+            )
+            result = {"action": "SUBMIT", "note": None, "needs_input_reason": None}
 
     return result
 
