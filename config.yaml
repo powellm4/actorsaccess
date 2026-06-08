@@ -20,7 +20,7 @@ filters:
     - region: "South Central"
     - region: "Southeast"
   gender: "male"
-  age_range: [17, 29]
+  age_range: [17, 30]
   union_status: "fit_for_me"
   paying_only: true
   exclude_reality_tv: true
