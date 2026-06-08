@@ -754,7 +754,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                     # Analyze submission requirements
                     analysis = analyze_submission_requirements(
                         best, project_name, best.get("description", ""),
-                        confirmed_dates=confirmed_dates,
+                        confirmed_dates=confirmed_dates, mode=mode,
                     )
                     logger.info(f"[ANALYSIS] {best['role_name']}: action={analysis['action']}, note={analysis.get('note', 'N/A')}")
 

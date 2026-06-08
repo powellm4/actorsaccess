@@ -364,6 +364,41 @@ def test_analyze_needs_input():
     assert "SAG-AFTRA" in result["needs_input_reason"]
 
 
+def test_analyze_needs_input_local_hire_overridden():
+    """NEEDS_INPUT that's really "actor isn't local to [city]" should flip to SUBMIT
+    when travel pay clears the threshold. The actor works as a local hire anywhere."""
+    mock_anthropic, _ = _make_mock_anthropic(
+        "ACTION: NEEDS_INPUT\n"
+        "REASON: Role requires being local to San Francisco; actor is based in Los Angeles and cannot claim SF local status."
+    )
+    role = {
+        "role_name": "Young Rider",
+        "description": "Confident e-bike rider in San Francisco. Must be local to SF. PAY: $1,500",
+    }
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            result = analyze_submission_requirements(role, "E-Bike Brand Photoshoot", mode="paid")
+    assert result["action"] == "SUBMIT"
+    assert result["needs_input_reason"] is None
+
+
+def test_analyze_needs_input_local_hire_not_overridden_when_pay_too_low():
+    """Local-hire NEEDS_INPUT should still be flagged when travel pay doesn't clear the threshold."""
+    mock_anthropic, _ = _make_mock_anthropic(
+        "ACTION: NEEDS_INPUT\n"
+        "REASON: Must be local to New York; actor cannot claim NY local status."
+    )
+    role = {
+        "role_name": "Rider",
+        "description": "New York shoot. Must be local to NYC. PAY: $200 flat",
+    }
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            result = analyze_submission_requirements(role, "NYC Shoot", mode="paid")
+    assert result["action"] == "NEEDS_INPUT"
+    assert "local" in result["needs_input_reason"].lower()
+
+
 def test_analyze_api_failure_raises():
     """API failure should raise to stop the run."""
     mock_anthropic, _ = _make_mock_anthropic_error()

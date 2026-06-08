@@ -540,7 +540,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                     # Note: we used to flag and skip self-tape/video-audition requests here.
                     # We now submit anyway — casting can ask for a tape later if interested.
 
-                    analysis = analyze_submission_requirements(best, project_name, role_instructions, confirmed_dates=confirmed_dates)
+                    analysis = analyze_submission_requirements(best, project_name, role_instructions, confirmed_dates=confirmed_dates, mode=mode)
                     logger.info(f"[ANALYSIS] {best['role_name']}: action={analysis['action']}, note={analysis.get('note', 'N/A')}")
 
                     # Legacy check: work date conflicts for roles without parsed dates
