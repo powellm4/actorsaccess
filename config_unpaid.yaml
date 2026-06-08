@@ -10,7 +10,7 @@ filters:
   regions:
     - region: "Los Angeles"
   gender: "male"
-  age_range: [17, 29]
+  age_range: [17, 30]
   union_status: "fit_for_me"
   paying_only: false
   exclude_reality_tv: true
