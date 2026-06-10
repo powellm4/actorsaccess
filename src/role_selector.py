@@ -126,7 +126,8 @@ _FLY_TO_US_STATES = {
 _PAID_TRAVEL_PAY_BLOCK = """TRAVEL PAY MINIMUMS — the actor is based in Los Angeles but is willing to work as "local hire" ANYWHERE as long as the pay meets the threshold. "Must be local hire to [city]", "local to [city]", or "must be based in [city]" are NOT disqualifiers — the actor will travel at his own expense if the total pay is high enough. Apply these rules:
 - LA area (Los Angeles, Burbank, Pasadena, Long Beach, Orange County, etc.): any pay is fine — NEVER reject an LA role for low pay, even $50
 - Short drive (San Diego, Palm Springs, Santa Barbara, Bakersfield): SKIP if total pay is under $250
-- Medium drive (Las Vegas, San Francisco, Phoenix, Tucson, Arizona generally, NV/AZ): SKIP if total pay is under $500
+- San Francisco / NorCal (San Francisco, Oakland, San Jose, Bay Area): SKIP if total pay is under $200
+- Medium drive (Las Vegas, Phoenix, Tucson, Arizona generally, NV/AZ): SKIP if total pay is under $500
 - Fly-to locations (New York, Atlanta, Chicago, Vancouver, or anywhere requiring air travel): SKIP if total pay is under $1000
 - If the shoot location is not mentioned or unclear, do NOT reject based on pay
 - "Total pay" means the full amount for the job, not per day. If the listing says "$200/day" for a 3-day shoot, total pay is $600 — that passes the $500 medium-drive threshold. For hourly rates, assume an 8-hour day (e.g., "$150/hour" = $1,200/day). If the total pay clearly exceeds the threshold, do NOT reject
