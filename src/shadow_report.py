@@ -301,6 +301,8 @@ def render_digest_block(mode: str, db_path: str | None = None) -> str:
     ``db_path`` is optional; when omitted, falls back to the ``SHADOW_DB_PATH``
     env var, then to ``data/applied.db``.
     """
+    if os.environ.get("SHADOW_ENABLED") == "0":
+        return ""
     db_path = db_path or os.environ.get("SHADOW_DB_PATH") or "data/applied.db"
     try:
         conn = sqlite3.connect(db_path)
