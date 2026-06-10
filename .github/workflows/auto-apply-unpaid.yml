@@ -24,6 +24,11 @@ concurrency:
   group: db-access
   cancel-in-progress: false
 
+env:
+  # DeepSeek shadow comparison paused — kill switch from src/shadow.py.
+  # Remove this block to resume background DeepSeek calls.
+  SHADOW_ENABLED: "0"
+
 jobs:
   auto-apply-unpaid:
     runs-on: ubuntu-latest
