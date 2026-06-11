@@ -27,7 +27,11 @@ logging:
   file: "logs/auto_apply.log"
 
 # Optional: Apply Anyway overrides. See README → "Apply Anyway via GitHub
-# Issues". Requires OVERRIDE_GITHUB_TOKEN env var.
+# Issues". Requires OVERRIDE_GITHUB_TOKEN env var. Add the SAME block to every
+# platform config (config*.yaml, cn_config*.yaml, backstage_config*.yaml) —
+# each platform only processes its own queued overrides, so a config missing
+# this block leaves that platform's "apply anyway" issues queued but never
+# applied or closed.
 # overrides:
 #   repo: "your-username/aa-overrides"
 #   label: "apply-anyway"

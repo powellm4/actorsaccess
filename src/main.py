@@ -165,6 +165,7 @@ def process_aa_overrides(
     handles that platform (no-op here)."""
     overrides_cfg, token = overrides_mod.load_run_config(cfg)
     if not overrides_cfg:
+        overrides_mod.report_unprocessable_pending(db, "aa")
         return
 
     overrides_mod.ingest_issues(overrides_cfg, token, db)

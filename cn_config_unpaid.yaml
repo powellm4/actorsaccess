@@ -27,3 +27,11 @@ google_calendar:
 logging:
   level: "INFO"
   file: "logs/cn_auto_apply_unpaid.log"
+
+# Apply Anyway override flow (shared across all platforms). Must point at the
+# same repo/label as config.yaml so CN "apply anyway" issues are processed and
+# closed on the next run. Requires the OVERRIDE_GITHUB_TOKEN env var; comment
+# out to disable.
+overrides:
+  repo: "powellm4/aa-overrides"
+  label: "apply-anyway"

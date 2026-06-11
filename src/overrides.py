@@ -227,6 +227,27 @@ def load_run_config(cfg: dict) -> tuple[dict | None, str | None]:
     return overrides_cfg, token
 
 
+def report_unprocessable_pending(db, platform: str) -> list[dict]:
+    """Surface pending overrides for `platform` that a run is about to skip
+    because override processing is disabled (missing config or token).
+
+    Returns the matching pending rows. When any exist, logs a loud warning so
+    a silent pile-up (issues queued + acked but never applied/closed) is
+    visible in the run logs instead of vanishing. Call this from the disabled
+    early-return branch of each platform's override processor.
+    """
+    stuck = [o for o in db.list_pending_overrides() if o["platform"] == platform]
+    if stuck:
+        issues = sorted({o["issue_number"] for o in stuck})
+        logger.warning(
+            f"[OVERRIDE] {len(stuck)} pending {platform} override(s) are queued but "
+            f"override processing is DISABLED this run (missing config or "
+            f"OVERRIDE_GITHUB_TOKEN). They will NOT be applied or closed until the "
+            f"{platform} config has an 'overrides:' block. Issues: {issues}"
+        )
+    return stuck
+
+
 def ingest_issues(overrides_cfg: dict, token: str, db) -> None:
     """Pull open GitHub override issues and queue valid ones into the local DB.
 
