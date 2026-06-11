@@ -127,10 +127,10 @@ _PAID_TRAVEL_PAY_BLOCK = """TRAVEL PAY MINIMUMS — the actor is based in Los An
 - LA area (Los Angeles, Burbank, Pasadena, Long Beach, Orange County, etc.): any pay is fine — NEVER reject an LA role for low pay, even $50
 - Short drive (San Diego, Palm Springs, Santa Barbara, Bakersfield): SKIP if total pay is under $250
 - San Francisco / NorCal (San Francisco, Oakland, San Jose, Bay Area): SKIP if total pay is under $100
-- Medium drive (Las Vegas, Phoenix, Tucson, Arizona generally, NV/AZ): SKIP if total pay is under $500
+- Medium drive (Las Vegas, Phoenix, Tucson, Arizona generally, NV/AZ): SKIP if total pay is under $250
 - Fly-to locations (New York, Atlanta, Chicago, Vancouver, or anywhere requiring air travel): SKIP if total pay is under $1000
 - If the shoot location is not mentioned or unclear, do NOT reject based on pay
-- "Total pay" means the full amount for the job, not per day. If the listing says "$200/day" for a 3-day shoot, total pay is $600 — that passes the $500 medium-drive threshold. For hourly rates, assume an 8-hour day (e.g., "$150/hour" = $1,200/day). If the total pay clearly exceeds the threshold, do NOT reject
+- "Total pay" means the full amount for the job, not per day. If the listing says "$200/day" for a 3-day shoot, total pay is $600 — that passes the $250 medium-drive threshold. For hourly rates, assume an 8-hour day (e.g., "$150/hour" = $1,200/day). If the total pay clearly exceeds the threshold, do NOT reject
 
 WHEN PAY CLEARS THE THRESHOLD, FIT/SELECT — these are NOT valid reasons to reject, no matter how the casting post is worded:
 - "Local hire only" / "must be local to [city]" / "talent local to [city] only" / "Casting talent local to [CITY] ONLY" — the actor flies in and pays his own way; this is exactly the case the threshold rule was written for.
