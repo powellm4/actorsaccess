@@ -12,6 +12,7 @@ import pytest
 from src.role_selector import (
     _is_transient_error,
     analyze_submission_requirements,
+    check_travel_pay,
     select_best_roles,
 )
 
@@ -315,6 +316,62 @@ def test_override_in_multi_role_path():
     selected_names = [s[0]["role_name"] for s in selected]
     assert "Ryan" in selected_names, f"Ryan should have been overridden; got {selected_names} / {rejections}"
     assert "Ava" in rejections  # legit female-only rejection should stand
+
+
+# --- check_travel_pay: flights/lodging covered waive the threshold ---
+
+_LOVE_IS_IN_THE_AIR_DESC = (
+    "Man; 25 to 35 years old. Matt's cousin and the object of Jessie's affection. "
+    "Rate of Pay: $375/day. Flight, hotel, and off days $74/working days $30 per diem "
+    "is provided. Location: Corpus Christi, TX & San Antonio, TX"
+)
+
+
+def test_travel_pay_waived_when_flight_and_hotel_provided():
+    """The reported LOVE IS IN THE AIR notice should pass — flight + hotel covered."""
+    ok, reason = check_travel_pay("LOVE IS IN THE AIR", _LOVE_IS_IN_THE_AIR_DESC)
+    assert ok is True, f"expected pass, got rejection: {reason}"
+    assert reason is None
+
+
+def test_travel_pay_waived_when_only_airfare_provided():
+    """Flight coverage alone is enough to waive the fly-to threshold."""
+    ok, reason = check_travel_pay(
+        "Indie Feature",
+        "Lead role. Airfare provided. $200/day for 1 day. Shoots in Austin, TX.",
+    )
+    assert ok is True, f"expected pass, got rejection: {reason}"
+    assert reason is None
+
+
+def test_travel_pay_waived_when_only_hotel_provided():
+    """Lodging coverage alone is enough to waive the fly-to threshold."""
+    ok, reason = check_travel_pay(
+        "NY Short",
+        "Supporting role. Hotel provided. $150/day for 1 day. Shoots in New York.",
+    )
+    assert ok is True, f"expected pass, got rejection: {reason}"
+    assert reason is None
+
+
+def test_travel_pay_not_waived_when_coverage_negated():
+    """'No hotel or travel provided' must NOT trigger a waiver — low pay still rejects."""
+    ok, reason = check_travel_pay(
+        "Cheap TX Gig",
+        "Background-ish role. No hotel or travel provided. $100 total. Shoots in Dallas, TX.",
+    )
+    assert ok is False
+    assert reason and "too low" in reason.lower()
+
+
+def test_travel_pay_still_rejects_low_pay_without_coverage():
+    """Regression guard: a plain low-pay fly-to role with no coverage language still rejects."""
+    ok, reason = check_travel_pay(
+        "Low Pay NY",
+        "Lead role. $50/day for 1 day. Shoots in New York.",
+    )
+    assert ok is False
+    assert reason and "fly-to" in reason.lower()
 
 
 # --- analyze_submission_requirements tests ---

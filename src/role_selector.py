@@ -130,6 +130,7 @@ _PAID_TRAVEL_PAY_BLOCK = """TRAVEL PAY MINIMUMS — the actor is based in Los An
 - Medium drive (Las Vegas, Phoenix, Tucson, Arizona generally, NV/AZ): SKIP if total pay is under $250
 - Fly-to locations (New York, Atlanta, Chicago, Vancouver, or anywhere requiring air travel): SKIP if total pay is under $1000
 - If the shoot location is not mentioned or unclear, do NOT reject based on pay
+- If the listing says flights or hotel/lodging are provided/covered (e.g. "Flight, hotel ... provided", "airfare and accommodations covered"), the actor's travel cost is covered — do NOT reject for pay regardless of location; treat as FIT/SELECT.
 - "Total pay" means the full amount for the job, not per day. If the listing says "$200/day" for a 3-day shoot, total pay is $600 — that passes the $250 medium-drive threshold. For hourly rates, assume an 8-hour day (e.g., "$150/hour" = $1,200/day). If the total pay clearly exceeds the threshold, do NOT reject
 
 WHEN PAY CLEARS THE THRESHOLD, FIT/SELECT — these are NOT valid reasons to reject, no matter how the casting post is worded:
@@ -215,6 +216,38 @@ def _extract_total_pay(text: str) -> float | None:
     return None
 
 
+# Phrasings indicating the production covers travel costs (flights and/or
+# lodging). When any of these match, the actor's out-of-pocket travel cost is
+# effectively zero, so the location-based pay threshold no longer applies.
+_TRAVEL_COVERED_PATTERNS = [
+    r'travel\s+(?:and\s+)?(?:lodging|housing|accommodations?)\s+(?:will be\s+)?provided',
+    r'(?:lodging|housing|accommodations?)\s+(?:and\s+)?travel\s+(?:will be\s+)?provided',
+    r'travel\s+(?:is\s+)?(?:covered|included|paid)',
+    r'(?:we|production)\s+(?:will\s+)?(?:cover|provide|pay\s+for)\s+travel',
+    # Flight coverage
+    r'\b(?:flights?|airfare|air\s*fare|air\s*travel|plane\s*tickets?|airline\s*tickets?)\b',
+    # Lodging coverage
+    r'\b(?:hotel|lodging|housing|accommodations?)\b',
+]
+
+
+def _travel_costs_covered(text: str) -> bool:
+    """True if the listing indicates the production covers flights and/or lodging.
+
+    Matching either a flight term or a lodging term is sufficient — these terms
+    appear in casting notices almost exclusively when production is providing
+    them. Lightweight negation guards keep phrasings like "no hotel provided" or
+    "must provide own airfare" from triggering a false waiver.
+    """
+    if re.search(r'\bno\s+(?:travel|flights?|airfare|hotel|lodging|housing|accommodations?|relocation)\b', text):
+        return False
+    if re.search(r'(?:travel|flights?|hotel|lodging|housing|accommodations?)\s+(?:is\s+|are\s+)?not\s+(?:provided|covered|included)', text):
+        return False
+    if re.search(r'\b(?:own|self[-\s]?funded|self[-\s]?paid)\s+(?:travel|flights?|airfare|hotel|lodging|accommodations?)\b', text):
+        return False
+    return any(re.search(p, text) for p in _TRAVEL_COVERED_PATTERNS)
+
+
 def check_travel_pay(
     project_name: str,
     role_description: str = "",
@@ -284,17 +317,11 @@ def check_travel_pay(
     if tier is None or tier == "la":
         return True, None
 
-    # If travel/lodging is provided, pay threshold doesn't apply
-    travel_provided_patterns = [
-        r'travel\s+(?:and\s+)?(?:lodging|housing|accommodations?)\s+(?:will be\s+)?provided',
-        r'(?:lodging|housing|accommodations?)\s+(?:and\s+)?travel\s+(?:will be\s+)?provided',
-        r'travel\s+(?:is\s+)?(?:covered|included|paid)',
-        r'(?:we|production)\s+(?:will\s+)?(?:cover|provide|pay\s+for)\s+travel',
-    ]
-    for pattern in travel_provided_patterns:
-        if re.search(pattern, combined):
-            logger.info(f"[TRAVEL PAY] Travel provided for {tier} location ({matched_location}), skipping pay check")
-            return True, None
+    # If travel costs (flights and/or lodging) are covered, the pay threshold
+    # doesn't apply.
+    if _travel_costs_covered(combined):
+        logger.info(f"[TRAVEL PAY] Flights/lodging covered for {tier} location ({matched_location}), skipping pay check")
+        return True, None
 
     # Try to extract pay
     pay = _extract_total_pay(f"{role_description} {project_notes}")
