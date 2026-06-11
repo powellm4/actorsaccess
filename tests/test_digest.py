@@ -272,6 +272,64 @@ def test_build_email_message_no_archive_omits_attachment():
     assert attachments == []
 
 
+def test_pending_section_renders_queue_with_stale_flag():
+    """The 'Awaiting Processing' section surfaces still-queued overrides, marks
+    rows older than the stale threshold as STALLED, and links each to its issue.
+    This is the transparency surface for a non-draining override queue."""
+    from datetime import datetime, timedelta, timezone
+
+    stale_ts = (datetime.now(tz=timezone.utc) - timedelta(days=3)).strftime(
+        "%Y-%m-%d %H:%M:%S.%f"
+    )
+    fresh_ts = (datetime.now(tz=timezone.utc) - timedelta(minutes=10)).strftime(
+        "%Y-%m-%d %H:%M:%S.%f"
+    )
+    data = {
+        "applications": [], "rejections": [], "flagged": [], "runs": [],
+        "overrides": [],
+        "pending": [
+            {
+                "issue_number": 101, "project_name": "Stuck CN Project",
+                "role_name": "Lead", "platform": "cn", "mode": "paid",
+                "queued_at": stale_ts,
+            },
+            {
+                "issue_number": 102, "project_name": "Fresh BS Project",
+                "role_name": "Hero", "platform": "backstage", "mode": "unpaid",
+                "queued_at": fresh_ts,
+            },
+        ],
+    }
+    html = build_digest_html(data, overrides_cfg={"repo": "o/r", "label": "apply-anyway"})
+
+    assert "Awaiting Processing" in html
+    assert "Stuck CN Project" in html
+    assert "Fresh BS Project" in html
+    # The 3-day-old row is flagged; the 10-minute-old one is not.
+    assert "STALLED" in html
+    assert html.count("STALLED") == 1
+    assert "1 stalled" in html
+    # Each row links to its override issue.
+    assert "https://github.com/o/r/issues/101" in html
+    assert "https://github.com/o/r/issues/102" in html
+
+
+def test_pending_section_absent_when_queue_empty():
+    """No queued overrides → no 'Awaiting Processing' section."""
+    data = {
+        "applications": [
+            {
+                "project_name": "P", "project_url": "", "role_name": "L",
+                "role_description": "", "ai_reason": "fit", "platform": "aa",
+                "candidates_considered": 1,
+            }
+        ],
+        "rejections": [], "flagged": [], "runs": [], "overrides": [], "pending": [],
+    }
+    html = build_digest_html(data)
+    assert "Awaiting Processing" not in html
+
+
 def test_manually_applied_section_appears_at_top_of_digest():
     """Manually-applied results must render BEFORE Needs Attention / Passed /
     Applied. The user explicitly opened an issue for each, and burying the

@@ -339,3 +339,41 @@ def test_process_aa_overrides_noop_without_config_or_token(db, fake_browser):
         main_mod.process_aa_overrides(cfg_no, db, fake_browser, 1, mode="paid", dry_run=False)
     om.fetch_pending_with_errors.assert_not_called()
     fake_browser.scrape_roles_on_project.assert_not_called()
+
+
+# --- report_unprocessable_pending (loud stall guard) ---
+
+def test_report_unprocessable_pending_warns_when_platform_overrides_disabled(db, caplog):
+    """When a platform has queued overrides but processing is disabled this run,
+    the guard returns those rows and logs a loud warning (so the pre-fix bug —
+    CN/Backstage issues queued but never processed — can't recur silently)."""
+    db.add_pending_override(11, "P1", "R1", "cn", "paid")
+    db.add_pending_override(12, "P2", "R2", "cn", "unpaid")
+    db.add_pending_override(13, "P3", "R3", "aa", "paid")  # other platform
+
+    with caplog.at_level("WARNING"):
+        stuck = overrides_mod.report_unprocessable_pending(db, "cn")
+
+    issues = sorted(o["issue_number"] for o in stuck)
+    assert issues == [11, 12]
+    assert all(o["platform"] == "cn" for o in stuck)
+    assert any("DISABLED" in r.message and "cn" in r.message for r in caplog.records)
+
+
+def test_report_unprocessable_pending_quiet_when_no_pending(db, caplog):
+    """No queued overrides for the platform → empty result, no warning noise."""
+    with caplog.at_level("WARNING"):
+        assert overrides_mod.report_unprocessable_pending(db, "backstage") == []
+    assert not caplog.records
+
+
+def test_disabled_aa_overrides_run_reports_pending(db, fake_browser):
+    """The disabled early-return path calls the stall guard instead of returning
+    silently."""
+    db.add_pending_override(21, "P", "R", "aa", "paid")
+    cfg_no = {"submission": {}}
+    with patch.dict(os.environ, {}, clear=True), \
+         patch("src.main.overrides_mod") as om:
+        om.load_run_config.return_value = (None, None)
+        main_mod.process_aa_overrides(cfg_no, db, fake_browser, 1, mode="paid", dry_run=False)
+    om.report_unprocessable_pending.assert_called_once_with(db, "aa")

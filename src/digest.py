@@ -29,6 +29,9 @@ def gather_digest_data(db: Database, mode: str | None = None) -> dict:
         "flagged": db.get_daily_flagged(mode=mode),
         "runs": db.get_daily_run_summary(mode=mode),
         "overrides": db.get_daily_override_outcomes(mode=mode),
+        # Live queue, not mode-filtered: a stalled override on either mode
+        # should surface no matter which digest goes out.
+        "pending": db.list_pending_overrides(),
     }
 
 
@@ -142,6 +145,47 @@ def _categorize_rejection(reason: str | None) -> str:
     return "other"
 
 
+# An override that's been queued longer than this without being processed is
+# treated as stalled — under normal operation every platform runs at least
+# daily, so anything older than a day means the queue isn't draining.
+_STALE_AFTER_HOURS = 24
+
+
+def _parse_db_timestamp(value: str) -> datetime | None:
+    """Parse a timestamp written by Database._utcnow() (UTC, microseconds) or
+    SQLite's CURRENT_TIMESTAMP default (UTC, no microseconds). Returns a
+    timezone-aware UTC datetime, or None if it can't be parsed."""
+    if not value:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(value, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
+def _format_age(queued_at: str) -> tuple[str, bool]:
+    """Return (human wait-age, is_stale) for a pending override's queued_at.
+
+    Falls back to ("waiting", False) if the timestamp can't be parsed so the
+    row still renders. is_stale flags items past _STALE_AFTER_HOURS so the
+    digest can call them out as a draining problem rather than normal lag.
+    """
+    ts = _parse_db_timestamp(queued_at)
+    if ts is None:
+        return "waiting", False
+    delta = datetime.now(tz=timezone.utc) - ts
+    hours = delta.total_seconds() / 3600
+    if hours < 1:
+        label = f"waiting {max(1, int(delta.total_seconds() // 60))}m"
+    elif hours < 48:
+        label = f"waiting {int(hours)}h"
+    else:
+        label = f"waiting {int(hours // 24)}d"
+    return label, hours >= _STALE_AFTER_HOURS
+
+
 def _apply_anyway_link(overrides_cfg: dict | None, item: dict, accent: str) -> str:
     """Render an 'Apply anyway' link for a passed/flagged role card.
 
@@ -172,8 +216,9 @@ def build_digest_html(
     flagged = data.get("flagged", [])
     runs = data["runs"]
     overrides = data.get("overrides", [])
+    pending = data.get("pending", [])
 
-    if not applications and not rejections and not flagged and not overrides:
+    if not applications and not rejections and not flagged and not overrides and not pending:
         return _empty_digest_html(runs, mode=mode)
 
     # Split flagged roles into calendar conflicts vs other
@@ -344,6 +389,73 @@ def build_digest_html(
         manually_applied_section += '</div>\n'  # close inner banner body
         manually_applied_section += '</div>\n'  # close outer section
 
+    # Queued Apply-Anyways still awaiting processing. This is the transparency
+    # surface for the override queue: if a row sits here across multiple
+    # digests it's a draining problem (e.g. a platform config missing its
+    # 'overrides:' block), which _format_age flags as STALLED.
+    pending_section = ""
+    if pending:
+        repo = overrides_cfg.get("repo") if overrides_cfg else None
+        stale_count = 0
+        rows_html = ""
+        for p in pending:
+            age_label, is_stale = _format_age(p.get("queued_at", ""))
+            if is_stale:
+                stale_count += 1
+            platform_badge = _platform_badge(p.get("platform", "aa"))
+            border = "#b71c1c" if is_stale else "#ffb74d"
+            age_color = "#b71c1c" if is_stale else "#8d6e00"
+            status_pill = (
+                '<span style="background:#b71c1c;color:white;font-size:10px;'
+                'padding:2px 6px;border-radius:3px;font-weight:bold;'
+                'letter-spacing:0.5px;vertical-align:middle;">STALLED</span> '
+                if is_stale else ""
+            )
+            rows_html += (
+                f'<div style="background:white;border-left:4px solid {border};'
+                'padding:12px;border-radius:4px;margin-bottom:8px;">\n'
+            )
+            rows_html += (
+                f'{status_pill}{platform_badge} '
+                f'<strong>{p.get("project_name", "")}</strong> — '
+                f'<strong>{p.get("role_name", "")}</strong> '
+                f'<span style="color:#888;font-size:12px;">({p.get("mode", "paid")})</span>'
+            )
+            rows_html += (
+                f'<br><span style="color:{age_color};font-size:13px;">{age_label}</span>'
+            )
+            issue_number = p.get("issue_number")
+            if repo and issue_number:
+                rows_html += (
+                    f' <a href="https://github.com/{repo}/issues/{issue_number}" '
+                    f'style="color:#e65100;font-size:12px;">(issue #{issue_number})</a>'
+                )
+            rows_html += '\n</div>\n'
+
+        count = len(pending)
+        summary_bits = [f"{count} queued"]
+        if stale_count:
+            summary_bits.append(f"{stale_count} stalled")
+        summary_line = " · ".join(summary_bits)
+        banner_color = "#b71c1c" if stale_count else "#8d6e00"
+        pending_section = '<div style="margin-bottom:24px;">\n'
+        pending_section += (
+            f'<div style="background:{banner_color};color:white;padding:12px 16px;'
+            'border-radius:4px 4px 0 0;">\n'
+            '<h2 style="margin:0;color:white;font-size:18px;">'
+            'Queued Apply-Anyways — Awaiting Processing</h2>\n'
+            f'<div style="margin-top:2px;font-size:13px;color:#fff;">'
+            f'Override issues queued but not yet applied/closed · {summary_line}</div>\n'
+            '</div>\n'
+        )
+        pending_section += (
+            '<div style="background:#fffde7;border:1px solid #ffb74d;'
+            'border-top:none;border-radius:0 0 4px 4px;padding:12px;">\n'
+        )
+        pending_section += rows_html
+        pending_section += '</div>\n'  # close body
+        pending_section += '</div>\n'  # close section
+
     # Build per-project "Applied" sections (bottom of email).
     sections = []
     if applications:
@@ -407,6 +519,7 @@ def build_digest_html(
     # below other sections means they're easy to miss.
     body = (
         manually_applied_section
+        + pending_section
         + calendar_section
         + flagged_section
         + passed_section
