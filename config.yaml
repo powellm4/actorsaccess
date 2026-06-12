@@ -56,7 +56,6 @@ logging:
 overrides:
   repo: "powellm4/aa-overrides"
   label: "apply-anyway"
-  # Optional one-click: point at the deployed apply worker (see worker/README.md)
-  # and set OVERRIDE_SIGNING_SECRET to make each button a single tap. Leave
-  # commented to keep the two-click GitHub flow.
-  # apply_url: "https://aa-apply.<your-subdomain>.workers.dev/apply"
+  # One-click: points at the deployed apply worker (see worker/README.md). With
+  # OVERRIDE_SIGNING_SECRET set on the digest, each button is a single tap.
+  apply_url: "https://aa-apply.powellmarshall3.workers.dev/apply"
