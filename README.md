@@ -56,6 +56,7 @@ That's it. Run `python -m src.main --once --dry-run` to confirm the AA flow work
 | `CN_EMAIL` / `CN_PASSWORD` | Optional | Overrides credentials in `cn_config.yaml` / `cn_config_unpaid.yaml`. |
 | `BACKSTAGE_EMAIL` / `BACKSTAGE_PASSWORD` | Optional | Overrides credentials in `backstage_config.yaml` / `backstage_config_unpaid.yaml`. |
 | `OVERRIDE_GITHUB_TOKEN` | Optional (Apply Anyway) | Fine-grained PAT with **Issues: Read & Write** scope on the override repo configured in `overrides.repo`. Without it, "Apply anyway" buttons in the digest are omitted. (Same name in CI — GitHub Actions disallows secret names starting with `GITHUB_`.) |
+| `OVERRIDE_SIGNING_SECRET` | Optional (one-click Apply Anyway) | Shared secret used to sign the one-click apply-worker links. Set on the digest (locally / CI) **and** as the worker's `SIGNING_SECRET` — they must match. Without it (or without `overrides.apply_url`), buttons fall back to the two-click GitHub flow. See `worker/README.md`. |
 
 Credentials for all three platforms are committed in the per-platform yaml files. The env vars only exist so GitHub Actions can inject secrets at runtime.
 
@@ -70,6 +71,8 @@ One-time setup:
 3. **Set `overrides.repo`** in `config.yaml` (and `config_unpaid.yaml` if you use that mode) to the new repo's full name. The default label is `apply-anyway` — the bot creates it on first use if it doesn't exist.
 
 Comment the `overrides:` block out, or leave the env var unset, to disable the feature entirely; the digest will simply omit the buttons.
+
+**One-click (optional):** by default the button opens GitHub's pre-filled issue form, so you still tap **Submit new issue**. Deploy the small Cloudflare Worker in [`worker/`](worker/README.md) and set `overrides.apply_url` + `OVERRIDE_SIGNING_SECRET` to make each button a single tap — the worker creates the issue server-side and shows a "Queued ✓" page. It degrades safely: with no `apply_url`/secret, the two-click GitHub flow is used.
 
 ### Config files
 

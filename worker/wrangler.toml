@@ -1,0 +1,13 @@
+# Cloudflare Worker for one-click "Apply anyway". See worker/README.md.
+name = "aa-apply"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+# Non-secret config. Must match the overrides block in config.yaml.
+[vars]
+OVERRIDE_REPO = "powellm4/aa-overrides"
+OVERRIDE_LABEL = "apply-anyway"
+
+# Secrets are NOT stored here — set them with `wrangler secret put`:
+#   wrangler secret put GITHUB_TOKEN     # fine-grained PAT, Issues: R/W on the repo
+#   wrangler secret put SIGNING_SECRET   # same value as OVERRIDE_SIGNING_SECRET

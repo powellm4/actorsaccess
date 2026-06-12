@@ -43,3 +43,5 @@ logging:
 overrides:
   repo: "powellm4/aa-overrides"
   label: "apply-anyway"
+  # The digest reads apply_url from config.yaml (not this file); see there and
+  # worker/README.md for the optional one-click setup.
