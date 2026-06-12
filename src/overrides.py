@@ -12,6 +12,8 @@ REST calls. Queueing + apply orchestration lives in src/main.py.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -39,14 +41,49 @@ class OverrideRequest:
 
 # --- URL builder (used by digest.py) ---
 
+def sign_override_params(
+    secret: str, platform: str, mode: str, project_name: str, role_name: str,
+) -> str:
+    """HMAC-SHA256 over the canonical override fields, hex-encoded.
+
+    The 1-click apply worker recomputes this over the decoded query params and
+    rejects anything that doesn't match, so only links the digest generated
+    (with the shared secret) can queue a role — a prefetcher or stranger can't
+    forge new ones. Field order/joiner here MUST match the worker
+    (worker/worker.js). Signing the decoded values means URL-encoding
+    differences between Python and the worker don't affect the signature.
+    """
+    msg = "\n".join([platform, mode, project_name, role_name]).encode("utf-8")
+    return hmac.new(secret.encode("utf-8"), msg, hashlib.sha256).hexdigest()
+
+
+def build_apply_url(
+    apply_url: str, signing_secret: str, project_name: str, role_name: str,
+    platform: str, mode: str,
+) -> str:
+    """Signed one-click URL pointing at the apply worker. A single tap creates
+    the GitHub issue server-side, so the user never sees GitHub's "Submit new
+    issue" step."""
+    sig = sign_override_params(signing_secret, platform, mode, project_name, role_name)
+    params = urllib.parse.urlencode({
+        "platform": platform, "mode": mode,
+        "p": project_name, "r": role_name, "sig": sig,
+    })
+    sep = "&" if "?" in apply_url else "?"
+    return f"{apply_url}{sep}{params}"
+
+
 def build_override_url(
     repo: str, label: str, project_name: str, role_name: str,
     platform: str, mode: str,
+    apply_url: str | None = None, signing_secret: str | None = None,
 ) -> str:
-    """Build a GitHub new-issue URL with title/body/label pre-filled.
+    """Build the "Apply anyway" link for a digest card.
 
-    Clicking it opens the GitHub issue creation page; the user just hits
-    "Submit new issue" to queue the override.
+    When an apply worker is configured (``apply_url`` + ``signing_secret``),
+    returns a signed one-click URL that creates the issue server-side. Otherwise
+    falls back to GitHub's pre-filled new-issue page, where the user must still
+    hit "Submit new issue" to queue the override.
 
     The override repo is private, so a signed-out browser tab would hit a
     bare 404 (GitHub hides private repos rather than prompting to sign in).
@@ -63,6 +100,10 @@ def build_override_url(
     `github.com/login` happens server-side (Universal Links don't fire on
     redirects), so it stays in the browser.
     """
+    if apply_url and signing_secret:
+        return build_apply_url(
+            apply_url, signing_secret, project_name, role_name, platform, mode,
+        )
     body = (
         f"project_name: {project_name}\n"
         f"role_name: {role_name}\n"

@@ -35,3 +35,7 @@ logging:
 # overrides:
 #   repo: "your-username/aa-overrides"
 #   label: "apply-anyway"
+#   # Optional one-click apply: deploy worker/ (see worker/README.md) and set
+#   # OVERRIDE_SIGNING_SECRET, then point apply_url at the worker. Without it,
+#   # the button uses GitHub's pre-filled issue form (two clicks).
+#   apply_url: "https://aa-apply.<your-subdomain>.workers.dev/apply"

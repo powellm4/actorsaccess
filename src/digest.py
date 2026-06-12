@@ -194,10 +194,16 @@ def _apply_anyway_link(overrides_cfg: dict | None, item: dict, accent: str) -> s
     """
     if not overrides_cfg or not overrides_cfg.get("repo") or not overrides_cfg.get("label"):
         return ""
+    # When an apply worker + signing secret are configured, build_override_url
+    # returns a signed one-click link (creates the issue server-side); otherwise
+    # it falls back to GitHub's pre-filled new-issue page.
+    signing_secret = os.environ.get("OVERRIDE_SIGNING_SECRET")
     url = build_override_url(
         repo=overrides_cfg["repo"], label=overrides_cfg["label"],
         project_name=item.get("project_name", ""), role_name=item.get("role_name", ""),
         platform=item.get("platform", "aa"), mode=item.get("mode", "paid"),
+        apply_url=overrides_cfg.get("apply_url") if signing_secret else None,
+        signing_secret=signing_secret,
     )
     return (
         f'<br><a href="{url}" style="display:inline-block;margin-top:6px;'

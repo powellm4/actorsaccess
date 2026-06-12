@@ -6,8 +6,10 @@ import pytest
 
 from src.overrides import (
     OverrideRequest,
+    build_apply_url,
     build_override_url,
     parse_issue_body,
+    sign_override_params,
 )
 
 
@@ -138,6 +140,61 @@ def test_build_override_url_round_trips_through_parse():
     assert parsed["role_name"] == "Lead — Hero"
     assert parsed["platform"] == "backstage"
     assert parsed["mode"] == "unpaid"
+
+
+# --- one-click apply worker URL ---
+
+def test_build_override_url_returns_signed_worker_link_when_configured():
+    """With apply_url + signing_secret, the button points at the worker with a
+    valid signature instead of GitHub's two-click form."""
+    from urllib.parse import urlparse, parse_qs
+
+    url = build_override_url(
+        repo="r/o", label="apply-anyway",
+        project_name="Acme Show", role_name="Lead / Hero",
+        platform="cn", mode="paid",
+        apply_url="https://aa-apply.example.workers.dev/apply",
+        signing_secret="s3cret",
+    )
+    assert url.startswith("https://aa-apply.example.workers.dev/apply?")
+    qs = parse_qs(urlparse(url).query)
+    assert qs["platform"] == ["cn"]
+    assert qs["mode"] == ["paid"]
+    assert qs["p"] == ["Acme Show"]
+    assert qs["r"] == ["Lead / Hero"]
+    # Signature matches what the worker will recompute over the decoded values.
+    expected = sign_override_params("s3cret", "cn", "paid", "Acme Show", "Lead / Hero")
+    assert qs["sig"] == [expected]
+
+
+def test_build_override_url_falls_back_without_secret():
+    """apply_url present but no signing secret → keep the GitHub two-click link."""
+    url = build_override_url(
+        repo="r/o", label="apply-anyway",
+        project_name="P", role_name="R", platform="aa", mode="paid",
+        apply_url="https://aa-apply.example.workers.dev/apply",
+        signing_secret=None,
+    )
+    assert url.startswith("https://www.github.com/login?return_to=")
+
+
+def test_sign_override_params_is_stable_and_field_sensitive():
+    base = sign_override_params("k", "aa", "paid", "Proj", "Role")
+    assert base == sign_override_params("k", "aa", "paid", "Proj", "Role")
+    # Any field change flips the signature.
+    assert base != sign_override_params("k", "cn", "paid", "Proj", "Role")
+    assert base != sign_override_params("k", "aa", "unpaid", "Proj", "Role")
+    assert base != sign_override_params("k", "aa", "paid", "Proj2", "Role")
+    assert base != sign_override_params("different-key", "aa", "paid", "Proj", "Role")
+
+
+def test_build_apply_url_appends_params_with_existing_query():
+    url = build_apply_url(
+        "https://w.example/apply?v=1", "k",
+        project_name="P", role_name="R", platform="aa", mode="paid",
+    )
+    assert "https://w.example/apply?v=1&" in url
+    assert "sig=" in url
 
 
 # --- fetch_pending (uses urllib; we patch the http call) ---

@@ -98,6 +98,7 @@ jobs:
           DIGEST_SENDER_EMAIL: ${{ secrets.DIGEST_SENDER_EMAIL }}
           ARCHIVE_SITE_URL: ${{ vars.ARCHIVE_SITE_URL }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          OVERRIDE_SIGNING_SECRET: ${{ secrets.OVERRIDE_SIGNING_SECRET }}
         run: python -m src.digest --mode paid
 
       - name: Upload database (after digest)
