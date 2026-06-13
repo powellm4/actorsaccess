@@ -17,6 +17,10 @@ env:
   # DeepSeek shadow comparison paused — kill switch from src/shadow.py.
   # Remove this block to resume background DeepSeek calls.
   SHADOW_ENABLED: "0"
+  # Calendar check paused — kill switch from src/calendar_check.py. While set,
+  # the bot ignores calendar conflicts and applies for every date. Remove this
+  # line (or set to "1") to resume checking the calendar.
+  CALENDAR_CHECK_ENABLED: "0"
 
 jobs:
   auto-apply:

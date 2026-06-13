@@ -22,6 +22,14 @@ def get_calendar_service():
     if _service_cache is not None:
         return _service_cache
 
+    # Temporary kill switch: when CALENDAR_CHECK_ENABLED=0, skip all calendar
+    # lookups so every availability check defaults to "available" and the bot
+    # applies for everything regardless of date conflicts. Set in the
+    # auto-apply workflows; remove that env var (or set to 1) to re-enable.
+    if os.environ.get("CALENDAR_CHECK_ENABLED") == "0":
+        logger.info("[CALENDAR] CALENDAR_CHECK_ENABLED=0 — calendar check disabled, applying for all dates")
+        return None
+
     sa_key_b64 = os.environ.get("GOOGLE_CALENDAR_SA_KEY")
     if not sa_key_b64:
         logger.info("GOOGLE_CALENDAR_SA_KEY not set — calendar check disabled")
