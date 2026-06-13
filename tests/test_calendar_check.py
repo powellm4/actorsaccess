@@ -51,6 +51,23 @@ def test_get_calendar_service_no_env_var_returns_none():
     assert result is None
 
 
+def test_get_calendar_service_kill_switch_returns_none():
+    """CALENDAR_CHECK_ENABLED=0 should disable the calendar check even with a key set."""
+    with patch.dict(os.environ, {"CALENDAR_CHECK_ENABLED": "0", "GOOGLE_CALENDAR_SA_KEY": "x"}):
+        result = get_calendar_service()
+    assert result is None
+
+
+def test_check_availability_kill_switch_defaults_available():
+    """With the kill switch on, check_availability reports available without API calls."""
+    with patch.dict(os.environ, {"CALENDAR_CHECK_ENABLED": "0", "GOOGLE_CALENDAR_SA_KEY": "x"}):
+        available, conflicts = check_availability(
+            "2026-04-05", "2026-04-12", ["Acting", "Travel"]
+        )
+    assert available is True
+    assert conflicts == []
+
+
 def test_check_availability_free():
     """No events in range should return (True, [])."""
     mock_service = _mock_events_list([])
