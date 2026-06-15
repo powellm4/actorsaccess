@@ -25,6 +25,7 @@ from src.role_selector import (
     answer_prescreen_questions,
     check_travel_pay,
     generate_cover_letter,
+    generate_selftape_note,
     select_best_roles,
 )
 from src.shadow import clear_run_context, flush_pending_shadows, set_run_context
@@ -782,8 +783,9 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                     # kwarg on submit_for_role.
                     note_parts: list[str] = []
                     if selftape_detected:
-                        logger.info(f"[SELFTAPE] Attaching cover letter note for {best['role_name']}")
-                        note_parts.append(SELFTAPE_COVER_LETTER)
+                        logger.info(f"[SELFTAPE] Generating role-specific note for {best['role_name']}")
+                        selftape_note = generate_selftape_note(best, project_name) or SELFTAPE_COVER_LETTER
+                        note_parts.append(selftape_note)
                     if analysis["action"] == "SUBMIT_WITH_NOTE" and analysis.get("note"):
                         note_parts.append(analysis["note"])
                     note = "\n\n".join(note_parts)

@@ -1191,6 +1191,73 @@ Write the cover letter now."""
     return text
 
 
+def generate_selftape_note(role: dict, project_name: str) -> str:
+    """Generate a role-specific 1-2 sentence self-tape offer note for Backstage submissions.
+
+    Replaces the generic hardcoded fallback when an AI call is possible.
+    Returns empty string on error so callers fall back to the static constant.
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return ""
+
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=api_key, max_retries=8)
+
+    desc = role.get("description", "")
+    role_name = role.get("role_name", "")
+
+    prompt = f"""You are writing a 1-2 sentence self-tape offer note for the actor below, for a specific Backstage casting role. This text goes in the submission notes field.
+
+ACTOR PROFILE:
+{ACTOR_PROFILE}
+
+PROJECT: {project_name}
+ROLE: {role_name}
+DESCRIPTION: {desc[:800]}
+
+Write 1-2 sentences in first person. Briefly name one concrete reason the actor is a natural fit for this specific role (use a type, physical attribute, or clear alignment from the profile — nothing invented). End with an offer to self-tape on request.
+
+HARD RULES:
+- NO greeting, NO sign-off. Plain text only, ready to paste.
+- NEVER fabricate credits, training, experience, or attributes not in the profile.
+- NEVER mention improv/UCB/Groundlings/dance/guitar or any skill-resume content.
+- Do NOT use placeholder brackets [like this].
+- Keep it under 40 words total.
+- Output ONLY the note text. No preamble, no explanation.
+
+Write the note now."""
+
+    try:
+        text = shadowed_completion(
+            prompt,
+            call_site="cover_letter",
+            max_tokens=100,
+            claude_client=client,
+            extract_verdict=VERDICT_EXTRACTORS["cover_letter"],
+            project_name=project_name,
+            role_name=role_name,
+        ).strip()
+    except Exception as e:
+        logger.warning(f"Selftape note generation failed for {role_name} on {project_name}: {e}")
+        return ""
+
+    if not text:
+        return ""
+
+    if len(text) > 250:
+        logger.warning(f"Selftape note too long for {role_name} on {project_name}, discarding")
+        return ""
+
+    if not _validate_note(text, role, project_name):
+        logger.warning(f"Selftape note failed validation for {role_name} on {project_name}")
+        return ""
+
+    logger.info(f"Generated selftape note for {role_name} on {project_name} ({len(text)} chars)")
+    return text
+
+
 def _validate_note(note: str, role: dict, project_name: str) -> bool:
     """Validate a generated note before submission. Returns False if the note is bad."""
     import re
