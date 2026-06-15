@@ -997,7 +997,20 @@ Rules:
     return {"answers": answered}
 
 
-def analyze_submission_requirements(role: dict, project_name: str, project_notes: str = "", confirmed_dates: str | None = None, mode: str = "paid") -> dict:
+_DEMO_CLIP_PHRASES = (
+    "demo clips", "demo reel", "online demo clips", "online clips",
+    "video clips", "submit actor's online demo", "submit demo clip",
+    "include demo clip", "your online demo",
+)
+
+
+def _clips_explicitly_requested(desc: str, project_notes: str) -> bool:
+    """True when the breakdown explicitly asks for demo clips/reel in submissions."""
+    combined = (desc + " " + project_notes).lower()
+    return any(p in combined for p in _DEMO_CLIP_PHRASES)
+
+
+def analyze_submission_requirements(role: dict, project_name: str, project_notes: str = "", confirmed_dates: str | None = None, mode: str = "paid", has_media: bool = False) -> dict:
     """Analyze role description and project-level notes for submission requirements.
 
     Args:
@@ -1007,6 +1020,10 @@ def analyze_submission_requirements(role: dict, project_name: str, project_notes
             that boil down to "actor isn't local to [shoot city]" are
             overridden to SUBMIT when travel pay clears the threshold —
             the actor flies in as a local hire.
+        has_media: True when the submission pipeline will attach a demo reel/clips
+            from the actor's profile. When True and the breakdown explicitly requests
+            demo clips, a brief confirmation note ("Demo reel attached.") is included
+            so casting directors and the digest both reflect what was submitted.
 
     Returns:
         {"action": "SUBMIT" | "SUBMIT_WITH_NOTE" | "NEEDS_INPUT",
@@ -1107,6 +1124,22 @@ Respond with ONLY the action line (and NOTE/REASON line if applicable). No other
                 f"converting NEEDS_INPUT to SUBMIT (reason was local-hire framing)"
             )
             result = {"action": "SUBMIT", "note": None, "needs_input_reason": None}
+
+    # When the breakdown explicitly requests demo clips/reel AND the pipeline
+    # will attach media from the actor's profile, confirm this with a brief note.
+    # This makes the digest show "Demo reel attached." instead of the generic
+    # "No specific submission info requested", and directly answers casting's ask.
+    desc = role.get("description", "")
+    if (has_media
+            and result["action"] == "SUBMIT"
+            and result.get("note") is None
+            and _clips_explicitly_requested(desc, project_notes)):
+        result["action"] = "SUBMIT_WITH_NOTE"
+        result["note"] = "Demo reel attached."
+        logger.info(
+            f"[CLIPS] {project_name} — {role.get('role_name', '?')}: "
+            f"breakdown requested demo clips; confirming reel attached in note"
+        )
 
     return result
 
