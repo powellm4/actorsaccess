@@ -580,7 +580,8 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                                 confirmed_dates = ", ".join(partial_availability["free_dates"])
                             else:
                                 confirmed_dates = f"{shoot_dates[0]} to {shoot_dates[1]}"
-                        analysis = analyze_submission_requirements(best, project["project_name"], project_notes, confirmed_dates=confirmed_dates, mode=mode)
+                        has_media = bool(cfg.get("submission", {}).get("include_media", False))
+                        analysis = analyze_submission_requirements(best, project["project_name"], project_notes, confirmed_dates=confirmed_dates, mode=mode, has_media=has_media)
                         logger.info(f"[ANALYSIS] {best['role_name']}: action={analysis['action']}, note={analysis.get('note', 'N/A')}")
 
                         if analysis["action"] == "NEEDS_INPUT":
