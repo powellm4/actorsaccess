@@ -46,6 +46,18 @@ _SCENE_RECREATION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Roles requiring a complete family unit or sibling group — structurally
+# impossible for a solo submission. These are correctly rejected downstream
+# but filtering early avoids wasted AI evaluation cycles.
+_FAMILY_CASTING_PATTERN = re.compile(
+    r"\breal\s+family\b"
+    r"|\bfamily\s+of\s+\d"
+    r"|\bfamily\s+unit\b"
+    r"|\bfamily\s+consisting\s+of\b"
+    r"|\breal\s+siblings?\b",
+    re.IGNORECASE,
+)
+
 _UNPAID_PATTERN = re.compile(
     r"\bno\s*pay\b|\bunpaid\b|\bnon[- ]?paid\b|\bdeferred\b|\bcopy\s*&?\s*credit\b|\bcopy/credit\b",
     re.IGNORECASE,
@@ -244,6 +256,13 @@ def is_lead_or_supporting(
     return True, ""
 
 
+def _is_family_casting(role: dict) -> bool:
+    """Return True if the role requires a real family/group unit (solo submissions don't apply)."""
+    name = role.get("role_name", "")
+    desc = role.get("description", "")
+    return bool(_FAMILY_CASTING_PATTERN.search(name) or _FAMILY_CASTING_PATTERN.search(desc))
+
+
 def _is_court_tv(role: dict) -> bool:
     """Check if a role is for a court TV show."""
     name = role.get("role_name", "")
@@ -338,5 +357,8 @@ def role_matches(role: dict, mode: str = "paid") -> tuple[bool, str]:
 
     if _is_court_tv(role):
         return False, "court TV role"
+
+    if _is_family_casting(role):
+        return False, "requires real family/group unit"
 
     return True, ""
