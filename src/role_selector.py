@@ -300,15 +300,20 @@ def check_travel_pay(
             tier = "short"
 
     if tier is None:
-        # Fallback: any US state outside CA/NV/AZ counts as fly-to
+        # Fallback: any US state outside CA/NV/AZ counts as fly-to.
+        # Use original (non-lowercased) text for abbreviation matching — many state
+        # codes (OR, IN, ME, OH, IA, …) are also common English words. Case-sensitive
+        # matching ensures "Portland, OR" triggers Oregon but "videographer, or creative"
+        # does not. Full state names still use the lowercased `combined`.
+        _combined_orig = f"{project_name} {role_description} {project_notes}"
         for full_name, code in _FLY_TO_US_STATES.items():
             if full_name in combined:
                 tier = "fly"
                 matched_location = full_name
                 break
-            # Match codes ONLY in unambiguous "City, ST" form (comma-prefixed) to avoid
-            # false positives like "shoot in LA" being read as Louisiana.
-            if re.search(rf',\s*{code}\b', combined, re.IGNORECASE):
+            # Match codes ONLY in unambiguous "City, ST" form (comma-prefixed).
+            # No IGNORECASE: "OR" (Oregon) matches; "or" (conjunction) does not.
+            if re.search(rf',\s*{code}\b', _combined_orig):
                 tier = "fly"
                 matched_location = code
                 break
