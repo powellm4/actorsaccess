@@ -46,15 +46,20 @@ _SCENE_RECREATION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# Roles requiring a complete family unit or sibling group — structurally
-# impossible for a solo submission. These are correctly rejected downstream
-# but filtering early avoids wasted AI evaluation cycles.
+# Roles requiring a complete family unit, real couple, or group act —
+# structurally impossible for a solo submission. Filtering early avoids
+# wasted AI evaluation cycles.
 _FAMILY_CASTING_PATTERN = re.compile(
     r"\breal\s+family\b"
     r"|\bfamily\s+of\s+\d"
     r"|\bfamily\s+unit\b"
     r"|\bfamily\s+consisting\s+of\b"
-    r"|\breal\s+siblings?\b",
+    r"|\breal\s+siblings?\b"
+    # Real-couple roles: actor must have an existing partner to co-submit
+    r"|\breal\s+couple\b"
+    r"|\bmust\s+submit\s+as\s+a\s+couple\b"
+    r"|\bmust\s+submit\s+(?:together\s+)?with\s+(?:a\s+)?partner\b"
+    r"|\binterracial\s+couple\b",
     re.IGNORECASE,
 )
 
