@@ -18,7 +18,7 @@ from src.backstage.client import BackstageClient
 from src.database import Database
 from src.override_email import send_override_results_email
 from src.calendar_check import check_availability, parse_shoot_dates, parse_all_dates
-from src.filters import _is_background, _is_court_tv, _is_ugc, _is_unpaid, _COURT_TV_PATTERN, is_lead_or_supporting, project_has_female_cast
+from src.filters import _is_background, _is_court_tv, _is_family_casting, _is_ugc, _is_unpaid, _COURT_TV_PATTERN, is_lead_or_supporting, project_has_female_cast
 from src.role_selector import (
     TRANSIENT_REJECTION_PREFIX,
     analyze_submission_requirements,
@@ -518,6 +518,14 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                             _print_role_decision("SKIP", project_name, role, "court TV")
                         else:
                             logger.info(f"Filtered: {project_name} — {role['role_name']} (court TV)")
+                        continue
+
+                    if _is_family_casting(role):
+                        roles_filtered += 1
+                        if dry_run:
+                            _print_role_decision("SKIP", project_name, role, "requires real family/group unit")
+                        else:
+                            logger.info(f"Filtered: {project_name} — {role['role_name']} (real family/group unit)")
                         continue
 
                     candidates.append(role)
