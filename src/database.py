@@ -614,5 +614,26 @@ class Database:
                 return row[0]
         return None
 
+    def find_application_by_name(
+        self, role_name: str, project_name: str, platform: str,
+    ) -> dict | None:
+        """Return the most recent applied_roles row matching by name, or None.
+
+        Used by the override URL-not-found path to surface a friendlier
+        failure message when the role was already applied (so no rejection/
+        flagged URL was ever stored). Returns a dict with keys
+        'applied_at', 'mode', and 'submission_note'.
+        """
+        cursor = self.conn.execute(
+            """SELECT applied_at, mode, submission_note FROM applied_roles
+               WHERE role_name = ? AND project_name = ? AND platform = ?
+               ORDER BY applied_at DESC LIMIT 1""",
+            (role_name, project_name, platform),
+        )
+        row = cursor.fetchone()
+        if row:
+            return {"applied_at": row[0], "mode": row[1], "submission_note": row[2]}
+        return None
+
     def close(self):
         self.conn.close()
