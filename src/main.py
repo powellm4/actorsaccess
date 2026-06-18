@@ -82,6 +82,17 @@ def _apply_aa_override(
 
     project_url = db.get_known_project_url(role_name, project_name, "aa")
     if not project_url:
+        prior = db.find_application_by_name(role_name, project_name, "aa")
+        if prior:
+            logger.info(
+                f"[OVERRIDE] {project_name} — {role_name} was already applied on "
+                f"{prior['applied_at']} ({prior['mode']} mode). Closing override."
+            )
+            return _finish(
+                "already_applied",
+                f"Applied on {prior['applied_at']} ({prior['mode']} mode).",
+                f"This role was already applied on {prior['applied_at']} ({prior['mode']} mode) — no further action needed.",
+            )
         logger.warning(f"[OVERRIDE] No project URL on file for {project_name} — {role_name}")
         return _finish(
             "failed", "Project URL not on file in db.",
