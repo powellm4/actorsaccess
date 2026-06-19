@@ -112,8 +112,16 @@ def _apply_cn_override(
     if not role_url:
         logger.warning(f"[OVERRIDE] No role URL on file for {project_name} — {role_name}")
         return _finish(
-            "failed", "Role URL not on file in db.",
-            "Failed: no role URL on file. The role may have been removed before it was queued.",
+            "failed",
+            "Role URL not on file in db.",
+            (
+                f"Failed to apply: **{project_name}** — *{role_name}* was not found in the bot's "
+                f"project database. This usually means the breakdown expired or was removed before "
+                f"it was scraped.\n\n"
+                f"**To apply manually:** search for \"{project_name}\" on Casting Networks and "
+                f"submit directly for the \"{role_name}\" role. If the project is no longer listed, "
+                f"the breakdown has likely closed."
+            ),
         )
 
     # CN role URLs look like https://app.castingnetworks.com/project/{pid}/role/{rid}/...
