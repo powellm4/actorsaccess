@@ -306,14 +306,27 @@ def check_travel_pay(
         # matching ensures "Portland, OR" triggers Oregon but "videographer, or creative"
         # does not. Full state names still use the lowercased `combined`.
         _combined_orig = f"{project_name} {role_description} {project_notes}"
+
+        # Prefer the explicit "Location:" field from project_notes when present.
+        # Searching the full combined text causes false positives when state names
+        # appear as character names in role descriptions (e.g. "Georgia's boyfriend"
+        # matching Georgia the state instead of the real New Jersey shoot location).
+        _loc_field_m = re.search(r'\bLocation\s*:\s*([^\n]+)', project_notes, re.IGNORECASE)
+        if _loc_field_m:
+            _state_search_lower = _loc_field_m.group(1).strip().lower()
+            _state_search_orig = _loc_field_m.group(1).strip()
+        else:
+            _state_search_lower = combined
+            _state_search_orig = _combined_orig
+
         for full_name, code in _FLY_TO_US_STATES.items():
-            if full_name in combined:
+            if full_name in _state_search_lower:
                 tier = "fly"
                 matched_location = full_name
                 break
             # Match codes ONLY in unambiguous "City, ST" form (comma-prefixed).
             # No IGNORECASE: "OR" (Oregon) matches; "or" (conjunction) does not.
-            if re.search(rf',\s*{code}\b', _combined_orig):
+            if re.search(rf',\s*{code}\b', _state_search_orig):
                 tier = "fly"
                 matched_location = code
                 break
