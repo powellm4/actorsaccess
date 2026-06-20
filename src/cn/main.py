@@ -13,7 +13,7 @@ from src.cn.browser import CastingNetworksBrowser
 from src.database import Database
 from src.override_email import send_override_results_email
 from src.calendar_check import check_work_date_conflicts, parse_work_dates, check_availability, get_busy_dates
-from src.filters import _is_background, _is_court_tv, _is_family_casting, _is_ugc, _is_unpaid, _is_voiceover, _COURT_TV_PATTERN, is_lead_or_supporting, project_has_female_cast
+from src.filters import _is_background, _is_court_tv, _is_family_casting, _is_ugc, _is_unpaid, _is_voiceover, _COURT_TV_PATTERN, extract_role_type_marker, is_lead_or_supporting, project_has_female_cast
 from src.role_selector import (
     TRANSIENT_REJECTION_PREFIX,
     analyze_submission_requirements,
@@ -489,16 +489,34 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                         role_url = best.get("url", "")
                         if role_url and not role_url.startswith("http"):
                             role_url = f"https://app.castingnetworks.com{role_url}"
-                        db.record_rejection(
-                            project_name=project_name,
-                            project_url=role_url or project_url,
-                            role_name=best["role_name"],
-                            role_description=best.get("description", ""),
-                            rejection_reason=tp_reason,
-                            run_id=run_id,
-                            platform="cn",
-                            mode=mode,
-                        )
+                        # LEAD/PRINCIPAL roles at fly-to locations are flagged for
+                        # manual review rather than hard-rejected — a career-defining
+                        # role may be worth the travel cost even below the threshold.
+                        _rtype = (best.get("role_type") or "").upper() or (extract_role_type_marker(best.get("description", "")) or "")
+                        if _rtype in ("LEAD", "PRINCIPAL", "SERIES REGULAR") and "fly-to" in (tp_reason or ""):
+                            flag_reason = f"LEAD role below fly-to threshold — {tp_reason}. Apply manually if it's a strong type match."
+                            logger.info(f"[TRAVEL PAY] Flagging LEAD {best['role_name']} on {project_name} for review")
+                            db.record_flagged_role(
+                                project_name=project_name,
+                                project_url=role_url or project_url,
+                                role_name=best["role_name"],
+                                role_description=best.get("description", ""),
+                                flag_reason=flag_reason,
+                                run_id=run_id,
+                                platform="cn",
+                                mode=mode,
+                            )
+                        else:
+                            db.record_rejection(
+                                project_name=project_name,
+                                project_url=role_url or project_url,
+                                role_name=best["role_name"],
+                                role_description=best.get("description", ""),
+                                rejection_reason=tp_reason,
+                                run_id=run_id,
+                                platform="cn",
+                                mode=mode,
+                            )
                         continue
 
                     # Analyze submission requirements
