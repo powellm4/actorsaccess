@@ -38,8 +38,7 @@ _SKIP_PROD_TYPES = {"theater", "theatre", "musical"}
 # a self-tape / video prescreen is detected. Casting reads this in the
 # submission note and knows to ask for a tape if they're interested.
 SELFTAPE_COVER_LETTER = (
-    "If you think I would be a good fit for this role looks wise, "
-    "I would be happy to submit a self tape. Let me know."
+    "Happy to send a self-tape on short notice — just let me know."
 )
 
 
