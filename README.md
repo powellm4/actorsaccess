@@ -150,7 +150,7 @@ Production runs in two workflows, both in `.github/workflows/`:
 
 | Workflow | Schedule (UTC) | What it does |
 |----------|----------------|--------------|
-| `auto-apply.yml` | `0 15,18,21,0,3,6 * * *` (6×/day) | AA → CN → Backstage → paid digest |
+| `auto-apply.yml` | `0 15,21,3,6 * * *` + `0 18,0 * * *` (6×/day) | AA → CN → Backstage every run; paid digest emails only on the `0 18,0` runs (11am & 5pm PT, 2×/day) |
 | `auto-apply-unpaid.yml` | `0 16 * * *` (9am PT, 1×/day) | AA → CN → Backstage → unpaid digest |
 
 Both share a `db-access` concurrency group so they don't clobber each other. CN runs under `xvfb` on the Linux runner since it blocks headless browsers.
