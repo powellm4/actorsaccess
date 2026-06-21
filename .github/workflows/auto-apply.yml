@@ -2,8 +2,12 @@ name: Auto Apply
 
 on:
   schedule:
-    # 8am, 11am, 2pm, 5pm, 8pm, 11pm PT (UTC-7)
-    - cron: "0 15,18,21,0,3,6 * * *"
+    # Application runs WITHOUT a digest email: 8am, 2pm, 8pm, 11pm PT (UTC-7).
+    - cron: "0 15,21,3,6 * * *"
+    # Application runs that ALSO send the digest email: 11am & 5pm PT (UTC-7).
+    # These two send times are chosen from application history — see the
+    # "Send digest email" step below for the rationale.
+    - cron: "0 18,0 * * *"
   workflow_dispatch:
 
 permissions:
@@ -96,7 +100,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload db-storage data/applied.db --clobber
 
+      # The pipeline applies on all 6 daily runs, but the digest email only
+      # goes out twice a day — at 11am & 5pm PT (the "0 18,0 * * *" schedule),
+      # plus any manual run. These two times come from ~3.5 months of history:
+      # the 11am email sweeps up everything from overnight + the 8am run, and
+      # the 5pm email captures the day's peak (the 2pm & 5pm runs, which produce
+      # the bulk of applications and needs-attention flags). Both land while
+      # awake, and the 5pm send still leaves the 8pm & 11pm runs to act on
+      # anything flagged before the day ends. The digest window self-adjusts:
+      # each email covers everything since the previous email actually sent.
       - name: Send digest email (paid)
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 18,0 * * *'
         env:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           DIGEST_SENDER_EMAIL: ${{ secrets.DIGEST_SENDER_EMAIL }}
@@ -105,7 +119,10 @@ jobs:
           OVERRIDE_SIGNING_SECRET: ${{ secrets.OVERRIDE_SIGNING_SECRET }}
         run: python -m src.digest --mode paid
 
+      # Only needed when the digest ran — it stamps digest_history. On non-digest
+      # runs the DB was already uploaded after the Backstage step.
       - name: Upload database (after digest)
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 18,0 * * *'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload db-storage data/applied.db --clobber
