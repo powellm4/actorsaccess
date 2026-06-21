@@ -467,9 +467,12 @@ def select_best_roles(
             )
         else:
             scope_line = (
-                "Select ALL roles that are a reasonable fit for this actor. Only reject roles "
-                "that have a genuine disqualifier. Being a day player or lower pay is NOT a "
-                "reason to reject — submit for every role the actor could realistically book."
+                "Select the best 1–3 roles that are a reasonable fit for this actor — no more than 3 "
+                "even if more roles pass the disqualifier checks. When more than 3 roles would otherwise "
+                "qualify, pick the roles with the highest role prominence (lead > supporting > day player) "
+                "and strongest type match. Only reject roles that have a genuine disqualifier. Being a "
+                "day player or lower pay is NOT a reason to reject — but cap submissions at 3 per project "
+                "to avoid appearing undiscriminating to casting directors."
             )
 
         prompt = f"""You are a casting assistant helping an actor decide which role(s) to submit for on a project.
