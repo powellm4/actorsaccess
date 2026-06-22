@@ -150,6 +150,12 @@ def _categorize_rejection(reason: str | None) -> str:
 # daily, so anything older than a day means the queue isn't draining.
 _STALE_AFTER_HOURS = 24
 
+# When a single project contributes this many or more roles to the same pass
+# bucket, collapse them into one summary card instead of individual entries.
+# Prevents multi-role theatrical breakdowns (e.g. 7-role musicals) from
+# flooding the digest with nearly-identical "theatre/musical work" cards.
+_COLLAPSE_THRESHOLD = 3
+
 
 def _parse_db_timestamp(value: str) -> datetime | None:
     """Parse a timestamp written by Database._utcnow() (UTC, microseconds) or
@@ -316,18 +322,41 @@ def build_digest_html(
                 f'font-size:15px;border-bottom:1px solid #ffe0b2;'
                 f'padding-bottom:4px;">{label} ({len(items)})</h3>\n'
             )
+            # Group items by project name so that multi-role breakdowns with
+            # 3+ roles in the same bucket collapse into one summary card rather
+            # than flooding the digest with nearly-identical entries.
+            project_groups: dict[str, list] = defaultdict(list)
             for rej in items:
-                platform_badge = _platform_badge(rej.get("platform", "aa"))
-                desc = rej.get("role_description") or ""
-                rej_url = rej.get("project_url", "")
-                role_label = f'<a href="{rej_url}" style="color:#e65100;text-decoration:underline;">{rej["role_name"]}</a>' if rej_url else rej["role_name"]
-                passed_section += '<div style="background:#fff3e0;padding:12px;border-radius:4px;margin-bottom:8px;">\n'
-                passed_section += f'<strong style="color:#e65100;">PASSED</strong> {platform_badge} — <strong>{rej.get("project_name", "")}</strong> — <strong>{role_label}</strong>'
-                if desc:
-                    passed_section += f'<br><span style="color:#555;">{desc}</span>'
-                passed_section += f'<br><strong>Reason:</strong> {rej.get("rejection_reason", "N/A")}'
-                passed_section += _apply_anyway_link(overrides_cfg, rej, "#e65100")
-                passed_section += '\n</div>\n'
+                project_groups[rej.get("project_name", "")].append(rej)
+
+            for project_name, group_items in project_groups.items():
+                if len(group_items) >= _COLLAPSE_THRESHOLD:
+                    # Collapsed card: one entry covering all roles in this project/bucket.
+                    first = group_items[0]
+                    platform_badge = _platform_badge(first.get("platform", "aa"))
+                    role_names = ", ".join(r["role_name"] for r in group_items)
+                    shared_reason = first.get("rejection_reason", "N/A")
+                    passed_section += '<div style="background:#fff3e0;padding:12px;border-radius:4px;margin-bottom:8px;">\n'
+                    passed_section += (
+                        f'<strong style="color:#e65100;">PASSED</strong> {platform_badge} — '
+                        f'<strong>{project_name}</strong> — '
+                        f'<em>{len(group_items)} roles: {role_names}</em>'
+                    )
+                    passed_section += f'<br><strong>Reason (all roles):</strong> {shared_reason}'
+                    passed_section += '\n</div>\n'
+                else:
+                    for rej in group_items:
+                        platform_badge = _platform_badge(rej.get("platform", "aa"))
+                        desc = rej.get("role_description") or ""
+                        rej_url = rej.get("project_url", "")
+                        role_label = f'<a href="{rej_url}" style="color:#e65100;text-decoration:underline;">{rej["role_name"]}</a>' if rej_url else rej["role_name"]
+                        passed_section += '<div style="background:#fff3e0;padding:12px;border-radius:4px;margin-bottom:8px;">\n'
+                        passed_section += f'<strong style="color:#e65100;">PASSED</strong> {platform_badge} — <strong>{rej.get("project_name", "")}</strong> — <strong>{role_label}</strong>'
+                        if desc:
+                            passed_section += f'<br><span style="color:#555;">{desc}</span>'
+                        passed_section += f'<br><strong>Reason:</strong> {rej.get("rejection_reason", "N/A")}'
+                        passed_section += _apply_anyway_link(overrides_cfg, rej, "#e65100")
+                        passed_section += '\n</div>\n'
         passed_section += '</div>\n'
 
     # Apply Anyway section: overrides processed since last digest. The wording
