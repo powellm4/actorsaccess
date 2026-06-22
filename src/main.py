@@ -95,8 +95,16 @@ def _apply_aa_override(
             )
         logger.warning(f"[OVERRIDE] No project URL on file for {project_name} — {role_name}")
         return _finish(
-            "failed", "Project URL not on file in db.",
-            "Failed: no project URL on file. The role may have been removed before it was queued.",
+            "failed",
+            "Project URL not on file in db.",
+            (
+                f"Failed to apply: **{project_name}** — *{role_name}* was not found in the bot's "
+                f"project database. This usually means the breakdown expired or was removed before "
+                f"it was scraped.\n\n"
+                f"**To apply manually:** search for \"{project_name}\" on Actors Access and submit "
+                f"directly for the \"{role_name}\" role. If the project is no longer listed, the "
+                f"breakdown has likely closed."
+            ),
         )
 
     if dry_run:

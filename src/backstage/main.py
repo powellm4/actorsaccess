@@ -197,8 +197,16 @@ def _apply_backstage_override(
             )
         logger.warning(f"[OVERRIDE] No role URL on file for {project_name} — {role_name}")
         return _finish(
-            "failed", "Role URL not on file in db.",
-            "Failed: no role URL on file. The role may have been removed before it was queued.",
+            "failed",
+            "Role URL not on file in db.",
+            (
+                f"Failed to apply: **{project_name}** — *{role_name}* was not found in the bot's "
+                f"project database. This usually means the breakdown expired or was removed before "
+                f"it was scraped.\n\n"
+                f"**To apply manually:** search for \"{project_name}\" on Backstage and submit "
+                f"directly for the \"{role_name}\" role. If the project is no longer listed, the "
+                f"breakdown has likely closed."
+            ),
         )
 
     try:
