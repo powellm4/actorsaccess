@@ -495,7 +495,7 @@ HARD DISQUALIFIERS — reject any role that requires:
 - Height outside 5'10"–6'1" (e.g., "must be 6'3"+", "under 5'6"")
 - Large/heavyset/stocky/overweight build (actor is athletic, 185 lbs)
 - Specific ethnicity that excludes both White AND Latino/Hispanic (e.g., "Black only", "Asian only" — reject. But "Hispanic", "Latino", "White" — accept)
-- Specific hair color that is NOT brown ONLY when stated as a casting requirement (e.g., "must have blonde hair", "redhead required"). The actor has BROWN hair. Character descriptions like "dyed hair" or "punk vibes" are styling choices that can be achieved — these are NOT disqualifiers.
+- Requires NATURAL [specific hair color] when explicitly stated (e.g., "must be a natural redhead", "natural blonde only"). General hair color descriptions ("blond hair", "brunette character", "light brown hair") are styling choices achievable through dyeing — these are NOT disqualifiers for regular acting roles. The actor has BROWN hair. Character descriptions like "dyed hair" or "punk vibes" are never disqualifiers.
 - Age range with NO overlap with 17-30 (e.g., "31-40" is a rejection, but "25-35" is NOT because it overlaps with the actor's range)
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
 - Requires an authentic/native non-American English accent (e.g., "must have authentic British accent", "native French speaker"). EXCEPTION: Spanish is fine — the actor is fluent in Spanish, so roles requiring Spanish dialogue, a Spanish-speaking character, a native/fluent Spanish speaker, or bilingual English/Spanish are ACCEPTABLE, not disqualifiers.
@@ -514,7 +514,8 @@ Also consider (but these are NOT reasons to reject — only to rank):
 1. Physical match (age, build, height, ethnicity)
 2. Type match (leading man, comedic/charming)
 3. Role prominence (lead, supporting, day player — all acceptable)
-4. Overall castability — would this actor realistically be considered?
+4. Hair color fit (actor has brown hair — note if role specifies a different color, though this is achievable through styling)
+5. Overall castability — would this actor realistically be considered?
 
 If NONE of the roles are a good fit, respond with SKIP on the first line and explain why.
 
@@ -609,7 +610,7 @@ DESCRIPTION: {desc}
 - Height outside 5'10"–6'1" (e.g., "must be 6'3"+", "under 5'6"")
 - Large/heavyset/stocky/overweight build (actor is athletic, 185 lbs)
 - Specific ethnicity that excludes both White AND Latino/Hispanic (e.g., "Black only", "Asian only" — reject. But "Hispanic", "Latino", "White" — accept)
-- Specific hair color that is NOT brown ONLY when stated as a casting requirement (e.g., "must have blonde hair", "redhead required"). The actor has BROWN hair. Character descriptions like "dyed hair" or "punk vibes" are styling choices that can be achieved — these are NOT disqualifiers.
+- Requires NATURAL [specific hair color] when explicitly stated (e.g., "must be a natural redhead", "natural blonde only"). General hair color descriptions ("blond hair", "brunette character", "light brown hair") are styling choices achievable through dyeing — these are NOT disqualifiers for regular acting roles. The actor has BROWN hair. Character descriptions like "dyed hair" or "punk vibes" are never disqualifiers.
 - Age range with NO overlap with 17-30 (e.g., "31-40" is a rejection, but "25-35" is NOT because it overlaps with the actor's range)
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
 - Requires an authentic/native non-American English accent (e.g., "must have authentic British accent", "native French speaker"). EXCEPTION: Spanish is fine — the actor is fluent in Spanish, so roles requiring Spanish dialogue, a Spanish-speaking character, a native/fluent Spanish speaker, or bilingual English/Spanish are ACCEPTABLE, not disqualifiers.
