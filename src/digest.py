@@ -732,6 +732,22 @@ def main():
     db = Database("data/applied.db")
     try:
         data = gather_digest_data(db, mode=args.mode)
+
+        # Skip sending when nothing happened and no runs errored out — avoids
+        # inbox noise from back-to-back runs that found no new roles.
+        runs = data.get("runs", [])
+        has_errors = any(r.get("status") == "error" for r in runs)
+        is_empty = (
+            not data.get("applications")
+            and not data.get("rejections")
+            and not data.get("flagged")
+            and not data.get("overrides")
+            and not data.get("pending")
+        )
+        if is_empty and not has_errors:
+            logger.info("Nothing to report and no errors — skipping digest email")
+            return
+
         overrides_cfg = _load_overrides_cfg()
         _ensure_override_label(overrides_cfg)
         html = build_digest_html(data, mode=args.mode, overrides_cfg=overrides_cfg)
