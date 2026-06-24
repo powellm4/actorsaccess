@@ -548,10 +548,13 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                     for best, ai_reason in selected:
                         unique_id = f"{project['breakdown_id']}_{best['role_id']}"
 
-                        # Programmatic travel pay check (overrides AI)
+                        # Programmatic travel pay check (overrides AI).
+                        # Include any structured pay field so _extract_total_pay
+                        # can find the rate even when project_notes says "See Roles Below".
+                        pay_text = best.get("pay", "") or best.get("rate_of_pay", "") or best.get("rate", "")
                         tp_ok, tp_reason = check_travel_pay(
                             project["project_name"],
-                            best.get("description", ""),
+                            f"{best.get('description', '')} Pay: {pay_text}" if pay_text else best.get("description", ""),
                             project_notes,
                             mode=mode,
                         )
