@@ -384,6 +384,21 @@ def _is_local_hire_rationalization(reason: str) -> bool:
     return any(re.search(p, reason, re.IGNORECASE) for p in _LOCAL_HIRE_REJECTION_PATTERNS)
 
 
+# Patterns that indicate the project explicitly requests the actor's
+# city/state/location in submission notes (distinct from "locals only" requirements).
+_LOCATION_IN_NOTE_PATTERNS = [
+    r"\bindicate\b.{0,60}\b(?:city|state|location)\b.{0,60}\bnotes?\b",
+    r"\binclude\b.{0,60}\b(?:city\s+and\s+state|state\s+and\s+city)\b.{0,60}\bnotes?\b",
+    r"\bnote\b.{0,60}\b(?:city|state|where you'?re? based|your location)\b",
+    r"\bplease\s+(?:note|include|indicate)\b.{0,60}\b(?:city|state)\b",
+]
+
+
+def _explicit_location_note_requested(project_notes: str) -> bool:
+    """True if the project explicitly asks for the actor's city/state in submission notes."""
+    return any(re.search(p, project_notes, re.IGNORECASE) for p in _LOCATION_IN_NOTE_PATTERNS)
+
+
 def _maybe_override_local_hire_skip(
     role: dict, project_name: str, ai_reason: str, mode: str,
     project_notes: str = "",
@@ -1147,6 +1162,20 @@ Respond with ONLY the action line (and NOTE/REASON line if applicable). No other
                 f"converting NEEDS_INPUT to SUBMIT (reason was local-hire framing)"
             )
             result = {"action": "SUBMIT", "note": None, "needs_input_reason": None}
+
+    # If the project explicitly requests the actor's city/state in submission
+    # notes and we have no note yet, inject the location. This prevents the
+    # reel note from claiming the slot when the project asked for something else
+    # (e.g. BRIDGEPORT: "Please indicate your CITY AND STATE in your submission notes").
+    if (result["action"] == "SUBMIT"
+            and result.get("note") is None
+            and _explicit_location_note_requested(project_notes)):
+        result["action"] = "SUBMIT_WITH_NOTE"
+        result["note"] = "Based in Los Angeles, CA. Available to travel for the role."
+        logger.info(
+            f"[LOCATION NOTE] {project_name} — {role.get('role_name', '?')}: "
+            f"project requests city/state in notes; adding location note"
+        )
 
     # When the breakdown explicitly requests demo clips/reel AND the pipeline
     # will attach media from the actor's profile, confirm this with a brief note.
