@@ -1152,8 +1152,12 @@ Respond with ONLY the action line (and NOTE/REASON line if applicable). No other
     # will attach media from the actor's profile, confirm this with a brief note.
     # This makes the digest show "Demo reel attached." instead of the generic
     # "No specific submission info requested", and directly answers casting's ask.
+    # Guard: only fire when the actor actually has a reel. `has_media` can be True
+    # for headshots/photos alone; the profile line "No demo reel currently" means
+    # we must not tell casting a reel was attached when none exists.
     desc = role.get("description", "")
     if (has_media
+            and "no demo reel" not in ACTOR_PROFILE.lower()
             and result["action"] == "SUBMIT"
             and result.get("note") is None
             and _clips_explicitly_requested(desc, project_notes)):
