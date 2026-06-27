@@ -158,6 +158,52 @@ def test_fetch_role_detail_retries_on_inline_cloudflare_challenge_page(client):
     assert isinstance(result, dict) and result.get("id") == 12345
 
 
+def test_fetch_saved_searches_returns_list_on_success(client):
+    """A successful fetch returns the list of saved searches verbatim."""
+    searches = [{"id": 1, "name": "acting"}, {"id": 2, "name": "unpaid"}]
+    with patch.object(client, "_request", return_value=searches), \
+         patch("src.backstage.client._random_delay"):
+        result = client.fetch_saved_searches()
+
+    assert result == searches
+
+
+def test_fetch_saved_searches_returns_none_on_request_failure(client):
+    """A failed request (None) is reported as None, NOT an empty list — so the
+    caller doesn't mistake a fetch failure for 'no saved searches exist'."""
+    with patch.object(client, "_request", return_value=None), \
+         patch("src.backstage.client._random_delay"):
+        result = client.fetch_saved_searches()
+
+    assert result is None
+
+
+def test_fetch_saved_searches_retries_after_cloudflare_403(client):
+    """Transient Cloudflare 403 on attempt 1 → retry → success on attempt 2."""
+    responses = [CLOUDFLARE_403, [{"id": 9, "name": "unpaid"}]]
+    calls = []
+
+    def fake_request(url, data=None, method=None):
+        calls.append(url)
+        return responses[len(calls) - 1]
+
+    with patch.object(client, "_request", side_effect=fake_request), \
+         patch("src.backstage.client._random_delay"):
+        result = client.fetch_saved_searches()
+
+    assert len(calls) == 2
+    assert result == [{"id": 9, "name": "unpaid"}]
+
+
+def test_fetch_saved_searches_returns_none_after_persistent_cloudflare(client):
+    """Two consecutive Cloudflare 403s → return None (transient block, not missing)."""
+    with patch.object(client, "_request", return_value=CLOUDFLARE_403), \
+         patch("src.backstage.client._random_delay"):
+        result = client.fetch_saved_searches()
+
+    assert result is None
+
+
 def test_request_returns_cloudflare_marker_for_403_challenge(client):
     """_request should surface a 403 'Just a moment...' as a structured error."""
     import urllib.error

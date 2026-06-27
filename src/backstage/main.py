@@ -357,6 +357,16 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
         # Find the saved search to use its filters
         saved_search = None
         saved_searches = client.fetch_saved_searches()
+        if saved_searches is None:
+            # The request itself failed (e.g. a Cloudflare 403 challenge or a
+            # network error) — this is NOT proof that the saved search is
+            # missing. Fail with an accurate, transient-sounding message rather
+            # than telling the user to (re)create a search that likely exists.
+            raise RuntimeError(
+                "Could not fetch saved searches from Backstage — the request was "
+                "blocked or failed (likely a transient Cloudflare challenge). "
+                "Will retry on the next scheduled run."
+            )
         for ss in saved_searches:
             if ss.get("name", "").lower() == saved_search_name.lower():
                 saved_search = ss
