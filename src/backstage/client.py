@@ -116,13 +116,33 @@ class BackstageClient:
         logger.error(f"Login failed: {data}")
         return False
 
-    def fetch_saved_searches(self) -> list[dict]:
-        """Fetch the user's saved searches."""
-        data = self._request(f"{BASE_URL}/casting/async/saved-search/")
-        if isinstance(data, list):
-            return data
+    def fetch_saved_searches(self) -> list[dict] | None:
+        """Fetch the user's saved searches.
+
+        Returns the list of saved searches on success (possibly empty if the
+        user has none), or None if the request itself failed. A failed fetch
+        (e.g. a transient Cloudflare 403 challenge) is distinct from "the user
+        has no saved searches" — callers must not treat a fetch failure as
+        proof that a particular saved search doesn't exist.
+        """
+        url = f"{BASE_URL}/casting/async/saved-search/"
+        # Cloudflare occasionally throws a transient 403 JS challenge. Retry
+        # once after a longer delay so a brief blip doesn't get mistaken for a
+        # missing saved search.
+        for attempt in (1, 2):
+            if attempt == 2:
+                _random_delay(5, 10)
+            data = self._request(url)
+            if isinstance(data, list):
+                return data
+            if isinstance(data, dict) and data.get("cloudflare"):
+                logger.warning(
+                    f"Cloudflare 403 on saved searches (attempt {attempt}/2)"
+                )
+                continue
+            break
         logger.error(f"Failed to fetch saved searches: {data}")
-        return []
+        return None
 
     def fetch_listings(self, page: int = 1, size: int = 20, saved_search: dict | None = None) -> dict:
         """Fetch casting call listings from the async API.
