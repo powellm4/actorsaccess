@@ -357,7 +357,10 @@ def role_matches(role: dict, mode: str = "paid") -> tuple[bool, str]:
     if _is_voiceover(role):
         return False, "voiceover role"
 
-    if mode != "unpaid" and _is_unpaid(role):
+    # Unpaid pay guard (paid mode only). Modeling / print / photo / stills gigs
+    # are exempt: the actor accepts unpaid TFP modeling regardless of mode, so
+    # a free modeling gig surfacing in the paid feed should still go through.
+    if mode != "unpaid" and _is_unpaid(role) and not is_modeling_role(role):
         return False, "unpaid role"
 
     if _is_court_tv(role):

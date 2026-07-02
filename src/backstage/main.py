@@ -18,7 +18,7 @@ from src.backstage.client import BackstageClient
 from src.database import Database
 from src.override_email import send_override_results_email
 from src.calendar_check import check_availability, parse_shoot_dates, parse_all_dates
-from src.filters import _is_background, _is_court_tv, _is_family_casting, _is_ugc, _is_unpaid, _COURT_TV_PATTERN, extract_role_type_marker, is_lead_or_supporting, project_has_female_cast
+from src.filters import _is_background, _is_court_tv, _is_family_casting, _is_ugc, _is_unpaid, _COURT_TV_PATTERN, extract_role_type_marker, is_lead_or_supporting, is_modeling_role, project_has_female_cast
 from src.role_selector import (
     TRANSIENT_REJECTION_PREFIX,
     analyze_submission_requirements,
@@ -525,7 +525,9 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                                 f"Unpaid bypass (female cast): {project_name} — {role['role_name']}"
                             )
                     else:
-                        if _is_unpaid(role):
+                        # Modeling / print / photo gigs are exempt: the actor
+                        # accepts unpaid TFP modeling regardless of mode.
+                        if _is_unpaid(role) and not is_modeling_role(role, role.get("project_type", "")):
                             roles_filtered += 1
                             if dry_run:
                                 _print_role_decision("SKIP", project_name, role, "unpaid")
