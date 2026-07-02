@@ -4,7 +4,9 @@
 from src.filters import (
     _gender_indicates_female,
     is_lead_or_supporting,
+    is_modeling_role,
     project_has_female_cast,
+    role_matches,
 )
 
 
@@ -175,3 +177,61 @@ def test_is_lead_or_supporting_aa_day_player_marker_rejected_without_bypass():
     role = _aa_role(description="DAY PLAYER. Male, 30s, brief courtroom scene.")
     ok, _ = is_lead_or_supporting(role, "aa")
     assert ok is False
+
+
+# ---------------------------------------------------------------------------
+# role_matches — paid-mode unpaid guard exempts modeling gigs
+# ---------------------------------------------------------------------------
+
+
+def test_paid_mode_rejects_unpaid_non_modeling_role():
+    role = {
+        "fit_for_me": True,
+        "role_name": "Lead",
+        "description": "Male lead, 20s, indie drama.",
+        "pay": "Unpaid",
+    }
+    ok, reason = role_matches(role, mode="paid")
+    assert ok is False
+    assert reason == "unpaid role"
+
+
+def test_paid_mode_accepts_unpaid_modeling_gig():
+    # Free/TFP modeling gig surfacing in the paid feed should still go through —
+    # the actor accepts unpaid TFP modeling regardless of mode.
+    role = {
+        "fit_for_me": True,
+        "role_name": "Fitness Print Model",
+        "description": "Athletic male fitness model for a lifestyle photo shoot.",
+        "pay": "TFP / Copy & Credit",
+    }
+    assert is_modeling_role(role) is True
+    ok, reason = role_matches(role, mode="paid")
+    assert ok is True
+    assert reason == ""
+
+
+def test_paid_mode_accepts_unpaid_modeling_by_role_type_field():
+    role = {
+        "fit_for_me": True,
+        "role_name": "Model",
+        "role_type": "Print Model",
+        "description": "Editorial fashion shoot, male model.",
+        "pay": "Deferred",
+    }
+    ok, reason = role_matches(role, mode="paid")
+    assert ok is True
+    assert reason == ""
+
+
+def test_unpaid_mode_skips_pay_guard_for_all_roles():
+    # Unpaid mode never applies the text pay guard regardless of modeling status.
+    role = {
+        "fit_for_me": True,
+        "role_name": "Lead",
+        "description": "Male lead, 20s, indie drama. LEAD.",
+        "pay": "No pay",
+    }
+    ok, reason = role_matches(role, mode="unpaid")
+    assert ok is True
+    assert reason == ""
