@@ -105,6 +105,25 @@ def test_render_links_project_when_url_present():
     assert ">Linkable</a>" in html
 
 
+def test_project_link_does_not_open_new_window():
+    """Job links must navigate in the current view, not request a new window.
+
+    The archive is opened from the digest inside a mail app's in-app browser
+    (an embedded webview) that can't open new windows. A `target="_blank"` tap
+    there gets swallowed and the webview reloads the current frame instead,
+    leaving the page stuck in a refresh loop. Same-view navigation avoids it.
+    """
+    records = [
+        {"record_type": "applied", "date_iso": "2026-04-27 10:00:00", "platform": "aa",
+         "project_name": "Linkable", "role_name": "Lead",
+         "role_description": "", "reason": "", "submission_note": "", "mode": "paid",
+         "project_url": "https://actorsaccess.com/projects/999"},
+    ]
+    html = render_archive_html(records, generated_at="now")
+    assert 'target="_blank"' not in html
+    assert 'rel="noopener noreferrer"' in html
+
+
 def test_cli_writes_html_file(tmp_path, monkeypatch, capsys):
     """`python -m src.archive --db <path> --output <path>` writes a real HTML file."""
     import sys

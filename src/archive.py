@@ -90,7 +90,17 @@ def _render_row(record: dict) -> str:
     project_name = html.escape(record.get("project_name") or "(unknown project)")
     project_url = record.get("project_url") or ""
     if project_url:
-        project_html = f'<a href="{html.escape(project_url, quote=True)}" target="_blank">{project_name}</a>'
+        # Navigate in the current view rather than requesting a new window.
+        # The archive is usually opened from the digest inside a mail app's
+        # in-app browser (an embedded webview), which can't open new windows.
+        # A `target="_blank"` tap there gets swallowed and the webview reloads
+        # the current frame instead — tap again, reload again — so the page
+        # looks "stuck in a refresh loop." Same-view navigation just opens the
+        # posting, which is what tapping a job to see more detail should do.
+        project_html = (
+            f'<a href="{html.escape(project_url, quote=True)}" '
+            f'rel="noopener noreferrer">{project_name}</a>'
+        )
     else:
         project_html = project_name
 
