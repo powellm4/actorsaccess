@@ -94,6 +94,51 @@ def test_build_digest_html_empty():
     assert "No applications" in html or "no applications" in html
 
 
+# --- login failure surfaced in Needs Your Attention (casting-suggestion #63) ---
+
+
+def test_login_failure_surfaced_in_needs_attention(db):
+    """A failed run (e.g. platform login failure) must appear in the purple 'Needs
+    Your Attention' section, not just the small grey footer — it's actionable and
+    easy to miss otherwise."""
+    run_id = db.start_run()
+    db.fail_run(run_id, "Login failed after retry")
+
+    data = gather_digest_data(db)
+    html = build_digest_html(data)
+
+    assert "Needs Your Attention" in html
+    needs_attention_idx = html.index("Needs Your Attention")
+    login_failed_idx = html.index("Login failed after retry")
+    assert login_failed_idx > needs_attention_idx, "login failure must render inside the Needs Your Attention block"
+    assert "Platform login failed" in html
+
+
+def test_login_failure_only_run_does_not_produce_empty_digest(db):
+    """A run that only failed to log in (no applications/rejections/flagged) must
+    still send a digest — previously this could be silently treated as 'nothing to
+    report' and skipped (see #55), hiding the failure entirely."""
+    run_id = db.start_run()
+    db.fail_run(run_id, "Login failed after retry")
+
+    data = gather_digest_data(db)
+    html = build_digest_html(data)
+
+    assert "No applications" not in html
+    assert "Login failed after retry" in html
+
+
+def test_no_login_failure_section_when_all_runs_succeed(db):
+    """A clean run must not show a login-failure card."""
+    run_id = db.start_run()
+    db.complete_run(run_id, roles_found=1, roles_applied=1, roles_skipped=0)
+
+    data = gather_digest_data(db)
+    html = build_digest_html(data)
+
+    assert "Platform login failed" not in html
+
+
 def test_gather_digest_data_includes_flagged(db):
     """Digest data should include flagged roles."""
     run_id = db.start_run()
