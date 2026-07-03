@@ -413,6 +413,75 @@ def test_no_override_when_structured_pay_field_is_too_low():
     assert "Model" in rejections
 
 
+# --- age-overlap arithmetic backstop (casting-suggestion #70) ---
+
+
+def test_override_age_overlap_when_ai_miscalculates_no_overlap_single_role():
+    """A SKIP claiming 'no age overlap' for a range that DOES overlap the actor's
+    17-30 playable range (28-38 has a 28-30 window) must be corrected."""
+    mock_module, _ = _make_mock_anthropic(
+        "SKIP - Age range 28-38 has no overlap with actor's 17-30 playable range; "
+        "also blond/dark blond hair preferred."
+    )
+    role = {
+        "role_name": "Dramatic Role",
+        "description": "Lead dramatic role, 28-38 years old, blond or dark blond hair preferred.",
+    }
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "Golden Era Project")
+    assert len(selected) == 1, f"28-38 overlaps 17-30 at 28-30; should be corrected. Got rejections={rejections}"
+    assert "overlaps" in selected[0][1].lower()
+
+
+def test_no_override_age_overlap_when_range_genuinely_disqualifies():
+    """A SKIP claiming 'no age overlap' for a range that truly doesn't overlap
+    (31-40 vs. 17-30) must stand."""
+    mock_module, _ = _make_mock_anthropic(
+        "SKIP - Age range 31-40 has no overlap with actor's 17-30 playable range."
+    )
+    role = {"role_name": "Older Role", "description": "Character is 31 to 40 years old."}
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "Test Project")
+    assert selected == []
+    assert "Older Role" in rejections
+
+
+def test_no_override_age_overlap_for_unrelated_skip_reason():
+    """A SKIP for an unrelated reason (no 'no overlap' + 'age' phrasing) must never
+    trigger the age-overlap backstop, even if the description has a numeric range."""
+    mock_module, _ = _make_mock_anthropic(
+        "SKIP - Requires 6'4\" minimum height, actor is 6'0\"."
+    )
+    role = {"role_name": "Tall Role", "description": "25 to 35 years old, must be 6'4\"+."}
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "Test Project")
+    assert selected == []
+    assert "Tall Role" in rejections
+
+
+def test_override_age_overlap_in_multi_role_path():
+    """Multi-role REJECTED with a miscalculated age-overlap reason should move to
+    SELECTED, mirroring the local-hire override's multi-role handling."""
+    roles = [
+        {"role_name": "Ava", "role_type": "Lead", "description": "Female role, 25-30."},
+        {"role_name": "Russ", "role_type": "Lead", "description": "28 to 38 years old, athletic."},
+    ]
+    response = (
+        "REJECTED: 1 - Female-only, actor is male\n"
+        "REJECTED: 2 - Age range 28-38 has no overlap with actor's 17-30 playable range"
+    )
+    mock_module, _ = _make_mock_anthropic(response)
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles(roles, "Golden Era Project")
+    selected_names = [s[0]["role_name"] for s in selected]
+    assert "Russ" in selected_names, f"Russ should have been overridden; got {selected_names} / {rejections}"
+    assert "Ava" in rejections
+
+
 # --- check_travel_pay: flights/lodging covered waive the threshold ---
 
 _LOVE_IS_IN_THE_AIR_DESC = (

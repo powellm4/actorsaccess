@@ -456,6 +456,67 @@ def _maybe_override_local_hire_skip(
     return False, ai_reason
 
 
+# The actor's stated playable age range (ACTOR_PROFILE: "plays 17-30 convincingly").
+_ACTOR_MIN_AGE = 17
+_ACTOR_MAX_AGE = 30
+
+# Matches "25 to 35", "25-35", "25–35" optionally followed by "years old" — used to
+# pull a numeric age range out of a role's structured age_range field or free-text
+# description so it can be checked against the actor's range with real arithmetic
+# instead of trusting the AI's own interval-overlap math.
+_AGE_RANGE_RE = re.compile(r'\b(\d{1,2})\s*(?:to|-|–|—)\s*(\d{1,2})\b(?:\s*years?\s*old)?')
+
+# Phrasing the AI uses when it (sometimes incorrectly) concludes there's no overlap.
+_AGE_NO_OVERLAP_RE = re.compile(
+    r'\bage\b.{0,60}\bno overlap\b|\bno overlap\b.{0,60}\bage\b', re.IGNORECASE,
+)
+
+
+def _extract_role_age_range(role: dict) -> tuple[int, int] | None:
+    """Best-effort numeric (min, max) age range for a role, or None if it can't be
+    determined. Checks the structured age_range field first, then the description."""
+    for text in (role.get("age_range", ""), role.get("description", "")):
+        if not text:
+            continue
+        m = _AGE_RANGE_RE.search(text)
+        if m:
+            lo, hi = int(m.group(1)), int(m.group(2))
+            if 1 <= lo <= 99 and 1 <= hi <= 99 and lo <= hi:
+                return lo, hi
+    return None
+
+
+def _maybe_override_age_overlap_skip(role: dict, ai_reason: str) -> tuple[bool, str]:
+    """Override an AI SKIP that claims 'no age overlap' when a numeric age range can
+    be parsed from the role and it actually DOES overlap the actor's 17-30 playable
+    range — an interval-intersection arithmetic check as a backstop against the AI
+    miscalculating overlap (e.g. treating 28-38 vs. 17-30 as zero overlap when 28-30
+    is a valid 2-year window). See casting-suggestion #70.
+
+    Only fires when the reason explicitly claims "no overlap" tied to age — this
+    does not touch other age-related disqualifiers (e.g. "must look under 17").
+    """
+    if not ai_reason or not _AGE_NO_OVERLAP_RE.search(ai_reason):
+        return False, ai_reason
+    role_range = _extract_role_age_range(role)
+    if role_range is None:
+        return False, ai_reason
+    lo, hi = role_range
+    overlaps = max(lo, _ACTOR_MIN_AGE) <= min(hi, _ACTOR_MAX_AGE)
+    if not overlaps:
+        return False, ai_reason
+    new_reason = (
+        f"age range {lo}-{hi} overlaps actor's {_ACTOR_MIN_AGE}-{_ACTOR_MAX_AGE} "
+        f"playable range; correcting AI overlap miscalculation (AI said: {ai_reason[:120]})"
+    )
+    logger.info(
+        f"[AGE OVERLAP OVERRIDE] {role.get('role_name', '?')}: AI claimed no age "
+        f"overlap for range {lo}-{hi}, but it overlaps the actor's "
+        f"{_ACTOR_MIN_AGE}-{_ACTOR_MAX_AGE} range; correcting"
+    )
+    return True, new_reason
+
+
 def select_best_roles(
     roles: list[dict], project_name: str, mode: str = "paid",
 ) -> tuple[list[tuple[dict, str]], dict[str, str]]:
@@ -606,6 +667,8 @@ REJECTED: 4 - Background/extra role, actor does not do background work"""
             overridden, new_reason = _maybe_override_local_hire_skip(
                 role_obj, project_name, ai_reason, mode,
             )
+            if not overridden:
+                overridden, new_reason = _maybe_override_age_overlap_skip(role_obj, ai_reason)
             if overridden:
                 selected.append((role_obj, new_reason))
                 del rejections[role_name]
@@ -725,6 +788,8 @@ CRITICAL: Your response must start IMMEDIATELY with FIT or SKIP. Do NOT write an
             overridden, new_reason = _maybe_override_local_hire_skip(
                 role, project_name, reason, mode,
             )
+            if not overridden:
+                overridden, new_reason = _maybe_override_age_overlap_skip(role, reason)
             if overridden:
                 return [(role, new_reason)], {}
             return [], {role["role_name"]: reason}
