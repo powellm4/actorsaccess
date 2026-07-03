@@ -517,6 +517,36 @@ def _maybe_override_age_overlap_skip(role: dict, ai_reason: str) -> tuple[bool, 
     return True, new_reason
 
 
+# Casting posts sometimes mark a skill as explicitly non-negotiable rather than a
+# soft preference (e.g. "NECESSARY TO HAVE SWIMMING EXPERIENCE"). The AI prompt's
+# generic "skills the actor doesn't have" rule was consistently failing to reject
+# these — it kept noting the gap as a caveat in its reasoning while still selecting
+# the role. This is a programmatic backstop: it never widens rejections beyond
+# what casting explicitly marked "necessary"/"must have"/"required".
+_HARD_SKILL_REQUIREMENT_RE = re.compile(
+    r'\b(?:necessary\s+to\s+have|must\s+have|required\s*:)\s+([a-zA-Z][a-zA-Z /]{2,40}?)'
+    r'(?:\s+experience)?[.\n]',
+    re.IGNORECASE,
+)
+
+
+def _unmet_hard_skill_requirement(description: str) -> str | None:
+    """Return the required skill phrase if the description explicitly marks a skill
+    as non-negotiable and that skill isn't mentioned anywhere in ACTOR_PROFILE.
+    Returns None when there's no such explicit requirement, or the actor has it.
+    """
+    if not description:
+        return None
+    m = _HARD_SKILL_REQUIREMENT_RE.search(description)
+    if not m:
+        return None
+    skill = m.group(1).strip().lower()
+    skill_word = skill.split()[0] if skill.split() else skill
+    if not skill_word or skill_word in ACTOR_PROFILE.lower():
+        return None
+    return skill
+
+
 def select_best_roles(
     roles: list[dict], project_name: str, mode: str = "paid",
 ) -> tuple[list[tuple[dict, str]], dict[str, str]]:
@@ -672,6 +702,23 @@ REJECTED: 4 - Background/extra role, actor does not do background work"""
             if overridden:
                 selected.append((role_obj, new_reason))
                 del rejections[role_name]
+
+        # Demote any SELECTED role that has an explicit, non-negotiable skill
+        # requirement ("NECESSARY TO HAVE X") the actor's profile doesn't list —
+        # a hard requirement outranks the AI's own type/prominence reasoning.
+        still_selected = []
+        for role_obj, reason in selected:
+            missing_skill = _unmet_hard_skill_requirement(role_obj.get("description", ""))
+            if missing_skill:
+                rejections[role_obj["role_name"]] = f"Missing required skill: {missing_skill}"
+                logger.info(
+                    f"[REQUIRED SKILL] {project_name} — {role_obj.get('role_name', '?')}: "
+                    f"casting requires '{missing_skill}', not in actor profile; overriding SELECTED to reject"
+                )
+            else:
+                still_selected.append((role_obj, reason))
+        selected = still_selected
+
         return selected, rejections
 
     except Exception as e:
@@ -796,6 +843,13 @@ CRITICAL: Your response must start IMMEDIATELY with FIT or SKIP. Do NOT write an
 
         if verdict == "FIT":
             reason = verdict_line.split("-", 1)[1].strip() if "-" in verdict_line else "only matching role"
+            missing_skill = _unmet_hard_skill_requirement(role.get("description", ""))
+            if missing_skill:
+                logger.info(
+                    f"[REQUIRED SKILL] {project_name} — {role.get('role_name', '?')}: "
+                    f"casting requires '{missing_skill}', not in actor profile; overriding FIT to reject"
+                )
+                return [], {role["role_name"]: f"Missing required skill: {missing_skill}"}
             return [(role, reason)], {}
 
         logger.warning(

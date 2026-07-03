@@ -482,6 +482,73 @@ def test_override_age_overlap_in_multi_role_path():
     assert "Ava" in rejections
 
 
+# --- hard required-skill guard (casting-suggestion #73) ---
+
+
+def test_fit_demoted_when_necessary_skill_is_missing_single_role():
+    """A role explicitly marking a skill 'NECESSARY TO HAVE' that the actor doesn't
+    have must be rejected even if the AI concludes FIT overall."""
+    mock_module, _ = _make_mock_anthropic(
+        "FIT - Strong type match, athletic build fits, comedic timing suits the role."
+    )
+    role = {
+        "role_name": "Tyler Fletcher",
+        "description": "Beach-set thriller. NECESSARY TO HAVE SWIMMING EXPERIENCE. Standout swimmer preferred.",
+    }
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "WET HOT BOYS")
+    assert selected == [], f"missing hard-required skill must reject; got {selected}"
+    assert "swimming" in rejections["Tyler Fletcher"].lower()
+
+
+def test_fit_kept_when_necessary_skill_is_in_profile():
+    """A 'NECESSARY TO HAVE' skill the actor's profile does list must not be rejected."""
+    mock_module, _ = _make_mock_anthropic(
+        "FIT - Strong type match; singing ability matches the musical number."
+    )
+    role = {
+        "role_name": "Lead Singer",
+        "description": "Musical short. NECESSARY TO HAVE SINGING experience.",
+    }
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "Test Project")
+    assert len(selected) == 1, f"actor can sing per profile; should not be rejected. Got rejections={rejections}"
+
+
+def test_selected_demoted_when_necessary_skill_missing_multi_role_path():
+    """Same guard applied to the multi-role SELECTED/REJECTED path."""
+    roles = [
+        {"role_name": "Angus", "role_type": "Supporting", "description": "NECESSARY TO HAVE SWIMMING EXPERIENCE. Beach thriller."},
+        {"role_name": "Beckett", "role_type": "Supporting", "description": "Office drama, no special skills required."},
+    ]
+    response = (
+        "SELECTED: 1 - Athletic build and general fitness make him plausible\n"
+        "SELECTED: 2 - Strong type match for the office setting"
+    )
+    mock_module, _ = _make_mock_anthropic(response)
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles(roles, "WET HOT BOYS")
+    selected_names = [s[0]["role_name"] for s in selected]
+    assert "Angus" not in selected_names, f"missing swimming requirement must demote Angus; got {selected_names}"
+    assert "Beckett" in selected_names
+    assert "swimming" in rejections["Angus"].lower()
+
+
+def test_no_skill_guard_when_requirement_is_a_soft_preference():
+    """Ordinary (non-'necessary'/'must have') skill mentions must not trigger the guard."""
+    mock_module, _ = _make_mock_anthropic(
+        "FIT - Swimming skills a plus but not required; strong type match otherwise."
+    )
+    role = {"role_name": "Beach Extra", "description": "Swimming skills a plus for this beach commercial."}
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "Test Project")
+    assert len(selected) == 1, f"soft preference must not trigger the hard-skill guard; got rejections={rejections}"
+
+
 # --- check_travel_pay: flights/lodging covered waive the threshold ---
 
 _LOVE_IS_IN_THE_AIR_DESC = (
