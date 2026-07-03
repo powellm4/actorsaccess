@@ -377,9 +377,23 @@ _LOCAL_HIRE_REJECTION_PATTERNS = [
 ]
 
 
+# Patterns indicating the AI's rejection cites a genuine, non-waivable
+# disqualifier (skill/credential/physical requirement) independent of pay or
+# location. When one of these co-occurs with local-hire language, the local-hire
+# clause is not the actual reason for the SKIP and must not be overridden.
+_NON_WAIVABLE_DISQUALIFIER_PATTERNS = [
+    r"\breal\s+(?:runner|cyclist|triathlete|athlete)\b",
+    r"\bgenuine\s+athlet(?:e|ic)\b",
+    r"\brequires?\s+the\s+actor\s+to\s+be\s+a\s+real\b",
+    r"\bcredential\b",
+]
+
+
 def _is_local_hire_rationalization(reason: str) -> bool:
     """True if AI rejection reason boils down to a local-hire / no-travel-reimbursement objection."""
     if not reason:
+        return False
+    if any(re.search(p, reason, re.IGNORECASE) for p in _NON_WAIVABLE_DISQUALIFIER_PATTERNS):
         return False
     return any(re.search(p, reason, re.IGNORECASE) for p in _LOCAL_HIRE_REJECTION_PATTERNS)
 
@@ -415,8 +429,15 @@ def _maybe_override_local_hire_skip(
         return False, ai_reason
     if not _is_local_hire_rationalization(ai_reason):
         return False, ai_reason
+    # Include any structured pay field so check_travel_pay can find the rate
+    # even when it isn't spelled out in the free-text description (mirrors
+    # the same fix applied at the main.py call site).
+    pay_text = role.get("pay", "") or role.get("rate_of_pay", "") or role.get("rate", "")
+    description = (
+        f"{role.get('description', '')} Pay: {pay_text}" if pay_text else role.get("description", "")
+    )
     tp_ok, tp_reason = check_travel_pay(
-        project_name, role.get("description", ""), project_notes, mode="paid",
+        project_name, description, project_notes, mode="paid",
     )
     if tp_ok:
         new_reason = (
