@@ -1,9 +1,24 @@
 # src/database.py
+import re
 import sqlite3
 from datetime import datetime, timezone
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_project_name(name: str) -> str:
+    """Lowercase, strip punctuation and common cross-post/re-listing suffixes so the
+    same underlying project can be matched even when platforms format its name
+    slightly differently (e.g. "WET HOT BOYS (Additional Roles)" vs "Wet Hot Boys").
+    """
+    name = (name or "").lower()
+    name = re.sub(r'\(.*?\)', ' ', name)  # strip parenthetical suffixes
+    name = re.sub(
+        r'\b(additional roles?|day players?|updated?|new role|re-?release)\b', ' ', name,
+    )
+    name = re.sub(r'[^a-z0-9]+', ' ', name).strip()
+    return name
 
 
 class Database:
@@ -633,6 +648,32 @@ class Database:
         row = cursor.fetchone()
         if row:
             return {"applied_at": row[0], "mode": row[1], "submission_note": row[2]}
+        return None
+
+    def find_recent_application_by_name(
+        self, role_name: str, project_name: str, within_days: int = 14,
+    ) -> dict | None:
+        """Return the most recent applied_roles row matching by role name + a
+        normalized project name, on ANY platform, within the last `within_days` days.
+
+        The organic apply flow's primary dedup key (role_id, scoped per-platform via
+        `is_applied`) can miss real duplicates two ways: (1) the same project posted
+        on multiple platforms (CN/AA/Backstage) uses a different ID namespace per
+        platform, and (2) a platform occasionally reassigns/shifts role IDs for the
+        same listing across runs (observed via a changing "chosen from N candidates"
+        count for what was clearly the same role). This is a secondary, name-based
+        check layered on top of `is_applied` — see casting-suggestion #72 and #74.
+        """
+        normalized_target = _normalize_project_name(project_name)
+        cursor = self.conn.execute(
+            """SELECT project_name, platform, applied_at FROM applied_roles
+               WHERE role_name = ? AND applied_at > datetime('now', ?)
+               ORDER BY applied_at DESC""",
+            (role_name, f'-{within_days} days'),
+        )
+        for row in cursor.fetchall():
+            if _normalize_project_name(row[0])[:20] == normalized_target[:20]:
+                return {"project_name": row[0], "platform": row[1], "applied_at": row[2]}
         return None
 
     def close(self):

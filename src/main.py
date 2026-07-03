@@ -445,6 +445,21 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                             )
                             continue
 
+                        # Secondary, name-based dedup: catches the same project/role
+                        # cross-posted on another platform, or re-listed with a
+                        # shifted role_id on this same platform (see #72/#74).
+                        recent = db.find_recent_application_by_name(
+                            role["role_name"], project["project_name"],
+                        )
+                        if recent:
+                            roles_skipped += 1
+                            logger.info(
+                                f"Already applied (cross-platform/re-listing dedup): "
+                                f"{project['project_name']} — {role['role_name']} "
+                                f"(matched {recent['platform']} application from {recent['applied_at']})"
+                            )
+                            continue
+
                         matches, skip_reason = role_matches(role, mode=mode)
                         if not matches:
                             roles_filtered += 1
