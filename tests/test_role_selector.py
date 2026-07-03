@@ -318,6 +318,62 @@ def test_override_in_multi_role_path():
     assert "Ava" in rejections  # legit female-only rejection should stand
 
 
+def test_no_override_when_reason_also_cites_non_waivable_disqualifier():
+    """A real, independent disqualifier (e.g. athletic credential) alongside local-hire
+    language must not be overridden just because travel pay clears the threshold —
+    regression test for the Wahoo Fitness 'Elite Runner' bug (casting-suggestion #81)."""
+    mock_module, _ = _make_mock_anthropic(
+        "SKIP - Requires the actor to be a real runner logging at least 20 miles per week, "
+        "ideally competing in races; actor is not a competitive runner and is not based in "
+        "Oregon or Washington as required. $3000 for 1.5 days."
+    )
+    role = {
+        "role_name": "Elite Runner",
+        "description": "Real runner required. Oregon or Washington. $3000 + 20% for 1.5 days.",
+    }
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "Wahoo Fitness")
+    assert selected == [], f"non-waivable disqualifier must not be overridden; got {selected}"
+    assert "Elite Runner" in rejections
+
+
+def test_override_uses_structured_pay_field_when_description_omits_rate():
+    """The override must find pay in the role's structured field even when the free-text
+    description doesn't spell out a rate (parity with the main.py call site fix)."""
+    mock_module, _ = _make_mock_anthropic(
+        "SKIP - New York local hire required; pay not specified in description."
+    )
+    role = {
+        "role_name": "Model",
+        "description": "New York local hire required. See breakdown for pay.",
+        "pay": "$1500 flat",
+    }
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "Google Pay New York")
+    assert len(selected) == 1, f"structured pay field should have cleared the threshold; got rejections={rejections}"
+    assert selected[0][0]["role_name"] == "Model"
+
+
+def test_no_override_when_structured_pay_field_is_too_low():
+    """A low structured pay field must still block the override even though the
+    free-text description has no parseable rate."""
+    mock_module, _ = _make_mock_anthropic(
+        "SKIP - New York local hire required; pay not specified in description."
+    )
+    role = {
+        "role_name": "Model",
+        "description": "New York local hire required. See breakdown for pay.",
+        "pay": "$500 flat",
+    }
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "Google Pay New York")
+    assert selected == []
+    assert "Model" in rejections
+
+
 # --- check_travel_pay: flights/lodging covered waive the threshold ---
 
 _LOVE_IS_IN_THE_AIR_DESC = (
