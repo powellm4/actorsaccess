@@ -536,6 +536,49 @@ def test_analyze_empty_description_defaults_to_submit():
     assert result["action"] == "SUBMIT"
 
 
+# --- fabricated contact info guard (casting-suggestion #77) ---
+
+
+def test_analyze_rejects_fabricated_email_in_note():
+    """A note with an invented email (not in ACTOR_PROFILE) must fall back to plain SUBMIT."""
+    mock_anthropic, _ = _make_mock_anthropic(
+        "ACTION: SUBMIT_WITH_NOTE\nNOTE: My email is marshallpowell@email.com — please reach out with booking details."
+    )
+    role = {"role_name": "Photographer", "description": "Please include your email in the submission note."}
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            result = analyze_submission_requirements(role, "Test Project")
+    assert result["action"] == "SUBMIT"
+    assert result["note"] is None
+
+
+def test_analyze_rejects_fabricated_phone_in_note():
+    """A note with an invented phone number must fall back to plain SUBMIT."""
+    mock_anthropic, _ = _make_mock_anthropic(
+        "ACTION: SUBMIT_WITH_NOTE\nNOTE: You can reach me at 555-123-4567 anytime."
+    )
+    role = {"role_name": "Model", "description": "Please include your phone number in the submission note."}
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            result = analyze_submission_requirements(role, "Test Project")
+    assert result["action"] == "SUBMIT"
+    assert result["note"] is None
+
+
+def test_analyze_rejects_contact_on_file_claim():
+    """A note claiming email/phone is 'on file' or 'upon request' is an unfounded claim
+    (nothing is on file beyond ACTOR_PROFILE) and must fall back to plain SUBMIT."""
+    mock_anthropic, _ = _make_mock_anthropic(
+        "ACTION: SUBMIT_WITH_NOTE\nNOTE: Age 28, 6'0\", Instagram @marshallpowell. Email and cell on file — happy to provide directly if needed."
+    )
+    role = {"role_name": "Male Model", "description": "Please include your age, height, Instagram, email, and phone."}
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            result = analyze_submission_requirements(role, "Test Project")
+    assert result["action"] == "SUBMIT"
+    assert result["note"] is None
+
+
 # --- confirmed_dates tests ---
 
 

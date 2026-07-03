@@ -1141,7 +1141,7 @@ IMPORTANT RULES:
 - If a casting asks for Instagram, include @marshallpowell
 - NEVER volunteer information that was not explicitly asked for — no location, no transportation, no contact info, no availability unless the post explicitly asks you to NOTE it in the submission
 - If the post asks for availability/dates and CONFIRMED AVAILABILITY is provided above, include the specific dates in the note
-- If they ask for contact info, provide the email and phone number from the profile
+- If they ask for an email address or phone number: the actor profile does NOT list either. Do NOT invent one, and do NOT claim one is "on file" or "available upon request" — both are fabrications. Respond with ACTION: SUBMIT (no note) unless Instagram was also requested, in which case include only @marshallpowell.
 - PHYSICAL-SKILL FOOTAGE REQUESTS: if the casting asks for footage, clips, or a reel specifically demonstrating a NAMED physical skill (e.g., "submit dance clips", "include skating footage", "gymnastic reel", "martial arts clips", "stunt reel", "show us your [sport] skills") — this is a role REQUIREMENT check, NOT a generic demo reel request. Apply the following logic: (a) if the named skill IS in the actor profile → respond SUBMIT_WITH_NOTE with a brief note about that experience (this is the narrow exception to the no-experience rule); (b) if the named skill is NOT in the actor profile → respond NEEDS_INPUT so the human can decide whether to apply without it. Examples: "please submit salsa clips" + actor has 5+ years salsa → SUBMIT_WITH_NOTE ("5+ years of salsa dancing."). "please submit ice skating footage" + actor has no skating experience → NEEDS_INPUT ("Ice skating footage requested; actor has no skating experience listed.").
 - GENERIC DEMO REEL REQUESTS: if they ask for a general demo reel, showreel, reel link, online clips, video samples, or "show us your work" without specifying a particular skill → respond with ACTION: SUBMIT. The submission process attaches clips from the actor's profile automatically. This is never a blocker.
 - If multiple requirements exist and you can answer SOME but not all, use NEEDS_INPUT — UNLESS the unanswerable item is a generic demo reel / demo clips / reel link / video samples (apply anyway). This exception does NOT apply to named-skill footage requests.
@@ -1339,6 +1339,29 @@ def _validate_note(note: str, role: dict, project_name: str) -> bool:
     # forbidden above, and any other experience claim risks fabrication or volunteering negatives.
     if re.search(r'\bexperience\b', note, re.IGNORECASE):
         logger.warning(f"Rejected note mentioning experience for {role.get('role_name', '')} on {project_name}: {note}")
+        return False
+
+    # Reject fabricated contact details — ACTOR_PROFILE has no email or phone number,
+    # so any email/phone appearing in a note was invented rather than pulled from the
+    # profile (same fabrication class as the demo-reel guard above, applied to contact info).
+    email_m = re.search(r'\b[\w.+-]+@[\w-]+\.[\w.-]+\b', note)
+    if email_m and email_m.group(0) not in ACTOR_PROFILE:
+        logger.warning(f"Rejected note with fabricated email for {role.get('role_name', '')} on {project_name}: {note}")
+        return False
+    phone_m = re.search(r'\b(?:\(\d{3}\)\s*|\d{3}[-.\s])\d{3}[-.\s]?\d{4}\b', note)
+    if phone_m and phone_m.group(0) not in ACTOR_PROFILE:
+        logger.warning(f"Rejected note with fabricated phone number for {role.get('role_name', '')} on {project_name}: {note}")
+        return False
+
+    # Reject claims that contact info is "on file" or available "upon request" — nothing
+    # is on file beyond what's explicitly listed in ACTOR_PROFILE (Instagram only). The
+    # trigger phrase can appear either before or after the contact-type keyword
+    # ("email on file" / "happy to provide my phone number").
+    _contact_kw = r'(?:email|phone|cell|number)'
+    _on_file_kw = r'(?:on file|upon request|happy to provide)'
+    if (re.search(rf'\b{_on_file_kw}\b.{{0,20}}\b{_contact_kw}\b', note, re.IGNORECASE)
+            or re.search(rf'\b{_contact_kw}\b.{{0,20}}\b{_on_file_kw}\b', note, re.IGNORECASE)):
+        logger.warning(f"Rejected note with unfounded contact-on-file claim for {role.get('role_name', '')} on {project_name}: {note}")
         return False
 
     return True
