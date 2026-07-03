@@ -112,6 +112,45 @@ def test_single_role_fit_with_preamble_still_parsed():
     assert rejections == {}
 
 
+def test_single_role_self_correction_fit_to_skip_wins_on_final_verdict():
+    """Regression for the BILT/SNYK bug (casting-suggestion #65/#75): the model builds
+    an APPLY case, self-corrects mid-reasoning, and ends on SKIP — the code must trust
+    the LAST verdict token, not the first."""
+    response = (
+        "FIT - $500/day pay clears the $1000 NYC fly-to threshold (single shoot day = "
+        "$500 — wait, actually this does NOT clear $1000). SKIP - NYC fly-to location "
+        "requires $1000 minimum, role pays only $500."
+    )
+    mock_module, _ = _make_mock_anthropic(response)
+    roles = [SAMPLE_ROLES[0]]
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles(roles, "Test Project")
+    assert selected == [], f"final SKIP conclusion must win; got selected={selected}"
+    assert "Jake" in rejections
+    assert "$500" in rejections["Jake"]
+
+
+def test_single_role_self_correction_skip_to_fit_wins_on_final_verdict():
+    """Regression for the 'blond actor' bug (casting-suggestion #67/#69): the model
+    initially leans SKIP on a soft preference, re-evaluates, and concludes FIT — the
+    code must trust the LAST verdict, not strand the role in the PASS bucket."""
+    response = (
+        "SKIP - role requires blond hair, actor has brown hair, could be a hard "
+        "disqualifier. Re-evaluating: general hair color is a styling choice achievable "
+        "through dyeing, not a disqualifier for regular acting roles. FIT - age range "
+        "overlaps, hair color achievable through dyeing, no hard disqualifiers found."
+    )
+    mock_module, _ = _make_mock_anthropic(response)
+    roles = [SAMPLE_ROLES[0]]
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles(roles, "Test Project")
+    assert len(selected) == 1, f"final FIT conclusion must win; got rejections={rejections}"
+    assert selected[0][0]["role_name"] == "Jake"
+    assert rejections == {}
+
+
 def test_single_role_no_api_key_returns_directly():
     """Single candidate without API key should return without check."""
     roles = [SAMPLE_ROLES[0]]
