@@ -585,3 +585,47 @@ def test_get_known_project_url_from_flagged(db):
 
 def test_get_known_project_url_returns_none_if_unknown(db):
     assert db.get_known_project_url("R", "P", "aa") is None
+
+
+# --- cross-platform / re-listing dedup (casting-suggestion #72 / #74) ---
+
+
+def test_find_recent_application_by_name_matches_across_platforms(db):
+    """Same role, same project, applied on AA — a later CN submission attempt for
+    the identically-named project/role must be caught even though the two
+    platforms use entirely separate role_id namespaces."""
+    db.record_application("aa_123_1", "WET HOT BOYS", "Tyler Fletcher", platform="aa")
+    recent = db.find_recent_application_by_name("Tyler Fletcher", "WET HOT BOYS")
+    assert recent is not None
+    assert recent["platform"] == "aa"
+
+
+def test_find_recent_application_by_name_matches_normalized_suffix_variants(db):
+    """Cross-post project names commonly differ by a parenthetical or trailing
+    'Additional Roles'/'Day Players' suffix — normalization must still match."""
+    db.record_application("cn_1_1", "SURROGATE FOR A RUTHLESS BILLIONAIRE", "RYAN WALKER", platform="cn")
+    recent = db.find_recent_application_by_name(
+        "RYAN WALKER", "Surrogate For A Ruthless Billionaire (Additional Roles)",
+    )
+    assert recent is not None
+    assert recent["platform"] == "cn"
+
+
+def test_find_recent_application_by_name_returns_none_for_different_role(db):
+    db.record_application("aa_1_1", "WET HOT BOYS", "Tyler Fletcher", platform="aa")
+    assert db.find_recent_application_by_name("Angus Boyle", "WET HOT BOYS") is None
+
+
+def test_find_recent_application_by_name_returns_none_for_different_project(db):
+    db.record_application("aa_1_1", "WET HOT BOYS", "Tyler Fletcher", platform="aa")
+    assert db.find_recent_application_by_name("Tyler Fletcher", "A Completely Different Project") is None
+
+
+def test_find_recent_application_by_name_respects_within_days_window(db):
+    """A match older than the lookback window must not count as a duplicate."""
+    db.record_application("aa_1_1", "WET HOT BOYS", "Tyler Fletcher", platform="aa")
+    db.conn.execute(
+        "UPDATE applied_roles SET applied_at = datetime('now', '-30 days') WHERE role_id = 'aa_1_1'",
+    )
+    db.conn.commit()
+    assert db.find_recent_application_by_name("Tyler Fletcher", "WET HOT BOYS", within_days=14) is None

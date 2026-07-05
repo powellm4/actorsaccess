@@ -112,6 +112,45 @@ def test_single_role_fit_with_preamble_still_parsed():
     assert rejections == {}
 
 
+def test_single_role_self_correction_fit_to_skip_wins_on_final_verdict():
+    """Regression for the BILT/SNYK bug (casting-suggestion #65/#75): the model builds
+    an APPLY case, self-corrects mid-reasoning, and ends on SKIP — the code must trust
+    the LAST verdict token, not the first."""
+    response = (
+        "FIT - $500/day pay clears the $1000 NYC fly-to threshold (single shoot day = "
+        "$500 — wait, actually this does NOT clear $1000). SKIP - NYC fly-to location "
+        "requires $1000 minimum, role pays only $500."
+    )
+    mock_module, _ = _make_mock_anthropic(response)
+    roles = [SAMPLE_ROLES[0]]
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles(roles, "Test Project")
+    assert selected == [], f"final SKIP conclusion must win; got selected={selected}"
+    assert "Jake" in rejections
+    assert "$500" in rejections["Jake"]
+
+
+def test_single_role_self_correction_skip_to_fit_wins_on_final_verdict():
+    """Regression for the 'blond actor' bug (casting-suggestion #67/#69): the model
+    initially leans SKIP on a soft preference, re-evaluates, and concludes FIT — the
+    code must trust the LAST verdict, not strand the role in the PASS bucket."""
+    response = (
+        "SKIP - role requires blond hair, actor has brown hair, could be a hard "
+        "disqualifier. Re-evaluating: general hair color is a styling choice achievable "
+        "through dyeing, not a disqualifier for regular acting roles. FIT - age range "
+        "overlaps, hair color achievable through dyeing, no hard disqualifiers found."
+    )
+    mock_module, _ = _make_mock_anthropic(response)
+    roles = [SAMPLE_ROLES[0]]
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles(roles, "Test Project")
+    assert len(selected) == 1, f"final FIT conclusion must win; got rejections={rejections}"
+    assert selected[0][0]["role_name"] == "Jake"
+    assert rejections == {}
+
+
 def test_single_role_no_api_key_returns_directly():
     """Single candidate without API key should return without check."""
     roles = [SAMPLE_ROLES[0]]
@@ -374,6 +413,142 @@ def test_no_override_when_structured_pay_field_is_too_low():
     assert "Model" in rejections
 
 
+# --- age-overlap arithmetic backstop (casting-suggestion #70) ---
+
+
+def test_override_age_overlap_when_ai_miscalculates_no_overlap_single_role():
+    """A SKIP claiming 'no age overlap' for a range that DOES overlap the actor's
+    17-30 playable range (28-38 has a 28-30 window) must be corrected."""
+    mock_module, _ = _make_mock_anthropic(
+        "SKIP - Age range 28-38 has no overlap with actor's 17-30 playable range; "
+        "also blond/dark blond hair preferred."
+    )
+    role = {
+        "role_name": "Dramatic Role",
+        "description": "Lead dramatic role, 28-38 years old, blond or dark blond hair preferred.",
+    }
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "Golden Era Project")
+    assert len(selected) == 1, f"28-38 overlaps 17-30 at 28-30; should be corrected. Got rejections={rejections}"
+    assert "overlaps" in selected[0][1].lower()
+
+
+def test_no_override_age_overlap_when_range_genuinely_disqualifies():
+    """A SKIP claiming 'no age overlap' for a range that truly doesn't overlap
+    (31-40 vs. 17-30) must stand."""
+    mock_module, _ = _make_mock_anthropic(
+        "SKIP - Age range 31-40 has no overlap with actor's 17-30 playable range."
+    )
+    role = {"role_name": "Older Role", "description": "Character is 31 to 40 years old."}
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "Test Project")
+    assert selected == []
+    assert "Older Role" in rejections
+
+
+def test_no_override_age_overlap_for_unrelated_skip_reason():
+    """A SKIP for an unrelated reason (no 'no overlap' + 'age' phrasing) must never
+    trigger the age-overlap backstop, even if the description has a numeric range."""
+    mock_module, _ = _make_mock_anthropic(
+        "SKIP - Requires 6'4\" minimum height, actor is 6'0\"."
+    )
+    role = {"role_name": "Tall Role", "description": "25 to 35 years old, must be 6'4\"+."}
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "Test Project")
+    assert selected == []
+    assert "Tall Role" in rejections
+
+
+def test_override_age_overlap_in_multi_role_path():
+    """Multi-role REJECTED with a miscalculated age-overlap reason should move to
+    SELECTED, mirroring the local-hire override's multi-role handling."""
+    roles = [
+        {"role_name": "Ava", "role_type": "Lead", "description": "Female role, 25-30."},
+        {"role_name": "Russ", "role_type": "Lead", "description": "28 to 38 years old, athletic."},
+    ]
+    response = (
+        "REJECTED: 1 - Female-only, actor is male\n"
+        "REJECTED: 2 - Age range 28-38 has no overlap with actor's 17-30 playable range"
+    )
+    mock_module, _ = _make_mock_anthropic(response)
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles(roles, "Golden Era Project")
+    selected_names = [s[0]["role_name"] for s in selected]
+    assert "Russ" in selected_names, f"Russ should have been overridden; got {selected_names} / {rejections}"
+    assert "Ava" in rejections
+
+
+# --- hard required-skill guard (casting-suggestion #73) ---
+
+
+def test_fit_demoted_when_necessary_skill_is_missing_single_role():
+    """A role explicitly marking a skill 'NECESSARY TO HAVE' that the actor doesn't
+    have must be rejected even if the AI concludes FIT overall."""
+    mock_module, _ = _make_mock_anthropic(
+        "FIT - Strong type match, athletic build fits, comedic timing suits the role."
+    )
+    role = {
+        "role_name": "Tyler Fletcher",
+        "description": "Beach-set thriller. NECESSARY TO HAVE SWIMMING EXPERIENCE. Standout swimmer preferred.",
+    }
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "WET HOT BOYS")
+    assert selected == [], f"missing hard-required skill must reject; got {selected}"
+    assert "swimming" in rejections["Tyler Fletcher"].lower()
+
+
+def test_fit_kept_when_necessary_skill_is_in_profile():
+    """A 'NECESSARY TO HAVE' skill the actor's profile does list must not be rejected."""
+    mock_module, _ = _make_mock_anthropic(
+        "FIT - Strong type match; singing ability matches the musical number."
+    )
+    role = {
+        "role_name": "Lead Singer",
+        "description": "Musical short. NECESSARY TO HAVE SINGING experience.",
+    }
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "Test Project")
+    assert len(selected) == 1, f"actor can sing per profile; should not be rejected. Got rejections={rejections}"
+
+
+def test_selected_demoted_when_necessary_skill_missing_multi_role_path():
+    """Same guard applied to the multi-role SELECTED/REJECTED path."""
+    roles = [
+        {"role_name": "Angus", "role_type": "Supporting", "description": "NECESSARY TO HAVE SWIMMING EXPERIENCE. Beach thriller."},
+        {"role_name": "Beckett", "role_type": "Supporting", "description": "Office drama, no special skills required."},
+    ]
+    response = (
+        "SELECTED: 1 - Athletic build and general fitness make him plausible\n"
+        "SELECTED: 2 - Strong type match for the office setting"
+    )
+    mock_module, _ = _make_mock_anthropic(response)
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles(roles, "WET HOT BOYS")
+    selected_names = [s[0]["role_name"] for s in selected]
+    assert "Angus" not in selected_names, f"missing swimming requirement must demote Angus; got {selected_names}"
+    assert "Beckett" in selected_names
+    assert "swimming" in rejections["Angus"].lower()
+
+
+def test_no_skill_guard_when_requirement_is_a_soft_preference():
+    """Ordinary (non-'necessary'/'must have') skill mentions must not trigger the guard."""
+    mock_module, _ = _make_mock_anthropic(
+        "FIT - Swimming skills a plus but not required; strong type match otherwise."
+    )
+    role = {"role_name": "Beach Extra", "description": "Swimming skills a plus for this beach commercial."}
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "Test Project")
+    assert len(selected) == 1, f"soft preference must not trigger the hard-skill guard; got rejections={rejections}"
+
+
 # --- check_travel_pay: flights/lodging covered waive the threshold ---
 
 _LOVE_IS_IN_THE_AIR_DESC = (
@@ -534,6 +709,49 @@ def test_analyze_empty_description_defaults_to_submit():
     role = {"role_name": "Jake", "description": ""}
     result = analyze_submission_requirements(role, "Test Project")
     assert result["action"] == "SUBMIT"
+
+
+# --- fabricated contact info guard (casting-suggestion #77) ---
+
+
+def test_analyze_rejects_fabricated_email_in_note():
+    """A note with an invented email (not in ACTOR_PROFILE) must fall back to plain SUBMIT."""
+    mock_anthropic, _ = _make_mock_anthropic(
+        "ACTION: SUBMIT_WITH_NOTE\nNOTE: My email is marshallpowell@email.com — please reach out with booking details."
+    )
+    role = {"role_name": "Photographer", "description": "Please include your email in the submission note."}
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            result = analyze_submission_requirements(role, "Test Project")
+    assert result["action"] == "SUBMIT"
+    assert result["note"] is None
+
+
+def test_analyze_rejects_fabricated_phone_in_note():
+    """A note with an invented phone number must fall back to plain SUBMIT."""
+    mock_anthropic, _ = _make_mock_anthropic(
+        "ACTION: SUBMIT_WITH_NOTE\nNOTE: You can reach me at 555-123-4567 anytime."
+    )
+    role = {"role_name": "Model", "description": "Please include your phone number in the submission note."}
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            result = analyze_submission_requirements(role, "Test Project")
+    assert result["action"] == "SUBMIT"
+    assert result["note"] is None
+
+
+def test_analyze_rejects_contact_on_file_claim():
+    """A note claiming email/phone is 'on file' or 'upon request' is an unfounded claim
+    (nothing is on file beyond ACTOR_PROFILE) and must fall back to plain SUBMIT."""
+    mock_anthropic, _ = _make_mock_anthropic(
+        "ACTION: SUBMIT_WITH_NOTE\nNOTE: Age 28, 6'0\", Instagram @marshallpowell. Email and cell on file — happy to provide directly if needed."
+    )
+    role = {"role_name": "Male Model", "description": "Please include your age, height, Instagram, email, and phone."}
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            result = analyze_submission_requirements(role, "Test Project")
+    assert result["action"] == "SUBMIT"
+    assert result["note"] is None
 
 
 # --- confirmed_dates tests ---

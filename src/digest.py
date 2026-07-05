@@ -229,8 +229,9 @@ def build_digest_html(
     runs = data["runs"]
     overrides = data.get("overrides", [])
     pending = data.get("pending", [])
+    login_failures = [r for r in runs if r.get("status") == "error"]
 
-    if not applications and not rejections and not flagged and not overrides and not pending:
+    if not applications and not rejections and not flagged and not overrides and not pending and not login_failures:
         return _empty_digest_html(runs, mode=mode)
 
     # Split flagged roles into calendar conflicts vs other
@@ -256,11 +257,29 @@ def build_digest_html(
             calendar_section += '\n</div>\n'
         calendar_section += '</div>\n'
 
+    # Platform login failures are actionable ("check credentials, some roles may have
+    # been missed") and easy to miss when they only appear in the small grey footer —
+    # surface them at the top of "Needs Your Attention" instead. See casting-suggestion #63.
+    login_failure_html = ""
+    for fr in login_failures:
+        platform = fr.get("platform", "?")
+        error_msg = fr.get("error_message", "unknown error")
+        login_failure_html += (
+            '<div style="background:#ede7f6;border-left:4px solid #7c4dff;padding:12px;'
+            'border-radius:4px;margin-bottom:8px;">\n'
+            f'{_platform_badge(platform)} <strong>Platform login failed</strong>'
+            f'<br><span style="color:#4a148c;"><strong>Needed:</strong> Login failed after '
+            f'retry ({error_msg}) — check {platform.upper()} credentials/session. Any roles '
+            'posted during this run window may have been missed.</span>\n'
+            '</div>\n'
+        )
+
     # Build other flagged roles section
     flagged_section = ""
-    if other_flagged:
+    if other_flagged or login_failure_html:
         flagged_section = '<div style="margin-bottom:24px;">\n'
         flagged_section += '<h2 style="color:#4a148c;margin-bottom:12px;">Needs Your Attention</h2>\n'
+        flagged_section += login_failure_html
         for item in other_flagged:
             platform_badge = _platform_badge(item.get("platform", "aa"))
             desc = item.get("role_description") or ""
