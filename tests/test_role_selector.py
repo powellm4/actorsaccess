@@ -151,6 +151,58 @@ def test_single_role_self_correction_skip_to_fit_wins_on_final_verdict():
     assert rejections == {}
 
 
+def test_multi_role_rejected_self_correction_to_fit_wins_on_final_verdict():
+    """Regression for casting-suggestion #86: in the multi-role SELECTED/REJECTED
+    path, a REJECTED reason that self-corrects and concludes FIT must be promoted
+    to selected, not stranded verbatim in rejections (e.g. Polo Sporting Goods /
+    J-Mo, July 4 2026 Paid digest — reasoning ends "FIT - Hispanic ethnicity
+    qualifies, age overlaps, valid license... " yet the role was passed)."""
+    response = (
+        "SELECTED: 1 - Age and type match for athletic leading man\n"
+        "SELECTED: 3 - Charming con artist type fits well\n"
+        "REJECTED: 2 - Ethnicity requirement excludes actor at first glance — "
+        "however, re-evaluating: the listed ethnicities do include the actor's. "
+        "FIT - ethnicity qualifies, age overlaps, no hard disqualifiers"
+    )
+    mock_module, _ = _make_mock_anthropic(response)
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles(SAMPLE_ROLES, "Test Project")
+    selected_names = {r["role_name"] for r, _ in selected}
+    assert "Officer Dan" in selected_names, (
+        f"final FIT conclusion must promote the role out of rejections; "
+        f"selected={selected_names}, rejections={rejections}"
+    )
+    assert "Officer Dan" not in rejections
+
+
+def test_multi_role_selected_self_correction_to_skip_wins_on_final_verdict():
+    """Regression for the symmetric gap left open by #86 (its fix only covered
+    REJECTED->selected, not SELECTED->rejected): a SELECTED reason that
+    self-corrects and concludes with a DISQUALIFIER must be demoted to
+    rejections (e.g. Eric Mason / 27 CLUB, July 6 2026 UNPAID digest —
+    reasoning ends "DISQUALIFIER: requires electric bass guitar, a skill the
+    actor does not have" yet the role was still applied to)."""
+    response = (
+        "SELECTED: 1 - Age and type match for athletic leading man\n"
+        "SELECTED: 3 - requires electric bass guitar which the actor does not "
+        "explicitly have — wait, actor plays guitar well but bass is not listed. "
+        "DISQUALIFIER: requires electric bass guitar, a skill the actor does not have.\n"
+        "REJECTED: 2 - Requires heavyset build, actor is athletic"
+    )
+    mock_module, _ = _make_mock_anthropic(response)
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles(SAMPLE_ROLES, "Test Project")
+    selected_names = {r["role_name"] for r, _ in selected}
+    assert "Tommy" not in selected_names, (
+        f"final DISQUALIFIER conclusion must demote the role out of selected; "
+        f"selected={selected_names}"
+    )
+    assert "Tommy" in rejections
+    assert "Jake" in selected_names
+
+
 def test_single_role_no_api_key_returns_directly():
     """Single candidate without API key should return without check."""
     roles = [SAMPLE_ROLES[0]]
