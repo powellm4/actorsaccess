@@ -866,6 +866,32 @@ CRITICAL: Your response must start IMMEDIATELY with FIT or SKIP. Do NOT write an
         return [], {role["role_name"]: f"AI check failed: {e}"}
 
 
+# A SELECTED/REJECTED reason can itself contain a self-correcting inline
+# verdict token when the model talks itself into the opposite conclusion
+# mid-sentence (e.g. "SELECTED: 2 - requires electric bass guitar, a skill
+# the actor does not have. DISQUALIFIER: ..." or "REJECTED: 4 - ... —
+# FIT - Hispanic ethnicity qualifies, age overlaps..."). _check_single_role_fit
+# already trusts the LAST FIT/SKIP token in its response for this reason; this
+# mirrors that logic for the per-line reason text captured by SELECTED:/
+# REJECTED:. Only a colon/dash-qualified token counts, matching the shape the
+# model actually uses when self-correcting — a bare mention of "skip" or
+# "disqualifier" inside ordinary prose should not trigger a flip.
+# See casting-suggestion #86 (REJECTED reason ending in a FIT conclusion) and
+# its symmetric gap (SELECTED reason ending in a SKIP/DISQUALIFIER conclusion,
+# e.g. Eric Mason / 27 CLUB, July 6 UNPAID digest).
+_INLINE_VERDICT_RE = re.compile(r'\b(FIT|SKIP|DISQUALIFIER)\b\s*[-:–—]', re.IGNORECASE)
+
+
+def _last_inline_verdict(reason: str) -> str | None:
+    """Return 'FIT' or 'SKIP' for the LAST inline verdict token in reason text,
+    or None if no such token appears. DISQUALIFIER counts as a SKIP token."""
+    verdict = None
+    for m in _INLINE_VERDICT_RE.finditer(reason or ""):
+        token = m.group(1).upper()
+        verdict = "SKIP" if token in ("SKIP", "DISQUALIFIER") else "FIT"
+    return verdict
+
+
 def _parse_structured_response(
     text: str, roles: list[dict], project_name: str,
 ) -> tuple[list[tuple[dict, str]], dict[str, str]]:
@@ -901,6 +927,28 @@ def _parse_structured_response(
             reason = m.group(2).strip()
             if 0 <= idx < len(roles):
                 rejections[roles[idx]["role_name"]] = reason
+
+    # Re-scan each captured reason for a self-correcting inline verdict token
+    # that reverses the line's own SELECTED/REJECTED bucket, before any other
+    # reconciliation logic runs (a rejected-but-actually-FIT role can turn a
+    # would-be "all rejected" project into one with a real selection).
+    for role_name in list(rejections):
+        if _last_inline_verdict(rejections[role_name]) == "FIT":
+            role_obj = next((r for r in roles if r["role_name"] == role_name), None)
+            if role_obj is not None:
+                logger.info(
+                    f"[CONTRADICTION] {project_name} — {role_name}: REJECTED reason "
+                    f"ends in a FIT conclusion; promoting to selected"
+                )
+                selected.append((role_obj, rejections.pop(role_name)))
+    for role_obj, reason in list(selected):
+        if _last_inline_verdict(reason) == "SKIP":
+            logger.info(
+                f"[CONTRADICTION] {project_name} — {role_obj.get('role_name', '?')}: "
+                f"SELECTED reason ends in a SKIP/DISQUALIFIER conclusion; demoting to rejected"
+            )
+            rejections[role_obj["role_name"]] = reason
+            selected.remove((role_obj, reason))
 
     # If we found REJECTED lines but no SELECTED lines, the AI legitimately rejected all roles
     if not selected and rejections:
