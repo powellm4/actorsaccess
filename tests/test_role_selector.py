@@ -217,6 +217,41 @@ def test_skip_returns_empty_selected():
     assert len(rejections) == 3
 
 
+def test_bare_skip_with_no_reason_does_not_store_uninformative_token():
+    """Regression: 'PASSING THE BAR' digest evidence — the AI responded with
+    a bare 'SKIP' line and no reason, and the rejection reason ended up being
+    the literal string 'SKIP', which gives a human sanity-checking the digest
+    zero information ('Reason (all roles): SKIP'). Any preceding reasoning in
+    the response should be used instead, and the stored reason must never be
+    the bare token itself."""
+    mock_anthropic, _ = _make_mock_anthropic(
+        "These roles don't fit the actor's profile well.\nSKIP"
+    )
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            selected, rejections = select_best_roles(SAMPLE_ROLES, "Test Project")
+
+    assert len(selected) == 0
+    assert len(rejections) == 3
+    for reason in rejections.values():
+        assert reason.strip().upper() != "SKIP"
+        assert "don't fit the actor's profile" in reason
+
+
+def test_bare_skip_with_absolutely_no_context_gets_explicit_marker():
+    """When the response is truly just 'SKIP' with nothing else, fall back to
+    an explicit marker rather than the uninformative bare token."""
+    mock_anthropic, _ = _make_mock_anthropic("SKIP")
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            selected, rejections = select_best_roles(SAMPLE_ROLES, "Test Project")
+
+    assert len(selected) == 0
+    for reason in rejections.values():
+        assert reason.strip().upper() != "SKIP"
+        assert "no explanation" in reason.lower()
+
+
 def test_malformed_response_falls_back_to_first():
     """Unparseable AI response should fall back to first role."""
     mock_anthropic, _ = _make_mock_anthropic(

@@ -877,7 +877,29 @@ def _parse_structured_response(
     for line in lines:
         m = skip_re.match(line.strip())
         if m:
-            skip_reason = (m.group(1) or "").strip() or line.strip()
+            skip_reason = (m.group(1) or "").strip()
+            if not skip_reason:
+                # The model returned a bare "SKIP" with no reason on that line.
+                # Storing the literal token "SKIP" as the rejection reason
+                # gives a human sanity-checking the digest zero information
+                # ("Reason (all roles): SKIP"). Fall back to any other
+                # non-empty line in the response as context — the model may
+                # have put its reasoning on a separate line — before settling
+                # for an explicit "no reason given" marker. See
+                # casting-suggestion digest evidence, PASSING THE BAR (all
+                # 3 roles rejected with reason "SKIP").
+                other_lines = [
+                    ln.strip() for ln in lines
+                    if ln.strip() and ln.strip().upper() != "SKIP"
+                ]
+                skip_reason = (
+                    " ".join(other_lines)[:300] if other_lines
+                    else "AI returned bare SKIP verdict with no explanation"
+                )
+                logger.warning(
+                    f"AI skipped project {project_name} with no reason given; "
+                    f"raw response: {text[:200]!r}"
+                )
             rejections = {r["role_name"]: skip_reason for r in roles}
             logger.info(f"AI skipped project {project_name}: {skip_reason}")
             return [], rejections
