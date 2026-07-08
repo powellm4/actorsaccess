@@ -11,6 +11,7 @@ import pytest
 
 from src.role_selector import (
     _is_transient_error,
+    _maybe_override_local_hire_skip,
     analyze_submission_requirements,
     check_travel_pay,
     select_best_roles,
@@ -560,49 +561,100 @@ _LOVE_IS_IN_THE_AIR_DESC = (
 
 def test_travel_pay_waived_when_flight_and_hotel_provided():
     """The reported LOVE IS IN THE AIR notice should pass — flight + hotel covered."""
-    ok, reason = check_travel_pay("LOVE IS IN THE AIR", _LOVE_IS_IN_THE_AIR_DESC)
+    ok, reason, ambiguous = check_travel_pay("LOVE IS IN THE AIR", _LOVE_IS_IN_THE_AIR_DESC)
     assert ok is True, f"expected pass, got rejection: {reason}"
     assert reason is None
 
 
 def test_travel_pay_waived_when_only_airfare_provided():
     """Flight coverage alone is enough to waive the fly-to threshold."""
-    ok, reason = check_travel_pay(
+    ok, reason, ambiguous = check_travel_pay(
         "Indie Feature",
         "Lead role. Airfare provided. $200/day for 1 day. Shoots in Austin, TX.",
     )
     assert ok is True, f"expected pass, got rejection: {reason}"
     assert reason is None
+    assert ambiguous is False
 
 
 def test_travel_pay_waived_when_only_hotel_provided():
     """Lodging coverage alone is enough to waive the fly-to threshold."""
-    ok, reason = check_travel_pay(
+    ok, reason, ambiguous = check_travel_pay(
         "NY Short",
         "Supporting role. Hotel provided. $150/day for 1 day. Shoots in New York.",
     )
     assert ok is True, f"expected pass, got rejection: {reason}"
     assert reason is None
+    assert ambiguous is False
 
 
 def test_travel_pay_not_waived_when_coverage_negated():
     """'No hotel or travel provided' must NOT trigger a waiver — low pay still rejects."""
-    ok, reason = check_travel_pay(
+    ok, reason, ambiguous = check_travel_pay(
         "Cheap TX Gig",
         "Background-ish role. No hotel or travel provided. $100 total. Shoots in Dallas, TX.",
     )
     assert ok is False
     assert reason and "too low" in reason.lower()
+    assert ambiguous is False
 
 
 def test_travel_pay_still_rejects_low_pay_without_coverage():
     """Regression guard: a plain low-pay fly-to role with no coverage language still rejects."""
-    ok, reason = check_travel_pay(
+    ok, reason, ambiguous = check_travel_pay(
         "Low Pay NY",
         "Lead role. $50/day for 1 day. Shoots in New York.",
     )
     assert ok is False
     assert reason and "fly-to" in reason.lower()
+    assert ambiguous is False
+
+
+# --- casting-suggestion #85: ambiguous/unlisted pay must be flagged, not
+# silently auto-passed as if it confirmed the threshold was cleared. ---
+
+
+def test_travel_pay_ambiguous_when_pay_unparseable_at_fly_to_location():
+    """Pay listed as 'SEE BREAKDOWN' (no number) at a fly-to location must come
+    back as ambiguous — not a silent pass and not a rejection."""
+    ok, reason, ambiguous = check_travel_pay(
+        "TARGET MINNESOTA",
+        "Football Players and Basketball Players. Pay: SEE BREAKDOWN. Shoots in Minneapolis, MN.",
+    )
+    assert ok is True
+    assert reason is None
+    assert ambiguous is True
+
+
+def test_travel_pay_not_ambiguous_when_location_is_la():
+    """No threshold applies in LA, so unparseable pay there is not ambiguous."""
+    ok, reason, ambiguous = check_travel_pay(
+        "LA Short",
+        "Supporting role. Pay: SEE BREAKDOWN. Shoots in Los Angeles, CA.",
+    )
+    assert ok is True
+    assert reason is None
+    assert ambiguous is False
+
+
+def test_override_local_hire_not_applied_when_pay_ambiguous():
+    """The local-hire override must not claim pay 'clears threshold' when pay
+    is genuinely unparseable — that fabricates confidence the check never had.
+    Regression: Marriott Miami (Miami local hire, PAY: 'Please see usage/run')
+    was overridden with the false claim 'travel pay clears threshold' even
+    though the underlying check could not determine any pay amount."""
+    role = {
+        "role_name": "Miami - Working Professional Man",
+        "description": "Must be Miami local hire. Attractive but approachable.",
+        "pay": "Please see usage/run",
+    }
+    ai_reason = (
+        "Miami local hire requirement; shoot location is Miami (fly-to), and pay is "
+        "unspecified — cannot confirm it meets the $1,000 threshold."
+    )
+    overridden, new_reason = _maybe_override_local_hire_skip(role, "Marriott", ai_reason, "paid")
+    assert overridden is False, f"must not override on ambiguous pay, got: {new_reason}"
+    assert new_reason == ai_reason
 
 
 # --- analyze_submission_requirements tests ---

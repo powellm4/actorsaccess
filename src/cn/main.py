@@ -499,10 +499,15 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                 for best, ai_reason in selected:
                     unique_id = f"cn_{best['project_id']}_{best['role_id']}"
 
-                    # Programmatic travel pay check (overrides AI)
-                    tp_ok, tp_reason = check_travel_pay(
+                    # Programmatic travel pay check (overrides AI).
+                    # Include any structured pay field so check_travel_pay can find the
+                    # rate even when it isn't spelled out in the free-text description —
+                    # CN stores pay separately from the description (parity with the
+                    # same fix on the main.py/backstage.py call sites).
+                    pay_text = best.get("pay", "")
+                    tp_ok, tp_reason, pay_ambiguous = check_travel_pay(
                         project_name,
-                        best.get("description", ""),
+                        f"{best.get('description', '')} Pay: {pay_text}" if pay_text else best.get("description", ""),
                         f"{best.get('submission_date', '')} {best.get('location', '')}",
                         mode=mode,
                     )
@@ -539,6 +544,26 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                                 platform="cn",
                                 mode=mode,
                             )
+                        continue
+                    if pay_ambiguous:
+                        flag_reason = (
+                            "Pay is unlisted/ambiguous — cannot confirm it meets the "
+                            "travel-pay threshold for this location. Human review needed."
+                        )
+                        logger.info(f"[TRAVEL PAY] Flagging {best['role_name']} on {project_name}: {flag_reason}")
+                        role_url = best.get("url", "")
+                        if role_url and not role_url.startswith("http"):
+                            role_url = f"https://app.castingnetworks.com{role_url}"
+                        db.record_flagged_role(
+                            project_name=project_name,
+                            project_url=role_url or project_url,
+                            role_name=best["role_name"],
+                            role_description=best.get("description", ""),
+                            flag_reason=flag_reason,
+                            run_id=run_id,
+                            platform="cn",
+                            mode=mode,
+                        )
                         continue
 
                     # Analyze submission requirements

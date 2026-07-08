@@ -253,20 +253,25 @@ def check_travel_pay(
     role_description: str = "",
     project_notes: str = "",
     mode: str = "paid",
-) -> tuple[bool, str | None]:
-    """Programmatic travel pay check. Returns (should_apply, rejection_reason).
+) -> tuple[bool, str | None, bool]:
+    """Programmatic travel pay check. Returns (should_apply, rejection_reason, pay_ambiguous).
 
-    In paid mode: returns (True, None) if the role passes or location/pay
-    can't be determined, (False, reason) if pay clearly violates minimums.
+    In paid mode: returns (True, None, False) if the role passes, (False,
+    reason, False) if pay clearly violates minimums. When the location
+    requires a pay threshold but no numeric pay could be parsed at all
+    (e.g. "SEE BREAKDOWN", blank, non-numeric), returns (True, None, True)
+    — callers should route this to human review rather than treating it as
+    a confirmed pass, since "can't determine" is not the same as "clears
+    the threshold". See casting-suggestion #85.
 
-    In unpaid mode: always returns (True, None). Location filtering is
-    delegated to the platform's saved search (Backstage "unpaid", CN
+    In unpaid mode: always returns (True, None, False). Location filtering
+    is delegated to the platform's saved search (Backstage "unpaid", CN
     "unpaid") — the programmatic keyword list was too brittle and was
     incorrectly rejecting LA-metro locations like Santa Clarita, and
     matching state codes like "IN" inside ordinary phrases.
     """
     if mode == "unpaid":
-        return True, None
+        return True, None, False
 
     combined = f"{project_name} {role_description} {project_notes}".lower()
 
@@ -333,18 +338,26 @@ def check_travel_pay(
 
     # If we can't determine location, don't reject
     if tier is None or tier == "la":
-        return True, None
+        return True, None, False
 
     # If travel costs (flights and/or lodging) are covered, the pay threshold
     # doesn't apply.
     if _travel_costs_covered(combined):
         logger.info(f"[TRAVEL PAY] Flights/lodging covered for {tier} location ({matched_location}), skipping pay check")
-        return True, None
+        return True, None, False
 
     # Try to extract pay
     pay = _extract_total_pay(f"{role_description} {project_notes}")
     if pay is None:
-        return True, None  # can't determine pay, don't reject
+        # Pay is genuinely unlisted/ambiguous (e.g. "SEE BREAKDOWN") for a
+        # location that DOES require a threshold — this is not the same as
+        # confirming the role clears it. Flag as ambiguous instead of
+        # silently treating "unknown" as "fine".
+        logger.info(
+            f"[TRAVEL PAY] Pay ambiguous for {tier} location ({matched_location}) on "
+            f"{project_name}; cannot confirm it meets the threshold"
+        )
+        return True, None, True
 
     thresholds = {"short": 250, "medium": 500, "fly": 1000}
     threshold = thresholds[tier]
@@ -353,9 +366,9 @@ def check_travel_pay(
         tier_label = {"short": "short drive", "medium": "medium drive", "fly": "fly-to"}[tier]
         reason = f"Travel pay too low: ${pay:.0f} for {tier_label} location ({matched_location}), minimum ${threshold}"
         logger.info(f"[TRAVEL PAY] Rejecting: {reason}")
-        return False, reason
+        return False, reason, False
 
-    return True, None
+    return True, None, False
 
 
 # Patterns matching AI rejection reasoning that boils down to "you're not local
@@ -436,9 +449,20 @@ def _maybe_override_local_hire_skip(
     description = (
         f"{role.get('description', '')} Pay: {pay_text}" if pay_text else role.get("description", "")
     )
-    tp_ok, tp_reason = check_travel_pay(
+    tp_ok, tp_reason, pay_ambiguous = check_travel_pay(
         project_name, description, project_notes, mode="paid",
     )
+    if tp_ok and pay_ambiguous:
+        # Pay couldn't be parsed at all — "can't determine" is not "clears
+        # the threshold". Don't fabricate confidence the check never had;
+        # leave the AI's original local-hire objection standing rather than
+        # falsely claiming pay clears a threshold that was never confirmed.
+        # See casting-suggestion #85.
+        logger.debug(
+            f"[TRAVEL PAY OVERRIDE] Not overriding {project_name} — {role.get('role_name', '?')}: "
+            f"pay is ambiguous, not confirmed to clear the threshold"
+        )
+        return False, ai_reason
     if tp_ok:
         new_reason = (
             f"travel pay clears threshold; overriding AI local-hire objection "

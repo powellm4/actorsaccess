@@ -627,7 +627,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                     # Programmatic travel pay check (overrides AI)
                     # Include pay field since Backstage stores pay as structured metadata
                     pay_text = best.get("pay", "")
-                    tp_ok, tp_reason = check_travel_pay(
+                    tp_ok, tp_reason, pay_ambiguous = check_travel_pay(
                         project_name,
                         f"{best.get('description', '')} Pay: {pay_text}" if pay_text else best.get("description", ""),
                         production.get("project_notes", ""),
@@ -666,6 +666,26 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                                 platform="backstage",
                                 mode=mode,
                             )
+                        continue
+                    if pay_ambiguous:
+                        flag_reason = (
+                            "Pay is unlisted/ambiguous — cannot confirm it meets the "
+                            "travel-pay threshold for this location. Human review needed."
+                        )
+                        logger.info(f"[TRAVEL PAY] Flagging {best['role_name']} on {project_name}: {flag_reason}")
+                        role_url = best.get("url", "")
+                        if role_url and not role_url.startswith("http"):
+                            role_url = f"https://www.backstage.com{role_url}"
+                        db.record_flagged_role(
+                            project_name=project_name,
+                            project_url=role_url or project_url,
+                            role_name=best["role_name"],
+                            role_description=best.get("description", ""),
+                            flag_reason=flag_reason,
+                            run_id=run_id,
+                            platform="backstage",
+                            mode=mode,
+                        )
                         continue
 
                     # Fetch role detail page for full data (prescreen, attachments, etc.)
