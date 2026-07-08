@@ -747,6 +747,21 @@ def test_manually_applied_section_omitted_when_no_overrides():
     ("", "other"),
     (None, "other"),
     ("some inscrutable AI explanation that matches no pattern", "other"),
+    # casting-suggestion #84: cap-driven passes must bucket as submission_cap,
+    # not whatever substantive-sounding word the AI's fit discussion happened
+    # to use before landing on the cap as the real reason.
+    (
+        "Fit on age and ethnicity, and the controlling antagonist type suits him, "
+        "but capped at 3 submissions; Carter (Role 5) is the stronger villain "
+        "submission as the more prominent and better-written antagonist role",
+        "submission_cap",
+    ),
+    ("Age and gender fit, but cap of 3 already reached with stronger role matches", "submission_cap"),
+    (
+        "Physical action/stunt role fits, but cap of 3 already reached with "
+        "higher-prominence/type matches",
+        "submission_cap",
+    ),
 ])
 def test_categorize_rejection_buckets_real_reasons(reason, expected_key):
     assert _categorize_rejection(reason) == expected_key
@@ -766,6 +781,18 @@ def test_categorize_rejection_prefers_fundamental_disqualifier():
         "Ethnicity requirement excludes actor; no demo reel available either."
     )
     assert _categorize_rejection(multi2) == "ethnicity_look"
+
+
+def test_categorize_rejection_submission_cap_outranks_incidental_fit_language():
+    """A cap-driven pass often opens with genuine fit language ('age and
+    ethnicity fit') before landing on the cap as the real reason — the cap
+    must win so the digest doesn't misrepresent a fine role as disqualified
+    on ethnicity/age/skill grounds it never actually failed. See #84."""
+    reason = (
+        "Age range fits and ethnicity matches, but capped at 3 submissions "
+        "for this project; two other roles are stronger type matches."
+    )
+    assert _categorize_rejection(reason) == "submission_cap"
 
 
 def _rej(reason, role="Lead", project="Proj", platform="aa"):

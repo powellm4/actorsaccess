@@ -39,6 +39,7 @@ def gather_digest_data(db: Database, mode: str | None = None) -> dict:
 # user can quickly scan the buckets they might want to override or fix,
 # and skip past the immutable mismatches (gender / age / look) at the end.
 PASS_CATEGORY_DISPLAY_ORDER = [
+    ("submission_cap",    "Submission cap reached"),
     ("missing_materials", "Missing materials"),
     ("travel_pay",        "Pay too low for travel"),
     ("skill",             "Required skill or experience"),
@@ -55,8 +56,16 @@ PASS_CATEGORY_DISPLAY_ORDER = [
 # fundamental disqualifier — gender > age > look > build > everything else.
 # This is independent of display order: a "female-only AND pay too low"
 # reason still buckets as gender, then renders wherever gender sits above.
+#
+# submission_cap goes FIRST: the selection prompt tells the AI to "cap
+# submissions at 3 per project" (select_best_roles), so a capped-out role's
+# reasoning often opens with a genuine fit assessment ("age and ethnicity
+# fit...") before landing on the real, cap-driven reason for passing. Without
+# priority, that leading fit language gets matched by e.g. "ethnicity_look"
+# or "age" first, mislabeling a cap-driven pass as a substantive disqualifier
+# that never actually applied. See casting-suggestion #84.
 _CATEGORIZER_PRIORITY = [
-    "gender", "age", "ethnicity_look", "build_height",
+    "submission_cap", "gender", "age", "ethnicity_look", "build_height",
     "travel_pay", "skill", "personal_status",
     "non_acting", "missing_materials",
 ]
@@ -64,6 +73,12 @@ _CATEGORIZER_PRIORITY = [
 # Patterns are tuned to the AI selector's actual phrasing in real digests
 # (see the plan file for verbatim samples). All matched case-insensitively.
 _PASS_CATEGORY_PATTERNS: dict[str, list[str]] = {
+    "submission_cap": [
+        r"\bcapp?ed\s+at\s+\d+\b",
+        r"\bcap\s+of\s+\d+\b",
+        r"\balready\s+reached\b.{0,20}\bcap\b",
+        r"\bsubmission\s+cap\b",
+    ],
     "gender": [
         r"\b(fe)?male[\s-]?only\b",
         r"\bwoman[\s-]?only\b", r"\bmen[\s-]?only\b", r"\bwomen[\s-]?only\b",
