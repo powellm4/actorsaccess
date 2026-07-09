@@ -215,6 +215,44 @@ def test_build_digest_html_with_flagged():
     assert "https://example.com/flagged" in html
 
 
+def test_build_digest_html_flagged_role_later_rejected_is_not_shown_as_needing_attention():
+    """A role flagged 'needs your attention' in one run of the digest window,
+    then hard-passed for an unrelated disqualifier in a later run of the same
+    window, must not appear under 'Needs Your Attention' — the digest would
+    otherwise contradict itself, implying the role is still a live prospect
+    when it has already been passed on. See casting-suggestion evidence:
+    MOCHI HEALTH / Role 3, July 9 2026 (Paid) digest."""
+    data = {
+        "applications": [],
+        "rejections": [
+            {
+                "project_name": "MOCHI HEALTH",
+                "role_name": "Role 3: Young Male - Regular Build - 30-35",
+                "role_description": "Health and wellness campaign.",
+                "rejection_reason": "Athletic 185 lbs build doesn't match the 'regular, everyday build' required.",
+                "platform": "cn",
+                "project_url": "https://example.com/mochi",
+            }
+        ],
+        "flagged": [
+            {
+                "project_name": "MOCHI HEALTH",
+                "role_name": "Role 3: Young Male - Regular Build - 30-35",
+                "role_description": "Health and wellness campaign.",
+                "flag_reason": "Needed: email address and clothing sizes, which are not listed in the actor profile.",
+                "platform": "cn",
+                "flagged_at": "2026-07-09 01:00:00",
+            }
+        ],
+        "runs": [],
+    }
+    html = build_digest_html(data)
+    assert "Needs Your Attention" not in html
+    assert "email address and clothing sizes" not in html
+    # The rejection itself must still render normally in the Passed section.
+    assert "regular, everyday build" in html
+
+
 def test_build_digest_html_with_draft_renders_open_link_and_suggested_note():
     """Prepare-only Backstage drafts should surface the Open on Backstage link
     and the AI-suggested cover letter."""

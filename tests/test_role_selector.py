@@ -605,6 +605,57 @@ def test_travel_pay_still_rejects_low_pay_without_coverage():
     assert reason and "fly-to" in reason.lower()
 
 
+# --- check_travel_pay: explicit Location: field beats an incidental LA mention ---
+# See casting-suggestion evidence: COMPLICIT / JOSH GREENE, July 9 2026 (Paid) digest.
+# The shoot is an unpaid Chicago local hire, but the project notes' boilerplate
+# ("...premiered his latest film at Dances With Films in Los Angeles") mentioned
+# Los Angeles once in an unrelated director bio. Because the LA-tier keyword scan
+# ran over the whole notes blob, it matched "los angeles" before the notes' own
+# explicit "Location: Chicago" field was ever consulted, and LA tier waives the
+# pay threshold unconditionally — silently approving a $0-pay fly-to role.
+
+_COMPLICIT_NOTES = (
+    "COMPLICIT Feature Film SAG-AFTRA Micro Budget Agreement Executive Producer: "
+    "Marissa Lichwick Shoot Dates: August 3 - 18, 2026 Rate of Pay: No pay. Copy, "
+    "Credit, MealsLocation: Chicago DEADLINE: JULY 11, 2026 CHICAGO LOCAL HIRE. "
+    "This is a SAG-AFTRA MICRO BUDGET PROJECT AGREEMENT. Our co-director recently "
+    "premiered his latest film at Dances With Films in Los Angeles. We're "
+    "assembling a passionate, collaborative cast and crew."
+)
+
+
+def test_travel_pay_explicit_location_field_beats_incidental_la_mention():
+    """An unrelated 'Los Angeles' mention in bio/credits text must not override
+    the notes' own explicit non-LA Location: field."""
+    ok, reason = check_travel_pay(
+        "COMPLICIT", "Man; 20 to 27 years old. Supporting role.", _COMPLICIT_NOTES,
+    )
+    assert ok is False, "explicit 'Location: Chicago' should win over incidental 'Los Angeles' bio text"
+    assert reason and "chicago" in reason.lower() and "$0" in reason
+
+
+def test_travel_pay_la_location_field_still_waives_threshold():
+    """Regression guard: a real, explicitly-stated LA shoot must still waive the threshold."""
+    ok, reason = check_travel_pay(
+        "LA Short",
+        "Background-ish role. $20 total.",
+        "Location: Los Angeles, CA DEADLINE: JULY 10, 2026",
+    )
+    assert ok is True, f"expected LA location field to waive threshold, got rejection: {reason}"
+    assert reason is None
+
+
+def test_travel_pay_no_location_field_falls_back_to_full_text_scan():
+    """Regression guard: without an explicit Location: field, the existing
+    whole-text keyword scan still applies (no Location: field to prefer)."""
+    ok, reason = check_travel_pay(
+        "Low Pay NY No Field",
+        "Lead role. $50/day for 1 day. Shoots in New York.",
+    )
+    assert ok is False
+    assert reason and "fly-to" in reason.lower()
+
+
 # --- analyze_submission_requirements tests ---
 
 SAMPLE_ROLE = {
