@@ -874,10 +874,22 @@ def _parse_structured_response(
 
     # Check for SKIP — must be "SKIP" alone or "SKIP - reason" (may appear after AI preamble)
     skip_re = re.compile(r"^SKIP\s*(?:[-–—]\s*(.*))?$", re.IGNORECASE)
-    for line in lines:
+    for i, line in enumerate(lines):
         m = skip_re.match(line.strip())
         if m:
-            skip_reason = (m.group(1) or "").strip() or line.strip()
+            skip_reason = (m.group(1) or "").strip()
+            if not skip_reason:
+                # The prompt only requires "explain why" after SKIP, not that the
+                # explanation follow a dash on the same line — the model sometimes
+                # puts SKIP alone on the first line and the explanation on the
+                # next one(s). Capture those trailing lines instead of discarding
+                # them and storing the bare, uninformative "SKIP" as the reason.
+                trailing = []
+                for follow in lines[i + 1:]:
+                    if not follow.strip():
+                        break
+                    trailing.append(follow.strip())
+                skip_reason = " ".join(trailing).strip() or line.strip()
             rejections = {r["role_name"]: skip_reason for r in roles}
             logger.info(f"AI skipped project {project_name}: {skip_reason}")
             return [], rejections
