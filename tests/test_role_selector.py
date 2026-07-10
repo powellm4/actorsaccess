@@ -349,6 +349,27 @@ def test_bare_skip_with_no_reason_does_not_store_uninformative_token():
         assert "don't fit the actor's profile" in reason
 
 
+def test_skip_alone_on_first_line_captures_explanation_from_next_lines():
+    """AI writing bare 'SKIP' on its own line, with the explanation on the
+    following line(s) instead of after a dash, must not be reduced to the
+    bare, uninformative word "SKIP" as the stored reason for every role.
+    """
+    mock_anthropic, _ = _make_mock_anthropic(
+        "SKIP\n"
+        "All roles are background/atmosphere crowd work for a bank commercial "
+        "with no individual character identity."
+    )
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            selected, rejections = select_best_roles(SAMPLE_ROLES, "Test Project")
+
+    assert len(selected) == 0
+    assert len(rejections) == 3
+    for reason in rejections.values():
+        assert reason != "SKIP"
+        assert "background/atmosphere crowd work" in reason
+
+
 def test_bare_skip_with_absolutely_no_context_gets_explicit_marker():
     """When the response is truly just 'SKIP' with nothing else, fall back to
     an explicit marker rather than the uninformative bare token."""
