@@ -14,7 +14,7 @@ from datetime import datetime
 
 from src import overrides as overrides_mod
 from src.backstage.config import load_backstage_config, BackstageConfigError
-from src.backstage.client import BackstageClient
+from src.backstage.client import BackstageClient, TransientBlockError
 from src.database import Database
 from src.override_email import send_override_results_email
 from src.calendar_check import check_availability, parse_shoot_dates, parse_all_dates
@@ -362,7 +362,10 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
             # network error) — this is NOT proof that the saved search is
             # missing. Fail with an accurate, transient-sounding message rather
             # than telling the user to (re)create a search that likely exists.
-            raise RuntimeError(
+            # Use TransientBlockError so main() can treat this as a soft skip
+            # (clean exit) instead of a red workflow failure — the block clears
+            # on its own and the next scheduled run typically succeeds.
+            raise TransientBlockError(
                 "Could not fetch saved searches from Backstage — the request was "
                 "blocked or failed (likely a transient Cloudflare challenge). "
                 "Will retry on the next scheduled run."
@@ -1082,7 +1085,16 @@ def main():
 
     if args.once:
         logger.info(f"Running single pass (mode={args.mode})" + (" (dry run)" if args.dry_run else ""))
-        run_once(cfg, db, dry_run=args.dry_run, mode=args.mode)
+        try:
+            run_once(cfg, db, dry_run=args.dry_run, mode=args.mode)
+        except TransientBlockError as e:
+            # A transient upstream block (e.g. a Cloudflare JS challenge) is
+            # not a real failure of this pipeline — it clears on its own and
+            # the next scheduled run typically succeeds. The run is already
+            # recorded as failed in the DB by run_once; exit cleanly here so a
+            # single blocked pass doesn't turn the whole scheduled workflow red
+            # (which would also skip the downstream digest/archive steps).
+            logger.warning(f"Skipping this pass — transient block: {e}")
     else:
         import schedule as sched
         interval = 4

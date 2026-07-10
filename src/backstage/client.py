@@ -29,6 +29,16 @@ USER_AGENT = (
 )
 
 
+class TransientBlockError(RuntimeError):
+    """Raised when Backstage blocks a request in a way that is expected to
+    clear on its own (e.g. a transient Cloudflare JS challenge).
+
+    Distinct from a genuine failure (bad credentials, a missing saved search):
+    callers may choose to treat this as a soft skip rather than a hard error,
+    since the next scheduled run typically succeeds.
+    """
+
+
 def _random_delay(min_sec: float = 1.0, max_sec: float = 3.0):
     delay = random.uniform(min_sec, max_sec)
     logger.debug(f"Waiting {delay:.1f}s")
