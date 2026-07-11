@@ -424,11 +424,43 @@ def _maybe_override_local_hire_skip(
     check would have passed (pay clears the threshold for the location, or
     location is unknown), the AI's local-hire objection is treated as
     rationalization and we accept the role.
+
+    The AI sometimes bundles an unrelated age-range objection into the same
+    rejection string (e.g. "Age range 30s-50s has no overlap ... also requires
+    local to Milwaukee with no pay listed"). Clearing the travel-pay threshold
+    only resolves the local-hire clause — it says nothing about whether the
+    age claim is a genuine, separate disqualifier, so a bundled age claim is
+    verified with the same arithmetic as ``_maybe_override_age_overlap_skip``
+    before the local-hire override is allowed to fire. If the role's age range
+    can't be determined, we don't guess: a missed opportunity is far cheaper
+    than submitting an actor to a role the age claim may genuinely disqualify
+    them from.
     """
     if mode != "paid":
         return False, ai_reason
     if not _is_local_hire_rationalization(ai_reason):
         return False, ai_reason
+    age_reason_prefix = ""
+    if _AGE_NO_OVERLAP_RE.search(ai_reason):
+        role_range = _extract_role_age_range(role)
+        if role_range is None:
+            logger.debug(
+                f"[TRAVEL PAY OVERRIDE] Not overriding {project_name} — "
+                f"{role.get('role_name', '?')}: reason bundles an unverifiable age claim"
+            )
+            return False, ai_reason
+        lo, hi = role_range
+        if not (max(lo, _ACTOR_MIN_AGE) <= min(hi, _ACTOR_MAX_AGE)):
+            logger.debug(
+                f"[TRAVEL PAY OVERRIDE] Not overriding {project_name} — "
+                f"{role.get('role_name', '?')}: age range {lo}-{hi} genuinely doesn't "
+                f"overlap actor's {_ACTOR_MIN_AGE}-{_ACTOR_MAX_AGE} range"
+            )
+            return False, ai_reason
+        age_reason_prefix = (
+            f"age range {lo}-{hi} overlaps actor's {_ACTOR_MIN_AGE}-{_ACTOR_MAX_AGE} "
+            f"playable range; "
+        )
     # Include any structured pay field so check_travel_pay can find the rate
     # even when it isn't spelled out in the free-text description (mirrors
     # the same fix applied at the main.py call site).
@@ -441,7 +473,7 @@ def _maybe_override_local_hire_skip(
     )
     if tp_ok:
         new_reason = (
-            f"travel pay clears threshold; overriding AI local-hire objection "
+            f"{age_reason_prefix}travel pay clears threshold; overriding AI local-hire objection "
             f"(AI said: {ai_reason[:120]})"
         )
         logger.info(
