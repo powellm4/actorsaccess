@@ -377,6 +377,80 @@ def test_no_override_when_reason_also_cites_non_waivable_disqualifier():
     assert "Elite Runner" in rejections
 
 
+def test_no_override_local_hire_when_bundled_age_claim_genuinely_disqualifies():
+    """The AI sometimes bundles an unrelated age objection into a local-hire SKIP
+    (e.g. 'Age range 35-55 has no overlap ... also requires local to Charlotte').
+    Clearing the travel-pay threshold only resolves the local-hire clause — if the
+    bundled age range genuinely doesn't overlap the actor's 17-30 range, the
+    override must not fire just because pay clears."""
+    mock_module, _ = _make_mock_anthropic(
+        "SKIP - Age range 35-55 has no overlap with actor's 17-30 playable range; "
+        "also requires local to Charlotte, NC with no travel reimbursement listed."
+    )
+    role = {
+        "role_name": "Ryan",
+        "description": (
+            "35 to 55 years old; man. Hockey star turned figure skater. "
+            "Shoots for 6 days. Location: Charlotte, NC. Rate of Pay: $700/day. "
+            "Casting talent local to CHARLOTTE, NC ONLY"
+        ),
+    }
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "BLADES OF LOVE")
+    assert selected == [], f"genuine age mismatch must not be overridden; got {selected}"
+    assert "Ryan" in rejections
+
+
+def test_override_local_hire_when_bundled_age_claim_actually_overlaps():
+    """Same bundled-reason shape as above, but the age range (30-50) does overlap
+    the actor's 17-30 range at the 30-year boundary — the override should fire and
+    the corrected reason should mention both the age overlap and the travel pay."""
+    mock_module, _ = _make_mock_anthropic(
+        "SKIP - Age range 30-50 has no overlap with actor's 17-30 playable range; "
+        "also requires local to Charlotte, NC with no travel reimbursement listed."
+    )
+    role = {
+        "role_name": "Ryan",
+        "description": (
+            "30 to 50 years old; man. Hockey star turned figure skater. "
+            "Shoots for 6 days. Location: Charlotte, NC. Rate of Pay: $700/day. "
+            "Casting talent local to CHARLOTTE, NC ONLY"
+        ),
+    }
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "BLADES OF LOVE")
+    assert len(selected) == 1, f"30-50 overlaps 17-30 at age 30; should be corrected. Got rejections={rejections}"
+    reason = selected[0][1].lower()
+    assert "overlaps" in reason
+    assert "clears threshold" in reason
+    assert rejections == {}
+
+
+def test_no_override_local_hire_when_bundled_age_claim_unverifiable():
+    """When the bundled age claim can't be turned into a numeric range (e.g. decade
+    phrasing like '30's - 50's'), the override must not guess — a missed opportunity
+    is cheaper than submitting to a role the age claim may genuinely disqualify."""
+    mock_module, _ = _make_mock_anthropic(
+        "SKIP - Age range 30s-50s has no overlap with actor's 17-30 playable range; "
+        "also requires local to Charlotte, NC with no pay listed."
+    )
+    role = {
+        "role_name": "Rep",
+        "description": (
+            "Males - 30's - 50's. To play a variety of roles like Store Rep, Sales Rep. "
+            "Location: Charlotte, NC. Rate of Pay: $700/day for 6 days. "
+            "Casting talent local to CHARLOTTE, NC ONLY"
+        ),
+    }
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "Salesforce Industrial")
+    assert selected == [], f"unverifiable age claim must not be overridden; got {selected}"
+    assert "Rep" in rejections
+
+
 def test_override_uses_structured_pay_field_when_description_omits_rate():
     """The override must find pay in the role's structured field even when the free-text
     description doesn't spell out a rate (parity with the main.py call site fix)."""
