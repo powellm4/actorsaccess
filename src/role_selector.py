@@ -471,6 +471,22 @@ _AGE_NO_OVERLAP_RE = re.compile(
     r'\bage\b.{0,60}\bno overlap\b|\bno overlap\b.{0,60}\bage\b', re.IGNORECASE,
 )
 
+# Patterns indicating the AI's SKIP reason also cites a genuine, non-waivable
+# structural disqualifier that has nothing to do with age arithmetic — e.g. the
+# role requires a real paired duo (dad & daughter, real couple) and the actor
+# would be submitting solo. When one of these co-occurs with the "no age
+# overlap" phrasing, the age claim is not the only reason for the SKIP, so
+# correcting the age math must not blanket-override the rest of the rejection.
+_NON_AGE_STRUCTURAL_DISQUALIFIER_PATTERNS = [
+    r"\bcannot submit solo\b",
+    r"\bcan(?:'t|not) submit (?:as a )?solo\b",
+    r"\breal\s+(?:dad|father|mom|mother|parent)s?\s*(?:&|and)?\s*(?:daughter|son|child|kids?)\s+duo\b",
+    r"\bpaired\s+(?:family\s+)?role\b",
+    r"\bmust submit as a (?:duo|pair|couple)\b",
+    r"\breal\s+couples?\s+only\b",
+    r"\breal\s+(?:duo|pair)\b",
+]
+
 
 def _extract_role_age_range(role: dict) -> tuple[int, int] | None:
     """Best-effort numeric (min, max) age range for a role, or None if it can't be
@@ -495,8 +511,15 @@ def _maybe_override_age_overlap_skip(role: dict, ai_reason: str) -> tuple[bool, 
 
     Only fires when the reason explicitly claims "no overlap" tied to age — this
     does not touch other age-related disqualifiers (e.g. "must look under 17").
+
+    Also does not fire when the reason bundles a genuine non-age structural
+    disqualifier (e.g. "requires a real dad & daughter duo; actor cannot submit
+    solo") — correcting the age math doesn't make a solo actor into a real duo,
+    so the rest of the rejection must stand regardless of overlap arithmetic.
     """
     if not ai_reason or not _AGE_NO_OVERLAP_RE.search(ai_reason):
+        return False, ai_reason
+    if any(re.search(p, ai_reason, re.IGNORECASE) for p in _NON_AGE_STRUCTURAL_DISQUALIFIER_PATTERNS):
         return False, ai_reason
     role_range = _extract_role_age_range(role)
     if role_range is None:
