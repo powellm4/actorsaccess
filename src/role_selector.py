@@ -529,6 +529,21 @@ _HARD_SKILL_REQUIREMENT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Casting posts also mark a skill non-negotiable with "REAL <skill> PLAYER/ATHLETE"
+# phrasing (e.g. "REAL TENNIS PLAYER / ATHLETE") rather than "necessary to have"/
+# "must have"/"required:" — the AI prompt only calls out "singing, musical
+# instrument, specific martial art" as example required skills, so it consistently
+# rationalizes past this phrasing ("casting does not explicitly exclude
+# non-specialists") instead of treating it as a hard disqualifier. This is a
+# narrow, low-risk backstop for that specific "REAL <skill> <role-word>" shape —
+# it does not touch the separate "real couples only" / testimonial ("real family
+# members") disqualifiers, which use different trailing words.
+_REAL_SKILL_PLAYER_RE = re.compile(
+    r'\bREAL\s+([A-Za-z][A-Za-z\s]{2,30}?)\s+'
+    r'(?:PLAYER|ATHLETE|DANCER|MUSICIAN|SINGER|GOLFER)\b',
+    re.IGNORECASE,
+)
+
 
 def _unmet_hard_skill_requirement(description: str) -> str | None:
     """Return the required skill phrase if the description explicitly marks a skill
@@ -537,7 +552,7 @@ def _unmet_hard_skill_requirement(description: str) -> str | None:
     """
     if not description:
         return None
-    m = _HARD_SKILL_REQUIREMENT_RE.search(description)
+    m = _HARD_SKILL_REQUIREMENT_RE.search(description) or _REAL_SKILL_PLAYER_RE.search(description)
     if not m:
         return None
     skill = m.group(1).strip().lower()
