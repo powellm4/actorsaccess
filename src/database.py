@@ -246,11 +246,25 @@ class Database:
         return cursor.fetchone() is not None
 
     def is_rejected(self, role_name: str, project_name: str, platform: str = "aa") -> bool:
+        """True if this role was already rejected under this or an equivalently-
+        formatted project name.
+
+        Uses a normalized project-name comparison (same normalization as
+        `find_recent_application_by_name`) rather than an exact string match.
+        A platform occasionally re-renders a project's title with different
+        capitalization or punctuation between fetches (e.g. "DENTITION" vs
+        "'Dentition'") — an exact match would silently miss the prior rejection,
+        letting the role be freshly re-evaluated (and, since AI verdicts aren't
+        deterministic across separate calls, potentially flip a correct reject
+        into an incorrect apply). See casting-suggestion re: DENTITION / Luca
+        (July 14→15 2026 digests).
+        """
+        normalized_target = _normalize_project_name(project_name)
         cursor = self.conn.execute(
-            "SELECT 1 FROM rejected_roles WHERE role_name = ? AND project_name = ? AND platform = ?",
-            (role_name, project_name, platform),
+            "SELECT project_name FROM rejected_roles WHERE role_name = ? AND platform = ?",
+            (role_name, platform),
         )
-        return cursor.fetchone() is not None
+        return any(_normalize_project_name(row[0]) == normalized_target for row in cursor.fetchall())
 
     def record_application(
         self, role_id: str, project_name: str, role_name: str,
