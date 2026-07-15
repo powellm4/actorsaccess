@@ -551,6 +551,30 @@ def test_delete_rejection_removes_row(db):
     assert db.is_rejected("R", "P", "aa") is False
 
 
+def test_is_rejected_matches_normalized_title_variants(db):
+    """Regression for DENTITION / Luca (July 14->15 2026 digests): the same role
+    was rejected as "DENTITION" and then re-fetched the next day rendered as
+    "'Dentition'" (different case and quoting). An exact-match lookup misses the
+    prior rejection, letting the role be freshly re-evaluated — is_rejected must
+    match across formatting variants the way find_recent_application_by_name does."""
+    run_id = db.start_run()
+    db.record_rejection(
+        project_name="DENTITION", project_url="u", role_name="Luca",
+        role_description="d", rejection_reason="ethnicity", run_id=run_id, platform="backstage",
+    )
+    assert db.is_rejected("Luca", "'Dentition'", "backstage") is True
+    assert db.is_rejected("Luca", "Dentition (Additional Roles)", "backstage") is True
+
+
+def test_is_rejected_returns_false_for_different_project(db):
+    run_id = db.start_run()
+    db.record_rejection(
+        project_name="DENTITION", project_url="u", role_name="Luca",
+        role_description="d", rejection_reason="ethnicity", run_id=run_id, platform="backstage",
+    )
+    assert db.is_rejected("Luca", "A Completely Different Project", "backstage") is False
+
+
 def test_delete_flagged_removes_row(db):
     run_id = db.start_run()
     db.record_flagged_role(
