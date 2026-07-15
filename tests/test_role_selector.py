@@ -11,6 +11,7 @@ import pytest
 
 from src.role_selector import (
     _is_transient_error,
+    _validate_note,
     analyze_submission_requirements,
     check_travel_pay,
     select_best_roles,
@@ -752,6 +753,38 @@ def test_analyze_rejects_contact_on_file_claim():
             result = analyze_submission_requirements(role, "Test Project")
     assert result["action"] == "SUBMIT"
     assert result["note"] is None
+
+
+# --- reel/footage note guard (casting-suggestion: GM Brand Car and Truck Hosts, July 15 2026 digest) ---
+
+
+def test_analyze_rejects_note_volunteering_missing_reel():
+    """Regression: the GMC Experienced Host role (same project as the flagged Cadillac
+    Experienced Host role) was auto-submitted with the note "Instagram: @marshallpowell.
+    No host reel currently available." — volunteering that the requested hosting reel is
+    missing, which the prompt already forbids but the model did anyway. Must fall back to
+    a note without the volunteered negative."""
+    mock_anthropic, _ = _make_mock_anthropic(
+        "ACTION: SUBMIT_WITH_NOTE\nNOTE: Instagram: @marshallpowell. No host reel currently available."
+    )
+    role = {
+        "role_name": "GMC Experienced Host",
+        "description": "Hosting experience preferred. Please include your Instagram and a hosting reel.",
+    }
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            result = analyze_submission_requirements(role, "GM Brand Car and Truck Hosts")
+    assert result["action"] == "SUBMIT"
+    assert result["note"] is None
+
+
+def test_validate_note_allows_note_that_positively_mentions_reel():
+    """A note that positively confirms a reel (the pipeline's own "Demo reel attached."
+    confirmation, injected elsewhere when has_media=True and clips were requested) must
+    not be caught by the missing-reel guard — it's a positive statement, not a volunteered
+    negative like "No host reel currently available.\""""
+    role = {"role_name": "Jake"}
+    assert _validate_note("Demo reel attached.", role, "Test Project") is True
 
 
 # --- confirmed_dates tests ---
