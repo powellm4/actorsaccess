@@ -1,9 +1,11 @@
 name: Auto Apply (Unpaid)
 
 on:
-  schedule:
-    # 9am PT (UTC-7) once daily
-    - cron: "0 16 * * *"
+  # Unpaid search paused for now — daily schedule disabled. Re-enable by
+  # uncommenting the schedule block below.
+  # schedule:
+  #   # 9am PT (UTC-7) once daily
+  #   - cron: "0 16 * * *"
   workflow_dispatch:
     inputs:
       max_submissions:
