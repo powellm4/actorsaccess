@@ -248,26 +248,14 @@ def _travel_costs_covered(text: str) -> bool:
     return any(re.search(p, text) for p in _TRAVEL_COVERED_PATTERNS)
 
 
-def check_travel_pay(
-    project_name: str,
-    role_description: str = "",
-    project_notes: str = "",
-    mode: str = "paid",
-) -> tuple[bool, str | None]:
-    """Programmatic travel pay check. Returns (should_apply, rejection_reason).
+def _detect_travel_tier(
+    project_name: str, role_description: str, project_notes: str,
+) -> tuple[str | None, str | None]:
+    """Determine the location tier (la/fly/medium/short) for a listing.
 
-    In paid mode: returns (True, None) if the role passes or location/pay
-    can't be determined, (False, reason) if pay clearly violates minimums.
-
-    In unpaid mode: always returns (True, None). Location filtering is
-    delegated to the platform's saved search (Backstage "unpaid", CN
-    "unpaid") — the programmatic keyword list was too brittle and was
-    incorrectly rejecting LA-metro locations like Santa Clarita, and
-    matching state codes like "IN" inside ordinary phrases.
+    Returns (tier, matched_location). ``tier`` is None when no LA/fly/medium/short
+    keyword and no fly-to state could be matched, i.e. location is undetermined.
     """
-    if mode == "unpaid":
-        return True, None
-
     combined = f"{project_name} {role_description} {project_notes}".lower()
 
     def _match_location(keywords: list[str]) -> str | None:
@@ -330,6 +318,32 @@ def check_travel_pay(
                 tier = "fly"
                 matched_location = code
                 break
+
+    return tier, matched_location
+
+
+def check_travel_pay(
+    project_name: str,
+    role_description: str = "",
+    project_notes: str = "",
+    mode: str = "paid",
+) -> tuple[bool, str | None]:
+    """Programmatic travel pay check. Returns (should_apply, rejection_reason).
+
+    In paid mode: returns (True, None) if the role passes or location/pay
+    can't be determined, (False, reason) if pay clearly violates minimums.
+
+    In unpaid mode: always returns (True, None). Location filtering is
+    delegated to the platform's saved search (Backstage "unpaid", CN
+    "unpaid") — the programmatic keyword list was too brittle and was
+    incorrectly rejecting LA-metro locations like Santa Clarita, and
+    matching state codes like "IN" inside ordinary phrases.
+    """
+    if mode == "unpaid":
+        return True, None
+
+    combined = f"{project_name} {role_description} {project_notes}".lower()
+    tier, matched_location = _detect_travel_tier(project_name, role_description, project_notes)
 
     # If we can't determine location, don't reject
     if tier is None or tier == "la":
@@ -424,6 +438,15 @@ def _maybe_override_local_hire_skip(
     check would have passed (pay clears the threshold for the location, or
     location is unknown), the AI's local-hire objection is treated as
     rationalization and we accept the role.
+
+    ``check_travel_pay`` returns "clears" (True, None) both when a fly/medium/
+    short-drive location's pay genuinely meets the threshold, and when no pay
+    figure could be found anywhere in the listing at all (it conservatively
+    doesn't reject on missing data). Those two cases must not be treated the
+    same here: if the listing has a real out-of-town location and no pay
+    figure exists anywhere (free text or structured field), overriding the
+    local-hire objection and telling the actor pay "clears threshold" would be
+    a fabricated claim — the objection stands instead.
     """
     if mode != "paid":
         return False, ai_reason
@@ -440,6 +463,16 @@ def _maybe_override_local_hire_skip(
         project_name, description, project_notes, mode="paid",
     )
     if tp_ok:
+        tier, _ = _detect_travel_tier(project_name, description, project_notes)
+        if tier not in (None, "la"):
+            combined = f"{project_name} {description} {project_notes}".lower()
+            if not _travel_costs_covered(combined) and _extract_total_pay(f"{description} {project_notes}") is None:
+                logger.debug(
+                    f"[TRAVEL PAY OVERRIDE] Not overriding {project_name} — {role.get('role_name', '?')}: "
+                    f"no pay figure found anywhere in the listing for a {tier}-tier location; "
+                    f"can't confirm the local-hire objection is actually resolved"
+                )
+                return False, ai_reason
         new_reason = (
             f"travel pay clears threshold; overriding AI local-hire objection "
             f"(AI said: {ai_reason[:120]})"

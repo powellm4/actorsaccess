@@ -413,6 +413,31 @@ def test_no_override_when_structured_pay_field_is_too_low():
     assert "Model" in rejections
 
 
+def test_no_override_local_hire_when_no_pay_figure_exists_anywhere():
+    """When a fly-to listing has no pay figure at all — not in the free-text
+    description, not in a structured field, and no vague-pay phrasing either —
+    check_travel_pay conservatively returns "clears" because it can't determine
+    pay. That is not the same as pay actually clearing the threshold, so the
+    local-hire override must not fire and fabricate a "clears threshold" claim.
+    Regression for the NIGHT AT THE OASIS / Birmingham, AL casting-suggestion."""
+    mock_module, _ = _make_mock_anthropic(
+        "SKIP - Birmingham, AL local hire required; fly-to location with no pay "
+        "mentioned, cannot confirm total pay meets the $1,000 fly-to threshold."
+    )
+    role = {
+        "role_name": "Cow Worker",
+        "description": (
+            "Works at a cow farm. Day player. Must be Birmingham, Alabama local hire. "
+            "Location: Birmingham, Alabama. No email pitches, please."
+        ),
+    }
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "Night at the Oasis")
+    assert selected == [], f"no pay figure exists anywhere; override must not fabricate a clearance; got {selected}"
+    assert "Cow Worker" in rejections
+
+
 # --- age-overlap arithmetic backstop (casting-suggestion #70) ---
 
 
