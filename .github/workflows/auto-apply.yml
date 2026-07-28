@@ -1,13 +1,15 @@
 name: Auto Apply
 
 on:
-  schedule:
-    # Application runs WITHOUT a digest email: 8am, 2pm, 8pm, 11pm PT (UTC-7).
-    - cron: "0 15,21,3,6 * * *"
-    # Application runs that ALSO send the digest email: 11am & 5pm PT (UTC-7).
-    # These two send times are chosen from application history — see the
-    # "Send digest email" step below for the rationale.
-    - cron: "0 18,0 * * *"
+  # Paid auto-apply paused for now — daily schedule disabled. Re-enable by
+  # uncommenting the schedule block below.
+  # schedule:
+  #   # Application runs WITHOUT a digest email: 8am, 2pm, 8pm, 11pm PT (UTC-7).
+  #   - cron: "0 15,21,3,6 * * *"
+  #   # Application runs that ALSO send the digest email: 11am & 5pm PT (UTC-7).
+  #   # These two send times are chosen from application history — see the
+  #   # "Send digest email" step below for the rationale.
+  #   - cron: "0 18,0 * * *"
   workflow_dispatch:
 
 permissions:
