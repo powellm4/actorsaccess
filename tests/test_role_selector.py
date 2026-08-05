@@ -605,6 +605,28 @@ def test_travel_pay_still_rejects_low_pay_without_coverage():
     assert reason and "fly-to" in reason.lower()
 
 
+def test_travel_pay_recognizes_dfw_abbreviation_as_fly_to():
+    """'DFW' (no 'Dallas' anywhere) must resolve to the fly-to tier, not go undetected."""
+    ok, reason = check_travel_pay(
+        "Meow Wolf",
+        "Please submit DFW locals here. ALL talent must be willing to work as a DFW local hire. "
+        "$350/8 hours + 20%",
+    )
+    assert ok is False, "location should resolve to fly-to and reject pay below $1000, not pass as undetermined"
+    assert reason and "fly-to" in reason.lower()
+
+
+def test_travel_pay_recognizes_santa_fe_as_fly_to():
+    """'Santa Fe' (no state name present) must resolve to the fly-to tier, not go undetected."""
+    ok, reason = check_travel_pay(
+        "Meow Wolf",
+        "Please submit Santa Fe locals here. ALL talent must be willing to work as a Santa Fe local hire. "
+        "$350/8 hours + 20%",
+    )
+    assert ok is False, "location should resolve to fly-to and reject pay below $1000, not pass as undetermined"
+    assert reason and "fly-to" in reason.lower()
+
+
 # --- analyze_submission_requirements tests ---
 
 SAMPLE_ROLE = {

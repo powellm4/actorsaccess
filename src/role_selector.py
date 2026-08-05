@@ -98,6 +98,7 @@ _FLY_TO_KEYWORDS = [
     "wilmington, nc", "wilmington nc", "pittsburgh", "minneapolis",
     "washington, dc", "d.c.", "st. louis", "charlotte", "orlando",
     "savannah", "albuquerque", "salt lake", "honolulu", "hawaii",
+    "dfw", "santa fe",
     "italy", "china", "london", "paris", "australia", "canada",
     "mexico", "spain", "germany", "japan", "korea", "india",
     "bari, italy", "beijing",
