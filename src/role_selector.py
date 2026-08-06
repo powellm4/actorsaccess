@@ -529,6 +529,21 @@ _HARD_SKILL_REQUIREMENT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Casting posts also phrase a hard skill requirement as "must be able to <verb>"
+# rather than "must have <skill> experience" (e.g. "Must be able to swim.").
+# Scoped to a fixed list of physical/performance skills that are unambiguous
+# pass/fail checks against ACTOR_PROFILE — deliberately excludes generic verbs
+# like "travel", "attend", or "commit" that aren't skill checks at all, and
+# skills (dancing, singing) already reliably covered elsewhere so this can't
+# collide with an ability the actor's profile phrases differently (e.g.
+# "salsa dancing" vs. a bare "dance" substring match).
+_MUST_BE_ABLE_TO_SKILL_RE = re.compile(
+    r'\bmust\s+be\s+able\s+to\s+'
+    r'(swim|surf|ski|skate|juggle|whistle|yodel|'
+    r'ride\s+a\s+(?:horse|bike|bicycle|motorcycle|unicycle))\b',
+    re.IGNORECASE,
+)
+
 
 def _unmet_hard_skill_requirement(description: str) -> str | None:
     """Return the required skill phrase if the description explicitly marks a skill
@@ -537,12 +552,15 @@ def _unmet_hard_skill_requirement(description: str) -> str | None:
     """
     if not description:
         return None
-    m = _HARD_SKILL_REQUIREMENT_RE.search(description)
+    m = _HARD_SKILL_REQUIREMENT_RE.search(description) or _MUST_BE_ABLE_TO_SKILL_RE.search(description)
     if not m:
         return None
     skill = m.group(1).strip().lower()
     skill_word = skill.split()[0] if skill.split() else skill
-    if not skill_word or skill_word in ACTOR_PROFILE.lower():
+    # Word-boundary match, not substring — a bare skill_word like "swim" is a
+    # substring of unrelated profile text ("swimwear" modeling work) and would
+    # otherwise be misread as the actor having the skill.
+    if not skill_word or re.search(rf'\b{re.escape(skill_word)}\b', ACTOR_PROFILE, re.IGNORECASE):
         return None
     return skill
 

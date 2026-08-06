@@ -517,6 +517,39 @@ def test_fit_kept_when_necessary_skill_is_in_profile():
     assert len(selected) == 1, f"actor can sing per profile; should not be rejected. Got rejections={rejections}"
 
 
+def test_fit_demoted_when_must_be_able_to_swim_is_missing():
+    """'Must be able to swim.' (no 'have'/'necessary' wording) must be caught too —
+    this is the phrasing shape the original 'NECESSARY TO HAVE' regex missed."""
+    mock_module, _ = _make_mock_anthropic(
+        "FIT - Confident, charming lead type; swimming ability not confirmed but no hard disqualifier present."
+    )
+    role = {
+        "role_name": "Lead Male",
+        "description": "College age. Must be able to swim. The lead discovers a creature in the pool.",
+    }
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "The Deep End")
+    assert selected == [], f"missing hard-required swimming skill must reject; got {selected}"
+    assert "swim" in rejections["Lead Male"].lower()
+
+
+def test_fit_kept_when_must_be_able_to_travel_is_not_a_skill_check():
+    """Generic 'must be able to' logistics language (travel, attend, commit) is not
+    a skill requirement and must not be treated as one."""
+    mock_module, _ = _make_mock_anthropic(
+        "FIT - Strong type match for the role."
+    )
+    role = {
+        "role_name": "Traveler",
+        "description": "Must be able to travel to set and commit to the full shoot schedule.",
+    }
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "Test Project")
+    assert len(selected) == 1, f"non-skill 'must be able to' phrasing must not reject; got rejections={rejections}"
+
+
 def test_selected_demoted_when_necessary_skill_missing_multi_role_path():
     """Same guard applied to the multi-role SELECTED/REJECTED path."""
     roles = [
