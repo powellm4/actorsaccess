@@ -112,6 +112,63 @@ def test_single_role_fit_with_preamble_still_parsed():
     assert rejections == {}
 
 
+def test_single_role_real_skill_player_requirement_overrides_fit():
+    """Regression for casting-suggestion (TENNIS PRO, July 14 2026 Paid digest):
+    a description reading "REAL TENNIS PLAYER / ATHLETE" is a non-negotiable skill
+    requirement, but the AI prompt's example list ("singing, musical instrument,
+    specific martial art") doesn't call this phrasing out, so the AI rationalized
+    past it ("casting does not explicitly exclude non-specialists") and returned
+    FIT. The actor's profile lists volleyball, not tennis, so the programmatic
+    backstop must demote this FIT to a rejection."""
+    role = dict(SAMPLE_ROLES[0])
+    role["description"] = (
+        "REAL TENNIS PLAYER / ATHLETE - Tennis Pro at the country club teaching "
+        "our member how to play!"
+    )
+    mock_module, _ = _make_mock_anthropic(
+        "FIT - Athletic build fits; casting does not explicitly exclude non-specialists"
+    )
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "Test Project")
+    assert len(selected) == 0
+    assert "Jake" in rejections
+    assert "tennis" in rejections["Jake"].lower()
+
+
+def test_single_role_real_skill_player_requirement_not_triggered_when_actor_has_skill():
+    """The actor's profile lists volleyball, so a "REAL VOLLEYBALL PLAYER" role must
+    still be accepted — the backstop only demotes skills genuinely missing from the
+    profile."""
+    role = dict(SAMPLE_ROLES[0])
+    role["description"] = "REAL VOLLEYBALL PLAYER wanted for a sports drink commercial."
+    mock_module, _ = _make_mock_anthropic("FIT - Athletic build and volleyball background fit")
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "Test Project")
+    assert len(selected) == 1
+    assert rejections == {}
+
+
+def test_multi_role_real_skill_player_requirement_demotes_selected():
+    """Same backstop, exercised through the multi-role SELECTED/REJECTED path."""
+    roles = [dict(r) for r in SAMPLE_ROLES[:2]]
+    roles[0]["description"] = (
+        "REAL TENNIS PLAYER / ATHLETE - Tennis Pro at the country club."
+    )
+    response = (
+        "SELECTED: 1 - Age and build fit, tennis not confirmed but role is open\n"
+        "REJECTED: 2 - Requires heavyset build, actor is athletic"
+    )
+    mock_module, _ = _make_mock_anthropic(response)
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles(roles, "Test Project")
+    assert len(selected) == 0
+    assert "Jake" in rejections
+    assert "tennis" in rejections["Jake"].lower()
+
+
 def test_single_role_self_correction_fit_to_skip_wins_on_final_verdict():
     """Regression for the BILT/SNYK bug (casting-suggestion #65/#75): the model builds
     an APPLY case, self-corrects mid-reasoning, and ends on SKIP — the code must trust
