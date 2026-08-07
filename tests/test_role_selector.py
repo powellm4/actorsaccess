@@ -754,6 +754,22 @@ def test_analyze_rejects_contact_on_file_claim():
     assert result["note"] is None
 
 
+def test_analyze_rejects_contact_number_is_available_claim():
+    """'Best contact number is available' is the same unfounded on-file/upon-request
+    deflection (casting-suggestion #66) with different wording — must also fall back to
+    plain SUBMIT. Reproduces the July 28, 2026 digest 'Norbit Stream' — Fitness trainer
+    note, which slipped past the narrower on-file/upon-request/happy-to-provide regex."""
+    mock_anthropic, _ = _make_mock_anthropic(
+        "ACTION: SUBMIT_WITH_NOTE\nNOTE: Best contact number is available — please reach out via my submission profile, or find me on Instagram @marshallpowell."
+    )
+    role = {"role_name": "Fitness trainer", "description": "Please provide your best contact number in case you're selected."}
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            result = analyze_submission_requirements(role, "Test Project")
+    assert result["action"] == "SUBMIT"
+    assert result["note"] is None
+
+
 # --- confirmed_dates tests ---
 
 
