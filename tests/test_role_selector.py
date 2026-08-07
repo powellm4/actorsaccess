@@ -462,6 +462,35 @@ def test_no_override_age_overlap_for_unrelated_skip_reason():
     assert "Tall Role" in rejections
 
 
+def test_no_override_age_overlap_when_bundled_with_solo_duo_disqualifier():
+    """A SKIP that bundles a miscalculated age claim with a genuine 'requires a
+    real duo, actor cannot submit solo' disqualifier must not be overridden —
+    fixing the age math doesn't make a solo submission into a real pair.
+
+    Modeled on the July 11, 2026 digest: AMAZON LEO — REAL DAD & DAUGHTER DUOS
+    (father early-late 30s, daughter 4-6 years) was force-applied solo after
+    the age-overlap backstop fired on a bogus merged range extracted from the
+    two unrelated age bands, ignoring the AI's actual "cannot submit solo for
+    a paired family role" disqualifier.
+    """
+    mock_module, _ = _make_mock_anthropic(
+        "SKIP - Requires a real dad & daughter duo; actor cannot submit solo for "
+        "a paired family role, and the father age range (early-late 30s) has no "
+        "age overlap with actor's 17-30 playable range."
+    )
+    role = {
+        "role_name": "REAL DAD & DAUGHTER DUOS",
+        "description": "Father to be early-late 30s & daughter to be 4-6 years.",
+    }
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "AMAZON LEO NON UNION PRINT & VIDEO")
+    assert selected == [], (
+        f"Bundled 'cannot submit solo' disqualifier must block the override; got selected={selected}"
+    )
+    assert "REAL DAD & DAUGHTER DUOS" in rejections
+
+
 def test_override_age_overlap_in_multi_role_path():
     """Multi-role REJECTED with a miscalculated age-overlap reason should move to
     SELECTED, mirroring the local-hire override's multi-role handling."""
