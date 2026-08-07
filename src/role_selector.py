@@ -1480,12 +1480,15 @@ def _validate_note(note: str, role: dict, project_name: str) -> bool:
         logger.warning(f"Rejected note with fabricated phone number for {role.get('role_name', '')} on {project_name}: {note}")
         return False
 
-    # Reject claims that contact info is "on file" or available "upon request" — nothing
-    # is on file beyond what's explicitly listed in ACTOR_PROFILE (Instagram only). The
-    # trigger phrase can appear either before or after the contact-type keyword
-    # ("email on file" / "happy to provide my phone number").
+    # Reject claims that contact info is "on file", available "upon request", or simply
+    # "available" — nothing is on file beyond what's explicitly listed in ACTOR_PROFILE
+    # (Instagram only). "is available" is the same deflection as "on file"/"upon request"
+    # (casting-suggestion #66) with different wording — e.g. "Best contact number is
+    # available — please reach out via my submission profile" (July 28, 2026 digest,
+    # "Norbit Stream" — Fitness trainer). The trigger phrase can appear either before or
+    # after the contact-type keyword ("email on file" / "happy to provide my phone number").
     _contact_kw = r'(?:email|phone|cell|number)'
-    _on_file_kw = r'(?:on file|upon request|happy to provide)'
+    _on_file_kw = r'(?:on file|upon request|happy to provide|is available)'
     if (re.search(rf'\b{_on_file_kw}\b.{{0,20}}\b{_contact_kw}\b', note, re.IGNORECASE)
             or re.search(rf'\b{_contact_kw}\b.{{0,20}}\b{_on_file_kw}\b', note, re.IGNORECASE)):
         logger.warning(f"Rejected note with unfounded contact-on-file claim for {role.get('role_name', '')} on {project_name}: {note}")
