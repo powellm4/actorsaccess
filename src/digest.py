@@ -535,8 +535,11 @@ def build_digest_html(
             section += f'<br><span style="color:#555;">{desc}</span>' if desc else ""
             section += f'<br><strong>Reason:</strong> {app.get("ai_reason", "N/A")}'
             note = app.get("submission_note", "")
+            info_note = app.get("info_note", "")
             if note:
                 section += f'<br><strong>Note submitted:</strong> <em>{note}</em>'
+            elif info_note:
+                section += f'<br><span style="color:#888;">{info_note}</span>'
             else:
                 section += '<br><span style="color:#888;">No specific submission info requested</span>'
             section += '\n</div>\n'

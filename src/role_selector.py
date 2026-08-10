@@ -1188,11 +1188,19 @@ _DEMO_CLIP_PHRASES = (
     "include demo clip", "your online demo",
 )
 
+_SIZE_CARD_PHRASES = ("size card", "size cards")
+
 
 def _clips_explicitly_requested(desc: str, project_notes: str) -> bool:
     """True when the breakdown explicitly asks for demo clips/reel in submissions."""
     combined = (desc + " " + project_notes).lower()
     return any(p in combined for p in _DEMO_CLIP_PHRASES)
+
+
+def _size_card_explicitly_requested(desc: str, project_notes: str) -> bool:
+    """True when the breakdown explicitly asks for a size card in submissions."""
+    combined = (desc + " " + project_notes).lower()
+    return any(p in combined for p in _SIZE_CARD_PHRASES)
 
 
 def analyze_submission_requirements(role: dict, project_name: str, project_notes: str = "", confirmed_dates: str | None = None, mode: str = "paid", has_media: bool = False) -> dict:
@@ -1213,7 +1221,8 @@ def analyze_submission_requirements(role: dict, project_name: str, project_notes
     Returns:
         {"action": "SUBMIT" | "SUBMIT_WITH_NOTE" | "NEEDS_INPUT",
          "note": str | None,
-         "needs_input_reason": str | None}
+         "needs_input_reason": str | None,
+         "info_note": str | None}  # digest-display only, never submitted to casting
     """
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -1344,6 +1353,19 @@ Respond with ONLY the action line (and NOTE/REASON line if applicable). No other
             f"[CLIPS] {project_name} — {role.get('role_name', '?')}: "
             f"breakdown requested demo clips; confirming reel attached in note"
         )
+
+    # Digest-only annotation (never submitted to casting) for explicit requests
+    # that were satisfied through a channel other than the submission note —
+    # size cards live in the AA profile, and a demo-clip request with no reel
+    # on file has nothing to attach. Without this, the digest's generic "No
+    # specific submission info requested" looks identical to a listing that
+    # asked for nothing at all, which is exactly what casting-suggestion #83
+    # flagged. See casting-suggestion follow-up to #83.
+    if result["action"] == "SUBMIT" and not result.get("note"):
+        if _size_card_explicitly_requested(desc, project_notes):
+            result["info_note"] = "Size card requested — on file in AA profile."
+        elif _clips_explicitly_requested(desc, project_notes):
+            result["info_note"] = "Demo clips requested — no reel on file; applied anyway."
 
     return result
 
