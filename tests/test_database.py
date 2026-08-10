@@ -196,6 +196,29 @@ def test_get_daily_applications(db):
     assert rows[0]["project_name"] == "Daily Project"
 
 
+def test_record_application_with_info_note(db):
+    """info_note (digest-only annotation, casting-suggestion #83 follow-up) should
+    persist and round-trip through get_daily_applications."""
+    db.record_application(
+        "role_info_note", "Size Card Project", "Model",
+        info_note="Size card requested — on file in AA profile.",
+    )
+    cursor = db.conn.execute(
+        "SELECT info_note FROM applied_roles WHERE role_id = ?", ("role_info_note",)
+    )
+    assert cursor.fetchone()[0] == "Size card requested — on file in AA profile."
+    rows = db.get_daily_applications()
+    assert rows[0]["info_note"] == "Size card requested — on file in AA profile."
+
+
+def test_record_application_info_note_defaults_empty(db):
+    db.record_application("role_no_info_note", "No Info Note Project", "Lead")
+    cursor = db.conn.execute(
+        "SELECT info_note FROM applied_roles WHERE role_id = ?", ("role_no_info_note",)
+    )
+    assert cursor.fetchone()[0] == ""
+
+
 def test_get_daily_rejections(db):
     """get_daily_rejections should return today's rejections."""
     run_id = db.start_run()

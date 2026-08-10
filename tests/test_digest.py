@@ -94,6 +94,39 @@ def test_build_digest_html_empty():
     assert "No applications" in html or "no applications" in html
 
 
+# --- info_note surfaced in Applied section (casting-suggestion #83 follow-up) ---
+
+
+def test_applied_section_shows_info_note_instead_of_generic_placeholder(db):
+    """When a requirement was explicitly requested but satisfied outside the
+    submission note (e.g. a size card via the AA profile), the digest must show
+    that instead of the generic 'No specific submission info requested' — which
+    looks identical to a listing that asked for nothing at all."""
+    db.record_application(
+        "role_size_card", "Size Card Project", "Model",
+        ai_reason="Good fit", project_url="https://example.com",
+        info_note="Size card requested — on file in AA profile.",
+    )
+    data = gather_digest_data(db)
+    html = build_digest_html(data)
+
+    assert "Size card requested — on file in AA profile." in html
+    assert "No specific submission info requested" not in html
+
+
+def test_applied_section_shows_generic_placeholder_when_nothing_requested(db):
+    """A listing with neither a submitted note nor an info_note should still show
+    the original generic placeholder."""
+    db.record_application(
+        "role_plain", "Plain Project", "Lead",
+        ai_reason="Good fit", project_url="https://example.com",
+    )
+    data = gather_digest_data(db)
+    html = build_digest_html(data)
+
+    assert "No specific submission info requested" in html
+
+
 # --- login failure surfaced in Needs Your Attention (casting-suggestion #63) ---
 
 
