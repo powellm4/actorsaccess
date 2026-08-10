@@ -677,6 +677,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                                 project_url=project_url,
                                 submission_note=analysis.get("note") or "",
                                 mode=mode,
+                                info_note=analysis.get("info_note") or "",
                             )
                             logger.info(f"[SUBMIT] SUCCESS: {best['role_name']} on {project['project_name']}")
                             roles_applied += 1

@@ -711,6 +711,53 @@ def test_analyze_empty_description_defaults_to_submit():
     assert result["action"] == "SUBMIT"
 
 
+# --- info_note tests (casting-suggestion #83 follow-up) ---
+#
+# #83 fixed the submission_note field's boilerplate, but "PLEASE INCLUDE SIZE
+# CARDS" is deliberately handled via the AA profile (not a note) and a demo-clip
+# request with no reel on file has nothing to attach — both still leave `note`
+# empty, so the digest showed the same "No specific submission info requested"
+# text as a listing that asked for nothing at all. info_note is a digest-only
+# annotation (never submitted to casting) that distinguishes the two cases.
+
+
+def test_analyze_size_card_request_sets_info_note():
+    """Size card requests get SUBMIT with no note (handled via profile) — the
+    digest should say so instead of implying nothing was requested."""
+    mock_anthropic, _ = _make_mock_anthropic("ACTION: SUBMIT")
+    role = {"role_name": "Model", "description": "PLEASE INCLUDE SIZE CARDS with your submission."}
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            result = analyze_submission_requirements(role, "Test Project")
+    assert result["action"] == "SUBMIT"
+    assert result["note"] is None
+    assert result["info_note"] == "Size card requested — on file in AA profile."
+
+
+def test_analyze_demo_clip_request_with_no_reel_sets_info_note():
+    """Demo clip requests when the actor has no reel on file (the default
+    ACTOR_PROFILE) should be visible in the digest, not indistinguishable from
+    a listing that asked for nothing."""
+    mock_anthropic, _ = _make_mock_anthropic("ACTION: SUBMIT")
+    role = {"role_name": "Host", "description": "Please submit actor's online demo clips along with submission."}
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            result = analyze_submission_requirements(role, "Test Project", has_media=True)
+    assert result["action"] == "SUBMIT"
+    assert result["note"] is None
+    assert result["info_note"] == "Demo clips requested — no reel on file; applied anyway."
+
+
+def test_analyze_no_requirements_leaves_info_note_unset():
+    """A listing with no special requirements should not get an info_note either."""
+    mock_anthropic, _ = _make_mock_anthropic("ACTION: SUBMIT")
+    role = {"role_name": "Jake", "description": "Male lead, 25-30."}
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            result = analyze_submission_requirements(role, "Test Project")
+    assert result.get("info_note") is None
+
+
 # --- fabricated contact info guard (casting-suggestion #77) ---
 
 

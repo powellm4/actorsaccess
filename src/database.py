@@ -172,6 +172,14 @@ class Database:
             self.conn.execute("ALTER TABLE applied_roles ADD COLUMN submission_note TEXT DEFAULT ''")
         except sqlite3.OperationalError:
             pass
+        # Display-only annotation for requirements that were explicitly requested
+        # but satisfied through a channel other than the submission note itself
+        # (e.g. size card via the AA profile, demo clips with no reel on file).
+        # Never sent to casting — see casting-suggestion #83 follow-up.
+        try:
+            self.conn.execute("ALTER TABLE applied_roles ADD COLUMN info_note TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
         # Mode column: 'paid' (default) or 'unpaid'. Tracks which workflow
         # applied or rejected the role. Does NOT affect dedup — role_id UNIQUE
         # still prevents double-applying across modes.
@@ -256,14 +264,14 @@ class Database:
         self, role_id: str, project_name: str, role_name: str,
         role_description: str = "", ai_reason: str = "", candidates_considered: int = 1,
         platform: str = "aa", project_url: str = "", submission_note: str = "",
-        mode: str = "paid", status: str = "submitted",
+        mode: str = "paid", status: str = "submitted", info_note: str = "",
     ):
         logger.info(f"[DB] Recording application: {project_name} — {role_name} (id={role_id}, mode={mode}, status={status})")
         self.conn.execute(
             """INSERT OR IGNORE INTO applied_roles
-               (role_id, project_name, role_name, role_description, ai_reason, candidates_considered, platform, project_url, applied_at, submission_note, mode, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (role_id, project_name, role_name, role_description, ai_reason, candidates_considered, platform, project_url, self._utcnow(), submission_note, mode, status),
+               (role_id, project_name, role_name, role_description, ai_reason, candidates_considered, platform, project_url, applied_at, submission_note, mode, status, info_note)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (role_id, project_name, role_name, role_description, ai_reason, candidates_considered, platform, project_url, self._utcnow(), submission_note, mode, status, info_note),
         )
         self.conn.commit()
 
@@ -353,7 +361,7 @@ class Database:
         mode_params = (mode,) if mode else ()
         if since:
             query = f"""SELECT project_name, role_name, role_description, ai_reason,
-                              candidates_considered, platform, project_url, applied_at, submission_note, mode, status
+                              candidates_considered, platform, project_url, applied_at, submission_note, mode, status, info_note
                        FROM applied_roles
                        WHERE applied_at > ?{mode_clause}
                          AND COALESCE(status, 'submitted') = 'submitted'
@@ -361,7 +369,7 @@ class Database:
             cursor = self.conn.execute(query, (since,) + mode_params)
         else:
             query = f"""SELECT project_name, role_name, role_description, ai_reason,
-                          candidates_considered, platform, project_url, applied_at, submission_note, mode, status
+                          candidates_considered, platform, project_url, applied_at, submission_note, mode, status, info_note
                    FROM applied_roles
                    WHERE applied_at >= datetime('now', '-24 hours'){mode_clause}
                      AND COALESCE(status, 'submitted') = 'submitted'
