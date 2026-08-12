@@ -377,6 +377,31 @@ def test_no_override_when_reason_also_cites_non_waivable_disqualifier():
     assert "Elite Runner" in rejections
 
 
+def test_no_override_when_reason_cites_authentically_skilled_disqualifier():
+    """'Authentically skilled' is a distinct non-waivable-skill phrasing from 'real runner'
+    (#81) and must not be overridden just because travel pay clears the threshold —
+    regression test for the HOKA Denver marathon/road/trail runner bug (Casting Digest,
+    July 28, 2026 Paid)."""
+    mock_module, _ = _make_mock_anthropic(
+        "SKIP - Denver/Boulder local hire required; must be authentically skilled in "
+        "marathon running, and no marathon running experience is listed in the actor "
+        "profile. Pay: see breakdown."
+    )
+    role = {
+        "role_name": "Denver - Real Marathon Runners, 20-35 yrs",
+        "description": (
+            "MUST be authentically skilled in MARATHON running. Talent must work as "
+            "Denver/Boulder local. Pay: see breakdown."
+        ),
+        "pay": "$1500 flat",
+    }
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "HOKA Denver S27")
+    assert selected == [], f"non-waivable skill disqualifier must not be overridden; got {selected}"
+    assert "Denver - Real Marathon Runners, 20-35 yrs" in rejections
+
+
 def test_override_uses_structured_pay_field_when_description_omits_rate():
     """The override must find pay in the role's structured field even when the free-text
     description doesn't spell out a rate (parity with the main.py call site fix)."""

@@ -386,6 +386,7 @@ _NON_WAIVABLE_DISQUALIFIER_PATTERNS = [
     r"\bgenuine\s+athlet(?:e|ic)\b",
     r"\brequires?\s+the\s+actor\s+to\s+be\s+a\s+real\b",
     r"\bcredential\b",
+    r"\bauthentically\s+skilled\b",
 ]
 
 
