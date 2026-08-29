@@ -234,9 +234,24 @@ def build_digest_html(
     if not applications and not rejections and not flagged and not overrides and not pending and not login_failures:
         return _empty_digest_html(runs, mode=mode)
 
-    # Split flagged roles into calendar conflicts vs other
+    # Split flagged roles into calendar conflicts vs other. A role can be
+    # flagged in one run of the digest window (e.g. "needs profile info") and
+    # then independently hard-passed in a later run of the same window
+    # (e.g. a build/age mismatch) — flagged_roles and rejected_roles are
+    # queried independently with no cross-reconciliation. Without this
+    # filter the digest shows the same role as both "needs your attention"
+    # (implying it's still a live prospect) and "passed" (already
+    # disqualified for an unrelated reason) in the same email. See
+    # casting-suggestion evidence: MOCHI HEALTH / Role 3, July 9 2026
+    # (Paid) digest — flagged for a missing email/sizes request, then
+    # separately passed on for a build mismatch.
+    rejected_keys = {(r.get("project_name"), r.get("role_name")) for r in rejections}
     calendar_conflicts = [f for f in flagged if f.get("flag_reason", "").startswith("Calendar conflict")]
-    other_flagged = [f for f in flagged if not f.get("flag_reason", "").startswith("Calendar conflict")]
+    other_flagged = [
+        f for f in flagged
+        if not f.get("flag_reason", "").startswith("Calendar conflict")
+        and (f.get("project_name"), f.get("role_name")) not in rejected_keys
+    ]
 
     # Build calendar conflicts section
     calendar_section = ""

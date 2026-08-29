@@ -270,34 +270,49 @@ def check_travel_pay(
 
     combined = f"{project_name} {role_description} {project_notes}".lower()
 
-    def _match_location(keywords: list[str]) -> str | None:
+    def _match_location(keywords: list[str], text: str) -> str | None:
         """Match location keywords using word boundaries to avoid substring false positives."""
         for kw in keywords:
             # Use word boundaries so "paris" doesn't match inside "comparisons"
-            if re.search(r'\b' + re.escape(kw) + r'\b', combined):
+            if re.search(r'\b' + re.escape(kw) + r'\b', text):
                 return kw
         return None
 
-    # Determine location tier (check LA first — LA always passes)
-    tier = None
-    matched_location = _match_location(_LA_AREA_KEYWORDS)
-    if matched_location:
-        tier = "la"
+    def _detect_tier(text: str) -> tuple[str | None, str | None]:
+        m = _match_location(_LA_AREA_KEYWORDS, text)
+        if m:
+            return "la", m
+        m = _match_location(_FLY_TO_KEYWORDS, text)
+        if m:
+            return "fly", m
+        m = _match_location(_MEDIUM_DRIVE_KEYWORDS, text)
+        if m:
+            return "medium", m
+        m = _match_location(_SHORT_DRIVE_KEYWORDS, text)
+        if m:
+            return "short", m
+        return None, None
 
-    if tier is None:
-        matched_location = _match_location(_FLY_TO_KEYWORDS)
-        if matched_location:
-            tier = "fly"
+    # Prefer an explicit "Location:" field when present. Free-text project
+    # notes routinely mention other cities in unrelated boilerplate (a
+    # director's past festival credits, a producer's bio, etc.) — scanning
+    # the whole blob lets those incidental mentions (especially "Los
+    # Angeles", which always short-circuits the pay check) outrank the
+    # shoot's real, explicitly-stated location. Bounded to a short run of
+    # text after the label so the field capture itself can't run on into
+    # unrelated boilerplate when the listing has no line breaks.
+    tier = matched_location = None
+    # No leading \b: scraped project notes are often glued together with no
+    # whitespace between fields (e.g. "...MealsLocation: Chicago..."), so a
+    # word-boundary before "location" would silently fail to match here.
+    loc_field_m = re.search(r'location\s*:\s*([^\n.]{1,80})', combined)
+    if loc_field_m:
+        tier, matched_location = _detect_tier(loc_field_m.group(1))
 
+    # No explicit field, or the field itself didn't match a tier keyword —
+    # fall back to scanning the whole blob (check LA first — LA always passes).
     if tier is None:
-        matched_location = _match_location(_MEDIUM_DRIVE_KEYWORDS)
-        if matched_location:
-            tier = "medium"
-
-    if tier is None:
-        matched_location = _match_location(_SHORT_DRIVE_KEYWORDS)
-        if matched_location:
-            tier = "short"
+        tier, matched_location = _detect_tier(combined)
 
     if tier is None:
         # Fallback: any US state outside CA/NV/AZ counts as fly-to.
