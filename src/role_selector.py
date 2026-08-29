@@ -1250,7 +1250,7 @@ Analyze BOTH the role description AND any project-level instructions to determin
    ACTION: SUBMIT_WITH_NOTE
    NOTE: <1 sentence, max 30 words, in first person. ONLY state the facts they asked for. No selling, no qualifications, no acting skills, no why-you're-right-for-the-role.>
 
-3. If the description asks for information you CANNOT answer (e.g., links to demo reel or website, union status/SAG-AFTRA number, specific wardrobe sizes, COVID test results, references, self-tape samples), respond:
+3. If the description asks for information you CANNOT answer (e.g., a personal website link, union status/SAG-AFTRA number, specific wardrobe sizes, COVID test results, references, self-tape samples), respond:
    ACTION: NEEDS_INPUT
    REASON: <brief description of what info is needed>
 
@@ -1269,9 +1269,9 @@ IMPORTANT RULES:
 - NEVER volunteer information that was not explicitly asked for — no location, no transportation, no contact info, no availability unless the post explicitly asks you to NOTE it in the submission
 - If the post asks for availability/dates and CONFIRMED AVAILABILITY is provided above, include the specific dates in the note
 - If they ask for an email address or phone number: the actor profile does NOT list either. Do NOT invent one, and do NOT claim one is "on file" or "available upon request" — both are fabrications. Respond with ACTION: SUBMIT (no note) unless Instagram was also requested, in which case include only @marshallpowell.
-- PHYSICAL-SKILL FOOTAGE REQUESTS: if the casting asks for footage, clips, or a reel specifically demonstrating a NAMED physical skill (e.g., "submit dance clips", "include skating footage", "gymnastic reel", "martial arts clips", "stunt reel", "show us your [sport] skills") — this is a role REQUIREMENT check, NOT a generic demo reel request. Apply the following logic: (a) if the named skill IS in the actor profile → respond SUBMIT_WITH_NOTE with a brief note about that experience (this is the narrow exception to the no-experience rule); (b) if the named skill is NOT in the actor profile → respond NEEDS_INPUT so the human can decide whether to apply without it. Examples: "please submit salsa clips" + actor has 5+ years salsa → SUBMIT_WITH_NOTE ("5+ years of salsa dancing."). "please submit ice skating footage" + actor has no skating experience → NEEDS_INPUT ("Ice skating footage requested; actor has no skating experience listed.").
-- GENERIC DEMO REEL REQUESTS: if they ask for a general demo reel, showreel, reel link, online clips, video samples, or "show us your work" without specifying a particular skill → respond with ACTION: SUBMIT. The submission process attaches clips from the actor's profile automatically. This is never a blocker.
-- If multiple requirements exist and you can answer SOME but not all, use NEEDS_INPUT — UNLESS the unanswerable item is a generic demo reel / demo clips / reel link / video samples (apply anyway). This exception does NOT apply to named-skill footage requests.
+- PHYSICAL-SKILL FOOTAGE REQUESTS: if the casting asks for footage, clips, or a reel specifically demonstrating a NAMED PHYSICAL skill (e.g., "submit dance clips", "include skating footage", "gymnastic reel", "martial arts clips", "stunt reel", "show us your [sport] skills") — this is a role REQUIREMENT check, NOT a generic demo reel request. Apply the following logic: (a) if the named skill IS in the actor profile → respond SUBMIT_WITH_NOTE with a brief note about that experience (this is the narrow exception to the no-experience rule); (b) if the named skill is NOT in the actor profile → respond NEEDS_INPUT so the human can decide whether to apply without it. Examples: "please submit salsa clips" + actor has 5+ years salsa → SUBMIT_WITH_NOTE ("5+ years of salsa dancing."). "please submit ice skating footage" + actor has no skating experience → NEEDS_INPUT ("Ice skating footage requested; actor has no skating experience listed.").
+- GENERIC DEMO REEL / NON-PHYSICAL-EXPERIENCE REEL REQUESTS: if they ask for a general demo reel, showreel, reel link, online clips, video samples, "show us your work", OR a reel/clip demonstrating a NAMED NON-PHYSICAL skill or experience (e.g., "hosting reel", "MC reel", "interview reel", "comedy reel") → respond with ACTION: SUBMIT regardless of whether the actor has that reel or that experience. The actor profile explicitly states no demo reel currently exists and to still apply for roles requesting one — this is never a blocker, and unlike the physical-skill case above, do NOT respond NEEDS_INPUT for it. Do NOT add a note volunteering that the reel or experience is missing (see the "specific types of experience" and "never volunteer negative info" rules above) — just submit with no note on that point.
+- If multiple requirements exist and you can answer SOME but not all, use NEEDS_INPUT — UNLESS the unanswerable item is a generic demo reel / non-physical-experience reel / demo clips / reel link / video samples (apply anyway, no note on that item). This exception does NOT apply to named-PHYSICAL-skill footage requests.
 - When in doubt between SUBMIT and SUBMIT_WITH_NOTE, ALWAYS prefer SUBMIT
 - Treat project-level REQUIREMENTS (e.g., "NOTE YOUR DETAILED AVAILABILITY") with the same weight as role-level requests — these apply to every role submission
 - "PLEASE INCLUDE SIZE CARDS" or "include size card" means wardrobe measurements — these are handled in the actor's Actors Access profile, NOT in submission notes. Respond with ACTION: SUBMIT
@@ -1466,6 +1466,15 @@ def _validate_note(note: str, role: dict, project_name: str) -> bool:
     # forbidden above, and any other experience claim risks fabrication or volunteering negatives.
     if re.search(r'\bexperience\b', note, re.IGNORECASE):
         logger.warning(f"Rejected note mentioning experience for {role.get('role_name', '')} on {project_name}: {note}")
+        return False
+
+    # Reject notes that volunteer a missing reel/footage/experience — the prompt already
+    # forbids this (never volunteer a negative), but observed regressions (e.g. "No host
+    # reel currently available.") slipped through prompt-only enforcement. Backstop it here
+    # the same way the contact-info fabrication guards below backstop the email/phone rules.
+    if re.search(r'\bno\b.{0,25}\b(reel|footage|demo clip|clips|showreel)\b', note, re.IGNORECASE) \
+            or re.search(r'\b(reel|footage|demo clip|clips|showreel)\b.{0,25}\b(unavailable|not available|don\'t have|do not have)\b', note, re.IGNORECASE):
+        logger.warning(f"Rejected note volunteering missing reel/footage for {role.get('role_name', '')} on {project_name}: {note}")
         return False
 
     # Reject fabricated contact details — ACTOR_PROFILE has no email or phone number,
