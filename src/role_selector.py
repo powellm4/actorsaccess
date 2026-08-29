@@ -547,6 +547,41 @@ def _unmet_hard_skill_requirement(description: str) -> str | None:
     return skill
 
 
+_GENDER_LABELED_ROLE_NAME_RE = re.compile(
+    r'^(?:the\s+)?(?:wom[ae]n|female|girl|females|girls|lady|ladies)\s*#?\d*$',
+    re.IGNORECASE,
+)
+
+_INCLUSIVE_GENDER_LANGUAGE_RE = re.compile(
+    r'\bany\s+gender|\ball\s+genders?\b|\bopen\s+to\s+all\s+genders?\b|'
+    r'\bmale\s+or\s+female\b|\bfemale\s+or\s+male\b|\bman\s+or\s+woman\b|'
+    r'\bwoman\s+or\s+man\b|\beither\s+gender\b|\bmale/female\b|\bfemale/male\b|'
+    r'\bgender[\s:\-]*open\b|\ball\s+genders\s+welcome\b',
+    re.IGNORECASE,
+)
+
+
+def _unmet_gender_role_name_conflict(role_name: str, description: str) -> bool:
+    """True when a role's own name is a bare female-gendered noun (e.g. "Woman",
+    "Female Model #2") and neither the name nor the description contains any
+    explicit any-gender casting language.
+
+    The AI's gender hard-disqualifier only scans description text for exclusion
+    phrases like "Female only" and is told "when in doubt, ACCEPT" — so a role
+    whose *own name* is the gender label, paired with an unremarkable,
+    non-exclusionary description, slips through as a false FIT/SELECTED for a
+    male actor. Reproduced against the Blue Cross print project (July 13, 2026
+    Paid digest): sibling "Man" and "Woman" roles shared an identical, gender-
+    neutral description ("Warm, friendly. Experience on camera preferred."),
+    and the male actor was submitted to both — the "Woman" submission justified
+    by an "any-gender casting" claim invented by the AI and present nowhere in
+    the listing.
+    """
+    if not role_name or not _GENDER_LABELED_ROLE_NAME_RE.match(role_name.strip()):
+        return False
+    return not _INCLUSIVE_GENDER_LANGUAGE_RE.search(description or "")
+
+
 def select_best_roles(
     roles: list[dict], project_name: str, mode: str = "paid",
 ) -> tuple[list[tuple[dict, str]], dict[str, str]]:
@@ -709,11 +744,22 @@ REJECTED: 4 - Background/extra role, actor does not do background work"""
         still_selected = []
         for role_obj, reason in selected:
             missing_skill = _unmet_hard_skill_requirement(role_obj.get("description", ""))
+            role_name = role_obj.get("role_name", "")
             if missing_skill:
-                rejections[role_obj["role_name"]] = f"Missing required skill: {missing_skill}"
+                rejections[role_name] = f"Missing required skill: {missing_skill}"
                 logger.info(
-                    f"[REQUIRED SKILL] {project_name} — {role_obj.get('role_name', '?')}: "
+                    f"[REQUIRED SKILL] {project_name} — {role_name or '?'}: "
                     f"casting requires '{missing_skill}', not in actor profile; overriding SELECTED to reject"
+                )
+            elif _unmet_gender_role_name_conflict(role_name, role_obj.get("description", "")):
+                rejections[role_name] = (
+                    f"Role name '{role_name}' is a bare gender label conflicting with the "
+                    "actor's gender; no explicit any-gender casting language in the listing"
+                )
+                logger.info(
+                    f"[GENDER ROLE NAME] {project_name} — {role_name or '?'}: "
+                    "bare gender-labeled role name with no inclusive-casting language; "
+                    "overriding SELECTED to reject"
                 )
             else:
                 still_selected.append((role_obj, reason))
@@ -850,6 +896,19 @@ CRITICAL: Your response must start IMMEDIATELY with FIT or SKIP. Do NOT write an
                     f"casting requires '{missing_skill}', not in actor profile; overriding FIT to reject"
                 )
                 return [], {role["role_name"]: f"Missing required skill: {missing_skill}"}
+            if _unmet_gender_role_name_conflict(role.get("role_name", ""), role.get("description", "")):
+                logger.info(
+                    f"[GENDER ROLE NAME] {project_name} — {role.get('role_name', '?')}: "
+                    "bare gender-labeled role name with no inclusive-casting language; "
+                    "overriding FIT to reject"
+                )
+                return [], {
+                    role["role_name"]: (
+                        f"Role name '{role['role_name']}' is a bare gender label conflicting "
+                        "with the actor's gender; no explicit any-gender casting language in "
+                        "the listing"
+                    )
+                }
             return [(role, reason)], {}
 
         logger.warning(

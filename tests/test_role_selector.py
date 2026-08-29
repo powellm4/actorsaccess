@@ -11,6 +11,7 @@ import pytest
 
 from src.role_selector import (
     _is_transient_error,
+    _unmet_gender_role_name_conflict,
     analyze_submission_requirements,
     check_travel_pay,
     select_best_roles,
@@ -817,6 +818,69 @@ def test_parse_shoot_dates_no_dates():
     from src.calendar_check import parse_shoot_dates
     result = parse_shoot_dates("No dates mentioned here")
     assert result is None
+
+
+# --- _unmet_gender_role_name_conflict (Blue Cross "Woman"/"Man" print role case) ---
+
+
+def test_gender_role_name_conflict_bare_woman_label_no_inclusive_language():
+    assert _unmet_gender_role_name_conflict(
+        "Woman", "Warm, friendly. Experience on camera preferred."
+    )
+
+
+def test_gender_role_name_conflict_variants():
+    for name in ["Female", "Girl", "Women", "Lady", "Woman #2", "The Woman"]:
+        assert _unmet_gender_role_name_conflict(name, "Warm and friendly.")
+
+
+def test_gender_role_name_no_conflict_with_inclusive_language():
+    assert not _unmet_gender_role_name_conflict(
+        "Woman", "Warm, friendly. Open to any gender."
+    )
+
+
+def test_gender_role_name_no_conflict_for_non_gender_role_names():
+    # Named characters and role types aren't bare gender labels, even if the
+    # role happens to be for a woman — this check only fires on role names
+    # that are literally the gender word itself.
+    assert not _unmet_gender_role_name_conflict("Nurse Ramirez", "Female nurse, 30s.")
+    assert not _unmet_gender_role_name_conflict("Man", "Warm, friendly.")
+
+
+def test_select_best_roles_multi_role_demotes_bare_gender_labeled_role():
+    """Blue Cross print project: sibling 'Man'/'Woman' roles share an identical,
+    gender-neutral description. The AI selecting both for a male actor (as
+    happened on July 13, 2026) must have the 'Woman' pick overridden to a
+    rejection — the role's own name is a real exclusion the AI's disqualifier
+    scan can't see because the description text has no 'female only' phrase.
+    """
+    roles = [
+        {"role_name": "Woman", "description": "Warm, friendly. Experience on camera preferred."},
+        {"role_name": "Man", "description": "Warm, friendly. Experience on camera preferred."},
+    ]
+    mock_module, mock_client = _make_mock_anthropic(
+        "SELECTED: 1 - Print modeling role open to any gender\n"
+        "SELECTED: 2 - Warm/friendly type matches his on-camera charm"
+    )
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles(roles, "Blue Cross")
+    selected_names = {r["role_name"] for r, _ in selected}
+    assert selected_names == {"Man"}
+    assert "Woman" in rejections
+
+
+def test_check_single_role_fit_demotes_bare_gender_labeled_role():
+    roles = [{"role_name": "Woman", "description": "Warm, friendly. Experience on camera preferred."}]
+    mock_module, mock_client = _make_mock_anthropic(
+        "FIT - Print modeling role open to any gender"
+    )
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles(roles, "Blue Cross")
+    assert selected == []
+    assert "Woman" in rejections
 
 
 # --- _is_transient_error classification ---
