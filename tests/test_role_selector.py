@@ -217,6 +217,27 @@ def test_skip_returns_empty_selected():
     assert len(rejections) == 3
 
 
+def test_skip_alone_on_first_line_captures_explanation_from_next_lines():
+    """AI writing bare 'SKIP' on its own line, with the explanation on the
+    following line(s) instead of after a dash, must not be reduced to the
+    bare, uninformative word "SKIP" as the stored reason for every role.
+    """
+    mock_anthropic, _ = _make_mock_anthropic(
+        "SKIP\n"
+        "All roles are background/atmosphere crowd work for a bank commercial "
+        "with no individual character identity."
+    )
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            selected, rejections = select_best_roles(SAMPLE_ROLES, "Test Project")
+
+    assert len(selected) == 0
+    assert len(rejections) == 3
+    for reason in rejections.values():
+        assert reason != "SKIP"
+        assert "background/atmosphere crowd work" in reason
+
+
 def test_malformed_response_falls_back_to_first():
     """Unparseable AI response should fall back to first role."""
     mock_anthropic, _ = _make_mock_anthropic(
