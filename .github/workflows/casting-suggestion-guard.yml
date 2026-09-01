@@ -1,0 +1,36 @@
+name: Casting suggestion guard
+
+# casting-suggestion PRs are supposed to land with a real fix in src/ or
+# tests/ — the casting-suggestions/*.md file is just a one-line stub pointing
+# back at the PR description (see any file in that directory). #83, #84, and
+# #85 all got merged with ONLY that stub and no code change, so their
+# described fixes were never actually implemented; the underlying bugs kept
+# reproducing live for months before a spot-check caught it (see #106).
+#
+# This blocks marking a casting-suggestion PR ready for review until its diff
+# touches something other than casting-suggestions/*.md. Draft PRs (used to
+# track still-open investigations) are unaffected.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review, labeled]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  guard:
+    if: contains(github.event.pull_request.labels.*.name, 'casting-suggestion') && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a real code or test change, not just a suggestion stub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          files=$(gh pr diff "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --name-only)
+          echo "Changed files:"
+          echo "$files"
+          if ! echo "$files" | grep -qvE '^casting-suggestions/[^/]+\.md$'; then
+            echo "::error::This casting-suggestion PR only touches casting-suggestions/*.md — no code or test change found. Convert it back to draft until the described fix is actually implemented (see #106 for what happens when a stub-only PR gets merged)."
+            exit 1
+          fi
