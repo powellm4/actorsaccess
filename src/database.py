@@ -362,6 +362,28 @@ class Database:
         )
         self.conn.commit()
 
+    def count_consecutive_failed_runs(self, platform: str) -> tuple[int, str | None]:
+        """Count the most-recent consecutive status='error' runs for a platform
+        (stopping at the first success), returning (count, earliest_started_at in
+        that streak). Used to escalate a repeated Backstage login/Cloudflare
+        block from a one-off 'transient' notice to a persistent-outage warning
+        once it has recurred on several runs in a row. See casting-suggestion #107."""
+        cursor = self.conn.execute(
+            """SELECT status, started_at FROM run_history
+               WHERE platform = ? AND status IN ('success', 'error')
+               ORDER BY started_at DESC, id DESC""",
+            (platform,),
+        )
+        count = 0
+        earliest = None
+        for status, started_at in cursor.fetchall():
+            if status == "error":
+                count += 1
+                earliest = started_at
+            else:
+                break
+        return count, earliest
+
     def get_last_digest_time(self) -> str:
         """Return the timestamp of the last digest sent, or 24 hours ago if none."""
         cursor = self.conn.execute(

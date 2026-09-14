@@ -23,15 +23,27 @@ def gather_digest_data(db: Database, mode: str | None = None) -> dict:
     If mode is "paid" or "unpaid", only include rows tagged with that mode.
     Passing None returns everything (legacy behavior).
     """
+    runs = db.get_daily_run_summary(mode=mode)
+    # For each platform that failed this window, count how many runs in a row it
+    # has now failed (across the whole history, not just this window) so the
+    # digest can escalate a repeated login/Cloudflare block from "transient" to
+    # a persistent-outage warning. See casting-suggestion #107.
+    login_escalation = {}
+    for platform in {r.get("platform") for r in runs if r.get("status") == "error"}:
+        if not platform:
+            continue
+        count, since = db.count_consecutive_failed_runs(platform)
+        login_escalation[platform] = {"count": count, "since": since}
     return {
         "applications": db.get_daily_applications(mode=mode),
         "rejections": db.get_daily_rejections(mode=mode),
         "flagged": db.get_daily_flagged(mode=mode),
-        "runs": db.get_daily_run_summary(mode=mode),
+        "runs": runs,
         "overrides": db.get_daily_override_outcomes(mode=mode),
         # Live queue, not mode-filtered: a stalled override on either mode
         # should surface no matter which digest goes out.
         "pending": db.list_pending_overrides(),
+        "login_escalation": login_escalation,
     }
 
 
@@ -290,17 +302,40 @@ def build_digest_html(
     # Platform login failures are actionable ("check credentials, some roles may have
     # been missed") and easy to miss when they only appear in the small grey footer —
     # surface them at the top of "Needs Your Attention" instead. See casting-suggestion #63.
+    login_escalation = data.get("login_escalation", {})
     login_failure_html = ""
     for fr in login_failures:
         platform = fr.get("platform", "?")
         error_msg = fr.get("error_message", "unknown error")
+        esc = login_escalation.get(platform, {})
+        streak = esc.get("count", 0)
+        # Escalate once the same platform has failed on several runs in a row:
+        # a block that recurs every run for days is no longer "transient", it's a
+        # broken session/credentials that needs a manual refresh. See #107.
+        if streak >= 3:
+            since = esc.get("since") or "an earlier run"
+            border, bg, fg = "#b71c1c", "#ffebee", "#b71c1c"
+            headline = f"Platform login PERSISTENTLY failing ({streak} runs in a row)"
+            needed = (
+                f"This is the {streak}th consecutive failed {platform.upper()} run "
+                f"(since {since}) — this is almost certainly NOT a transient Cloudflare "
+                f"hiccup any more. The {platform.upper()} session/credentials likely need "
+                f"a manual refresh; listings have probably been missed for a while. "
+                f"(Last error: {error_msg})"
+            )
+        else:
+            border, bg, fg = "#7c4dff", "#ede7f6", "#4a148c"
+            headline = "Platform login failed"
+            needed = (
+                f"Login failed after retry ({error_msg}) — check {platform.upper()} "
+                f"credentials/session. Any roles posted during this run window may have "
+                f"been missed."
+            )
         login_failure_html += (
-            '<div style="background:#ede7f6;border-left:4px solid #7c4dff;padding:12px;'
+            f'<div style="background:{bg};border-left:4px solid {border};padding:12px;'
             'border-radius:4px;margin-bottom:8px;">\n'
-            f'{_platform_badge(platform)} <strong>Platform login failed</strong>'
-            f'<br><span style="color:#4a148c;"><strong>Needed:</strong> Login failed after '
-            f'retry ({error_msg}) — check {platform.upper()} credentials/session. Any roles '
-            'posted during this run window may have been missed.</span>\n'
+            f'{_platform_badge(platform)} <strong>{headline}</strong>'
+            f'<br><span style="color:{fg};"><strong>Needed:</strong> {needed}</span>\n'
             '</div>\n'
         )
 

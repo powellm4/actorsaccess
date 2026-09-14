@@ -980,3 +980,34 @@ def test_gather_digest_data_includes_overrides(db):
     assert "overrides" in data
     assert len(data["overrides"]) == 1
     assert data["overrides"][0]["outcome"] == "applied"
+
+
+# --- casting-suggestion #107: persistent Backstage login failure escalation ---
+
+
+def test_login_failure_escalates_after_consecutive_failures():
+    """A login failure that has recurred on 3+ runs in a row must escalate from
+    'transient' wording to a persistent-outage warning."""
+    data = {
+        "applications": [], "rejections": [], "flagged": [],
+        "runs": [{"platform": "backstage", "status": "error", "error_message": "Cloudflare block"}],
+        "overrides": [], "pending": [],
+        "login_escalation": {"backstage": {"count": 9, "since": "2026-07-11 01:34:00"}},
+    }
+    html = build_digest_html(data)
+    assert "PERSISTENTLY" in html
+    assert "9" in html
+    assert "manual refresh" in html
+
+
+def test_single_login_failure_stays_transient():
+    """A first-time failure keeps the original non-alarming wording."""
+    data = {
+        "applications": [], "rejections": [], "flagged": [],
+        "runs": [{"platform": "backstage", "status": "error", "error_message": "Cloudflare block"}],
+        "overrides": [], "pending": [],
+        "login_escalation": {"backstage": {"count": 1, "since": "2026-07-11 01:34:00"}},
+    }
+    html = build_digest_html(data)
+    assert "PERSISTENTLY" not in html
+    assert "Platform login failed" in html

@@ -700,3 +700,19 @@ def test_is_flagged_matches_normalized_title_variants(db):
 
 def test_is_flagged_false_when_not_flagged(db):
     assert db.is_flagged("Nobody", "Nothing", "aa") is False
+
+
+def test_count_consecutive_failed_runs(db):
+    """#107: count only the most-recent unbroken streak of failed runs."""
+    # oldest -> newest: error, success, error, error, error
+    r1 = db.start_run(platform="backstage"); db.fail_run(r1, "cf block")
+    r2 = db.start_run(platform="backstage"); db.complete_run(r2, 5, 1, 4)
+    r3 = db.start_run(platform="backstage"); db.fail_run(r3, "cf block")
+    r4 = db.start_run(platform="backstage"); db.fail_run(r4, "cf block")
+    r5 = db.start_run(platform="backstage"); db.fail_run(r5, "cf block")
+    count, since = db.count_consecutive_failed_runs("backstage")
+    assert count == 3  # r3,r4,r5 — streak stops at the r2 success
+    assert since is not None
+    # a platform with a trailing success has a zero streak
+    r6 = db.start_run(platform="aa"); db.complete_run(r6, 1, 1, 0)
+    assert db.count_consecutive_failed_runs("aa") == (0, None)
