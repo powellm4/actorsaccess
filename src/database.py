@@ -274,6 +274,24 @@ class Database:
         )
         return any(_normalize_project_name(row[0]) == normalized_target for row in cursor.fetchall())
 
+    def is_flagged(self, role_name: str, project_name: str, platform: str = "aa") -> bool:
+        """True if this role is currently sitting in flagged_roles (Needs Your
+        Attention) under this or an equivalently-formatted project name.
+
+        Mirrors `is_rejected` (including the normalized project-name comparison)
+        so the autonomous apply loop can skip a role a human hasn't resolved yet,
+        instead of silently re-evaluating it from scratch on the next run and
+        potentially auto-applying against an unresolved flag. The role stays
+        reachable through the "Apply anyway" override path, which calls
+        `delete_flagged` on resolution. See casting-suggestion #114.
+        """
+        normalized_target = _normalize_project_name(project_name)
+        cursor = self.conn.execute(
+            "SELECT project_name FROM flagged_roles WHERE role_name = ? AND platform = ?",
+            (role_name, platform),
+        )
+        return any(_normalize_project_name(row[0]) == normalized_target for row in cursor.fetchall())
+
     def record_application(
         self, role_id: str, project_name: str, role_name: str,
         role_description: str = "", ai_reason: str = "", candidates_considered: int = 1,

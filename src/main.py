@@ -445,6 +445,14 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                             )
                             continue
 
+                        if db.is_flagged(role["role_name"], project["project_name"], "aa"):
+                            roles_skipped += 1
+                            logger.info(
+                                f"Already flagged (Needs Your Attention), awaiting review: "
+                                f"{project['project_name']} — {role['role_name']}"
+                            )
+                            continue
+
                         # Secondary, name-based dedup: catches the same project/role
                         # cross-posted on another platform, or re-listed with a
                         # shifted role_id on this same platform (see #72/#74).

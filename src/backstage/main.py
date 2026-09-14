@@ -494,6 +494,14 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                         roles_skipped += 1
                         continue
 
+                    if db.is_flagged(role["role_name"], project_name, "backstage"):
+                        roles_skipped += 1
+                        logger.info(
+                            f"Already flagged (Needs Your Attention), awaiting review: "
+                            f"{project_name} — {role['role_name']}"
+                        )
+                        continue
+
                     # Secondary, name-based dedup: catches the same project/role
                     # cross-posted on another platform (see #72/#74).
                     recent = db.find_recent_application_by_name(role["role_name"], project_name)

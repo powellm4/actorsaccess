@@ -676,3 +676,27 @@ def test_find_recent_application_by_name_respects_within_days_window(db):
     )
     db.conn.commit()
     assert db.find_recent_application_by_name("Tyler Fletcher", "WET HOT BOYS", within_days=14) is None
+
+
+def test_is_flagged_matches_normalized_title_variants(db):
+    """#114: a role sitting in flagged_roles must be recognized on the next run
+    (so the autonomous loop skips it instead of re-evaluating), including when
+    the project title is re-rendered with different case/quoting."""
+    run_id = db.start_run()
+    db.record_flagged_role(
+        project_name="DENTITION",
+        project_url="https://example.com",
+        role_name="Luca",
+        role_description="Villain",
+        flag_reason="Accent needs confirmation",
+        run_id=run_id,
+        platform="backstage",
+    )
+    assert db.is_flagged("Luca", "DENTITION", "backstage") is True
+    assert db.is_flagged("Luca", "'Dentition'", "backstage") is True
+    assert db.is_flagged("Luca", "Some Other Project", "backstage") is False
+    assert db.is_flagged("Luca", "DENTITION", "cn") is False  # platform is exact
+
+
+def test_is_flagged_false_when_not_flagged(db):
+    assert db.is_flagged("Nobody", "Nothing", "aa") is False
