@@ -1544,3 +1544,56 @@ def test_age_overlap_override_still_fires_on_genuine_multi_year_window():
     ai_reason = "Age range 28-38, no overlap with actor's 17-30 playable range."
     overridden, _ = _maybe_override_age_overlap_skip(role, ai_reason)
     assert overridden is True
+
+
+# --- casting-suggestion #109: per-project 3-role submission cap needs a code backstop ---
+
+
+def test_paid_mode_caps_selected_at_three_roles():
+    """#109 (Spaghetti project, 5 of 6 applied): when the AI ignores the soft
+    'no more than 3' instruction, a code-level backstop must cap paid submissions."""
+    roles = [
+        {"role_name": f"Role{i}", "role_type": "Supporting", "gender": "Male",
+         "age_range": "20-30", "description": "Friendly everyday guy, no special skills."}
+        for i in range(1, 7)
+    ]
+    response = "\n".join(f"SELECTED: {i} - Good fit, age and type match" for i in range(1, 6)) \
+        + "\nREJECTED: 6 - Not a fit"
+    mock_module, _ = _make_mock_anthropic(response)
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles(roles, "Spaghetti", mode="paid")
+    assert len(selected) == 3
+    capped = [n for n, r in rejections.items() if "Submission cap" in r]
+    assert len(capped) == 2
+
+
+def test_unpaid_mode_does_not_cap_selected():
+    """Unpaid mode intentionally selects ALL reasonable fits — the cap is paid-only."""
+    roles = [
+        {"role_name": f"Role{i}", "role_type": "Supporting", "gender": "Male",
+         "age_range": "20-30", "description": "Friendly everyday guy, no special skills."}
+        for i in range(1, 7)
+    ]
+    response = "\n".join(f"SELECTED: {i} - Good fit" for i in range(1, 6)) + "\nREJECTED: 6 - Not a fit"
+    mock_module, _ = _make_mock_anthropic(response)
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles(roles, "Spaghetti", mode="unpaid")
+    assert len(selected) == 5
+
+
+# --- casting-suggestion #110/#113: a role the AI omitted must not show a raw marker ---
+
+
+def test_omitted_role_gets_human_readable_reason_not_raw_marker():
+    """A role neither SELECTED nor REJECTED by the AI must be filed with an honest
+    'not evaluated' reason, never the internal 'not mentioned by AI' string."""
+    response = "SELECTED: 1 - Age and type match\nREJECTED: 2 - Requires heavyset build"
+    mock_module, _ = _make_mock_anthropic(response)
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles(SAMPLE_ROLES, "Test Project")
+    assert "Tommy" in rejections
+    assert "not mentioned by AI" not in rejections["Tommy"]
+    assert "not evaluated" in rejections["Tommy"].lower()

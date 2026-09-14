@@ -600,6 +600,26 @@ _NON_AGE_STRUCTURAL_DISQUALIFIER_PATTERNS = [
 ]
 
 
+# Rough prominence ordering (most prominent first) used only by the paid-mode
+# per-project submission-cap backstop to decide which roles to keep when the AI
+# exceeds the 3-role cap. Unknown/unmarked role types sort last but keep their
+# original relative order (Python's sort is stable).
+_PROMINENCE_ORDER = (
+    "series regular", "lead", "principal", "supporting", "recurring",
+    "guest", "co-star", "costar", "featured", "day player", "background",
+)
+
+
+def _role_prominence_rank(role: dict) -> int:
+    """Lower rank = more prominent. Used to prioritize which roles survive the
+    per-project submission cap."""
+    rtype = (role.get("role_type") or "").strip().lower()
+    for i, kw in enumerate(_PROMINENCE_ORDER):
+        if kw in rtype:
+            return i
+    return len(_PROMINENCE_ORDER)
+
+
 def _extract_role_age_range(role: dict) -> tuple[int, int] | None:
     """Best-effort numeric (min, max) age range for a role, or None if it can't be
     determined. Checks the structured age_range field first, then the description."""
@@ -943,6 +963,28 @@ REJECTED: 4 - Background/extra role, actor does not do background work"""
                 still_selected.append((role_obj, reason))
         selected = still_selected
 
+        # Code-level backstop for the per-project submission cap. The prompt tells
+        # the model to select "no more than 3" per project, but that's only a soft
+        # instruction — when the model ignores it (e.g. the "Spaghetti" project,
+        # 5 of 6 roles applied), nothing downstream caught it. Paid mode only:
+        # unpaid mode intentionally selects ALL reasonable fits. Keeps the 3 most
+        # prominent (stable sort preserves first-listed order among ties). See
+        # casting-suggestion #109.
+        if mode != "unpaid" and len(selected) > 3:
+            ranked = sorted(selected, key=lambda pair: _role_prominence_rank(pair[0]))
+            overflow = ranked[3:]
+            selected = ranked[:3]
+            for role_obj, _reason in overflow:
+                rejections[role_obj["role_name"]] = (
+                    "Submission cap reached (3 per project) — role dropped by code-level "
+                    "backstop after the AI exceeded the cap"
+                )
+            logger.info(
+                f"[SUBMISSION CAP] {project_name}: AI selected {len(selected) + len(overflow)} "
+                f"roles, capping to 3 ({[s[0]['role_name'] for s in selected]}); "
+                f"dropped {[o[0]['role_name'] for o in overflow]}"
+            )
+
         return selected, rejections
 
     except Exception as e:
@@ -1238,10 +1280,21 @@ def _parse_structured_response(
         if name in selected_names:
             del rejections[name]
 
-    # Fill in any roles not mentioned in rejections
+    # Fill in any roles the AI's response never addressed at all — no SELECTED
+    # and no REJECTED line for them. This is an information gap, not a judged
+    # rejection, so store an honest, human-readable reason (never the raw
+    # internal "not mentioned by AI" marker, which read in the digest like a real
+    # disqualifier) and log the omission so its frequency is visible. See
+    # casting-suggestion #110/#113 (FW Global Reebok, HOMEGIRLS BEFORE HUSBAND).
     for role in roles:
         if role["role_name"] not in selected_names and role["role_name"] not in rejections:
-            rejections[role["role_name"]] = "not mentioned by AI"
+            logger.warning(
+                f"AI omitted role {role['role_name']!r} from its response for "
+                f"{project_name} (neither SELECTED nor REJECTED); filing as not-evaluated"
+            )
+            rejections[role["role_name"]] = (
+                "AI did not address this role in its response — not evaluated, needs review"
+            )
 
     logger.info(f"AI selected {len(selected)} role(s) for {project_name}: {[s[0]['role_name'] for s in selected]}")
     return selected, rejections
