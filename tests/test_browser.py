@@ -69,3 +69,5 @@ def test_both_artifacts_together():
     text = "]Man; 20 to 60 years old; White. Jimmy Fallon look-a-like. \n\nMatch\n["
     cleaned = _clean_scraped_description(text)
     assert cleaned == "Man; 20 to 60 years old; White. Jimmy Fallon look-a-like."
+
+# CI-guard self-test marker (added to verify the guard passes when real code changes accompany the stub).
