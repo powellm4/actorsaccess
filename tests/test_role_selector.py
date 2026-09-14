@@ -1623,3 +1623,36 @@ def test_multi_day_date_range_still_used_when_no_explicit_count():
     text = "Shoots August 1 - August 3, 2026. $200 per day."
     total = _extract_total_pay(text)
     assert total == 600.0, f"expected 3 days * $200, got {total}"
+
+
+# --- casting-suggestion #102: single-role reasoning ending on a SELECTED/REJECTED verdict ---
+
+
+def test_single_role_reasoning_ending_on_selected_is_read_as_fit():
+    """#102 (THE GARDEN AND THE ROAD / DYLAN REYES): a single-role response that
+    narrates a verdict and ends on 'SELECTED: 1 - ...' must be read as its final
+    FIT conclusion, not dropped into the 'unrecognized format' bucket with the
+    whole self-contradictory paragraph shown as the reason."""
+    response = (
+        "This is borderline on age but the range overlaps. Accepting on "
+        "technicality: SELECTED: 1 - Latino match, bilingual Spanish, LEAD role fits"
+    )
+    mock_module, _ = _make_mock_anthropic(response)
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([SAMPLE_ROLES[0]], "The Garden and the Road")
+    assert len(selected) == 1
+    assert "unrecognized" not in (list(rejections.values()) or [""])[0].lower() if rejections else True
+    assert "SELECTED" not in selected[0][1]  # leaked verdict token stripped from stored reason
+
+
+def test_single_role_reasoning_ending_on_rejected_is_read_as_skip():
+    """Symmetric: a single-role response ending on 'REJECTED: 1 - ...' is a SKIP."""
+    response = "Weighing it... on balance REJECTED: 1 - build is heavyset, actor is athletic"
+    mock_module, _ = _make_mock_anthropic(response)
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([SAMPLE_ROLES[0]], "Test Project")
+    assert len(selected) == 0
+    assert "Jake" in rejections
+    assert "unrecognized" not in rejections["Jake"].lower()

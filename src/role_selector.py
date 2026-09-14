@@ -1107,8 +1107,28 @@ CRITICAL: Your response must start IMMEDIATELY with FIT or SKIP. Do NOT write an
         # capturing the reason text in the same regex would let the first match's
         # greedy ".*" swallow any later verdict token on the same line, defeating the
         # "take the last one" logic entirely.
-        for m in re.finditer(r'\b(FIT|SKIP)\b\s*[-–—]\s*', text, re.IGNORECASE):
-            verdict = m.group(1).upper()
+        #
+        # Besides the FIT/SKIP tokens the prompt asks for, also recognize the
+        # SELECTED/ACCEPT (→FIT) and REJECTED/PASS/DISQUALIFIED (→SKIP) synonyms
+        # the model sometimes narrates for a single role (e.g. "...Accepting on
+        # technicality: SELECTED: 1 - Hispanic/Latino match..."). Reading the last
+        # such token trusts the model's final conclusion instead of dropping the
+        # role into the uninformative "unrecognized format → SKIP" bucket with the
+        # whole self-contradictory paragraph shown as the reason. The optional
+        # "<digit> -" swallows a "SELECTED: 1 -" style prefix. See casting-suggestion #102.
+        _VERDICT_SYNONYMS = {
+            "FIT": "FIT", "SELECTED": "FIT", "ACCEPT": "FIT", "ACCEPTED": "FIT",
+            "SKIP": "SKIP", "REJECT": "SKIP", "REJECTED": "SKIP",
+            "PASS": "SKIP", "PASSED": "SKIP",
+            "DISQUALIFIED": "SKIP", "DISQUALIFIER": "SKIP",
+        }
+        _verdict_re = re.compile(
+            r'\b(FIT|SKIP|SELECTED|ACCEPTED|ACCEPT|REJECTED|REJECT|PASSED|PASS|'
+            r'DISQUALIFIED|DISQUALIFIER)\b\s*[-:–—]\s*(?:\d+\s*[-–—]\s*)?',
+            re.IGNORECASE,
+        )
+        for m in _verdict_re.finditer(text):
+            verdict = _VERDICT_SYNONYMS[m.group(1).upper()]
             last_end = m.end()
         if last_end != -1:
             verdict_line = f"{verdict} - {text[last_end:].strip()}"
