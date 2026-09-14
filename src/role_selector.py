@@ -167,6 +167,24 @@ def _extract_total_pay(text: str) -> float | None:
             days_m = re.search(r'(?:approx\.?\s*)?(\d+)\s*(?:days?|shoot\s*days?)\s*(?:of work)?', text_lower)
         if days_m:
             return int(days_m.group(1))
+        # Spelled-out day counts, tolerating a parenthetical digit the digit-
+        # adjacent patterns above skip (e.g. "one (1) day of work"). A booking
+        # that states its own day count must never fall through to the
+        # production-window date-range heuristic below, which would multiply the
+        # per-day rate by the entire multi-week shoot span (a single-day booking
+        # "between August 24 - September 23" was estimated at 31 days = 31x pay).
+        # See casting-suggestion #116.
+        _word_numbers = {
+            "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+            "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+        }
+        word_m = re.search(
+            r'\b(one|two|three|four|five|six|seven|eight|nine|ten)\b'
+            r'(?:\s*\(\d+\))?\s*days?\b',
+            text_lower,
+        )
+        if word_m:
+            return _word_numbers[word_m.group(1)]
         # Date range: "Month D - Month D" or "Month D - D"
         from datetime import datetime
         range_m = re.search(

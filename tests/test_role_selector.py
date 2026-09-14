@@ -1597,3 +1597,29 @@ def test_omitted_role_gets_human_readable_reason_not_raw_marker():
     assert "Tommy" in rejections
     assert "not mentioned by AI" not in rejections["Tommy"]
     assert "not evaluated" in rejections["Tommy"].lower()
+
+
+# --- casting-suggestion #116: single-day booking within a long shoot window ---
+
+
+def test_single_day_booking_not_inflated_by_production_window():
+    """#116 (THE METHOD / ENZO): 'one (1) day of work between August 24 -
+    September 23, 2026' at $834/day must estimate ~$834, not 31x that from
+    measuring the whole production window as workdays."""
+    from src.role_selector import _extract_total_pay
+    text = (
+        "Talent will be needed on one (1) day of work between August 24 - "
+        "September 23, 2026 in the New York / New Jersey area. "
+        "Rate of Pay: SAG-AFTRA Low Budget Daily Scale of $834.00 per day."
+    )
+    total = _extract_total_pay(text)
+    assert total == 834.0, f"expected single-day $834, got {total}"
+
+
+def test_multi_day_date_range_still_used_when_no_explicit_count():
+    """Regression: when no explicit day count is stated, the date-range fallback
+    still estimates multiple workdays."""
+    from src.role_selector import _extract_total_pay
+    text = "Shoots August 1 - August 3, 2026. $200 per day."
+    total = _extract_total_pay(text)
+    assert total == 600.0, f"expected 3 days * $200, got {total}"
