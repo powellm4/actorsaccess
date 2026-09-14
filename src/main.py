@@ -567,7 +567,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                         # Include any structured pay field so _extract_total_pay
                         # can find the rate even when project_notes says "See Roles Below".
                         pay_text = best.get("pay", "") or best.get("rate_of_pay", "") or best.get("rate", "")
-                        tp_ok, tp_reason = check_travel_pay(
+                        tp_ok, tp_reason, pay_ambiguous = check_travel_pay(
                             project["project_name"],
                             f"{best.get('description', '')} Pay: {pay_text}" if pay_text else best.get("description", ""),
                             project_notes,
@@ -581,6 +581,23 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                                 role_name=best["role_name"],
                                 role_description=best.get("description", ""),
                                 rejection_reason=tp_reason,
+                                run_id=run_id,
+                                platform="aa",
+                                mode=mode,
+                            )
+                            continue
+                        if pay_ambiguous:
+                            flag_reason = (
+                                "Pay is unlisted/ambiguous — cannot confirm it meets the "
+                                "travel-pay threshold for this location. Human review needed."
+                            )
+                            logger.info(f"[TRAVEL PAY] Flagging {best['role_name']} on {project['project_name']}: {flag_reason}")
+                            db.record_flagged_role(
+                                project_name=project["project_name"],
+                                project_url=project_url,
+                                role_name=best["role_name"],
+                                role_description=best.get("description", ""),
+                                flag_reason=flag_reason,
                                 run_id=run_id,
                                 platform="aa",
                                 mode=mode,
