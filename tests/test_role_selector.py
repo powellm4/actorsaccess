@@ -1656,3 +1656,33 @@ def test_single_role_reasoning_ending_on_rejected_is_read_as_skip():
     assert len(selected) == 0
     assert "Jake" in rejections
     assert "unrecognized" not in rejections["Jake"].lower()
+
+
+# --- casting-suggestion #119: scam / predatory-request detection ---
+
+
+def test_scam_red_flag_detects_social_security_card_request():
+    """#119 (Popular Courtroom Series): an SSN-card request at submission must be
+    flagged, not left unmentioned under a routine missing-phone-number note."""
+    from src.role_selector import _scam_red_flags
+    desc = (
+        "Requirements: Must have a valid government-issued ID. Must provide a copy "
+        "of your Social Security card. Must be available to work this week."
+    )
+    flag = _scam_red_flags(desc, "")
+    assert flag is not None
+    assert "scam" in flag.lower()
+    assert "social security" in flag.lower()
+
+
+def test_scam_red_flag_detects_upfront_fee_and_wire_transfer():
+    from src.role_selector import _scam_red_flags
+    assert _scam_red_flags("A registration fee is required to be considered.") is not None
+    assert _scam_red_flags("Send payment via wire transfer to secure your slot.") is not None
+
+
+def test_scam_red_flag_none_for_ordinary_listing():
+    """No false positive on a normal breakdown."""
+    from src.role_selector import _scam_red_flags
+    desc = "Lead role. Athletic male, 20-30. Please include your Instagram and a headshot."
+    assert _scam_red_flags(desc, "Location: Los Angeles") is None

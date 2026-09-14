@@ -419,6 +419,44 @@ def check_travel_pay(
     return True, None, False
 
 
+# Predatory/scam request patterns. A legitimate casting call never collects a
+# Social Security card, government-ID copy, or any fee/wire transfer at the
+# *submission* stage — that documentation is only gathered after a hire (I-9/W-2).
+# When one of these appears in a listing, the role must be surfaced to the human
+# with a distinct, clearly-labeled reason that can't be crowded out by an
+# unrelated note-content gap (the SSN request that got buried under a
+# missing-phone-number note). See casting-suggestion #119.
+_SCAM_RED_FLAG_PATTERNS = [
+    (r"\bsocial security\s+(?:card|number|#)", "requests a Social Security card/number"),
+    (r"\bssn\b", "requests an SSN"),
+    (r"\bcopy of your (?:social security|ss)\b", "requests a copy of your Social Security card"),
+    (r"\b(?:upfront|processing|registration|application|booking|casting)\s+fee\b", "requires an upfront/processing fee"),
+    (r"\bwire\s+transfer\b", "asks for a wire transfer"),
+    (r"\b(?:money order|cashier'?s check)\b", "asks for a money order / cashier's check"),
+    (r"\bpay(?:ment)?\s+(?:a\s+)?(?:\$?\d+\s+)?fee\b", "requires paying a fee to participate"),
+]
+
+
+def _scam_red_flags(*texts: str) -> str | None:
+    """Return a labeled warning string if any predatory/scam-request pattern
+    appears across the given text fragments (role description, project notes,
+    submission instructions), else None."""
+    combined = " ".join(t for t in texts if t)
+    if not combined:
+        return None
+    hits = []
+    for pat, label in _SCAM_RED_FLAG_PATTERNS:
+        if re.search(pat, combined, re.IGNORECASE) and label not in hits:
+            hits.append(label)
+    if not hits:
+        return None
+    return (
+        "⚠️ Possible scam indicator: " + "; ".join(hits) +
+        " at the submission stage — a legitimate casting call never asks for this "
+        "before a hire. Review before submitting."
+    )
+
+
 # Patterns matching AI rejection reasoning that boils down to "you're not local
 # to the shoot city." The actor is happy to travel as a local hire when pay
 # clears the threshold, so these reasons should not stand on their own.

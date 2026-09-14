@@ -19,6 +19,7 @@ from src.role_selector import (
     analyze_submission_requirements,
     check_travel_pay,
     select_best_roles,
+    _scam_red_flags,
 )
 from src.shadow import clear_run_context, flush_pending_shadows, set_run_context
 
@@ -568,6 +569,26 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                             role_name=best["role_name"],
                             role_description=best.get("description", ""),
                             flag_reason=flag_reason,
+                            run_id=run_id,
+                            platform="cn",
+                            mode=mode,
+                        )
+                        continue
+
+                    scam_flag = _scam_red_flags(
+                        best.get("description", ""), best.get("location", ""),
+                    )
+                    if scam_flag:
+                        logger.warning(f"[SCAM] Flagging {best['role_name']} on {project_name}: {scam_flag}")
+                        role_url = best.get("url", "")
+                        if role_url and not role_url.startswith("http"):
+                            role_url = f"https://app.castingnetworks.com{role_url}"
+                        db.record_flagged_role(
+                            project_name=project_name,
+                            project_url=role_url or project_url,
+                            role_name=best["role_name"],
+                            role_description=best.get("description", ""),
+                            flag_reason=scam_flag,
                             run_id=run_id,
                             platform="cn",
                             mode=mode,

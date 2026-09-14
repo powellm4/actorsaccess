@@ -21,6 +21,7 @@ from src.role_selector import (
     check_partial_availability,
     check_travel_pay,
     select_best_roles,
+    _scam_red_flags,
 )
 from src.shadow import clear_run_context, flush_pending_shadows, set_run_context
 from src.calendar_check import parse_shoot_dates, check_availability, get_busy_dates
@@ -606,6 +607,21 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                                 role_name=best["role_name"],
                                 role_description=best.get("description", ""),
                                 flag_reason=flag_reason,
+                                run_id=run_id,
+                                platform="aa",
+                                mode=mode,
+                            )
+                            continue
+
+                        scam_flag = _scam_red_flags(best.get("description", ""), project_notes)
+                        if scam_flag:
+                            logger.warning(f"[SCAM] Flagging {best['role_name']} on {project['project_name']}: {scam_flag}")
+                            db.record_flagged_role(
+                                project_name=project["project_name"],
+                                project_url=project_url,
+                                role_name=best["role_name"],
+                                role_description=best.get("description", ""),
+                                flag_reason=scam_flag,
                                 run_id=run_id,
                                 platform="aa",
                                 mode=mode,
