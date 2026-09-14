@@ -1686,3 +1686,16 @@ def test_scam_red_flag_none_for_ordinary_listing():
     from src.role_selector import _scam_red_flags
     desc = "Lead role. Athletic male, 20-30. Please include your Instagram and a headshot."
     assert _scam_red_flags(desc, "Location: Los Angeles") is None
+
+
+# --- casting-suggestion #101: shared project-wide skill requirement handled consistently ---
+
+
+def test_must_know_how_to_ride_a_bicycle_is_a_hard_skill():
+    """#101 (SOFT SHOULDER): 'must know how to ride a bicycle' must trip the same
+    skill backstop as 'must be able to ...', so both sibling roles carrying the
+    identical project-wide requirement get the same disposition."""
+    from src.role_selector import _unmet_hard_skill_requirement
+    assert _unmet_hard_skill_requirement("Talent must know how to ride a bicycle.") is not None
+    # generic logistics phrasing is still not a skill check
+    assert _unmet_hard_skill_requirement("Must know how to get to set on time.") is None
