@@ -421,14 +421,31 @@ _LOCAL_HIRE_REJECTION_PATTERNS = [
 
 
 # Patterns indicating the AI's rejection cites a genuine, non-waivable
-# disqualifier (skill/credential/physical requirement) independent of pay or
-# location. When one of these co-occurs with local-hire language, the local-hire
-# clause is not the actual reason for the SKIP and must not be overridden.
+# disqualifier (skill/credential/physical requirement, legal residency, or
+# foreign-language fluency) independent of pay or location. When one of these
+# co-occurs with local-hire language, the local-hire clause is not the actual
+# reason for the SKIP and must not be overridden — money doesn't make the actor
+# a real athlete, a legal resident of another state, or a fluent speaker.
 _NON_WAIVABLE_DISQUALIFIER_PATTERNS = [
-    r"\breal\s+(?:runner|cyclist|triathlete|athlete)\b",
+    # Athletic-skill requirements. Broadened (casting-suggestion #118) to catch
+    # the plural "REAL ... RUNNERS" and the adjective-inserted / "authentically
+    # skilled at running" phrasing the original singular-anchored patterns missed.
+    r"\breal[\s\w'\"-]{0,20}\b(?:runners?|cyclists?|triathletes?|athletes?)\b",
+    r"\b(?:genuine|authentic(?:ally)?)\b.{0,20}\bskilled\b.{0,20}\b(?:runn(?:er|ing)|cyclist|triathlete|athlet(?:e|ic))\b",
     r"\bgenuine\s+athlet(?:e|ic)\b",
     r"\brequires?\s+the\s+actor\s+to\s+be\s+a\s+real\b",
     r"\bcredential\b",
+    # State residency / state-issued ID / driver's license (casting-suggestion
+    # #112) — a legal eligibility requirement that pay cannot waive.
+    r"\bstate\s+(?:driver'?s?\s+license|id|identification)\b",
+    r"\bvalid\s+[A-Z][a-z]+\s+(?:driver'?s?\s+license|id)\b",
+    r"\blegal(?:ly)?\s+resident(?:s|cy)?\s+of\b",
+    r"\bmust\s+be\s+a\b[^.]*\bresident\b",
+    # Foreign-language fluency (casting-suggestion #117). Negative lookahead
+    # keeps "fluent English"/"American English" — which the actor does speak —
+    # from tripping the guard.
+    r"\bfluent\s+(?:in\s+)?(?!english\b|american\b)[a-z]+\b",
+    r"\bmust\s+speak\s+(?:fluent\s+)?(?!english\b|american\b)[a-z]+\b",
 ]
 
 

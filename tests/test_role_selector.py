@@ -1465,3 +1465,54 @@ def test_override_local_hire_not_applied_when_pay_ambiguous():
     overridden, new_reason = _maybe_override_local_hire_skip(role, "Marriott", ai_reason, "paid")
     assert overridden is False, f"must not override on ambiguous pay, got: {new_reason}"
     assert new_reason == ai_reason
+
+
+# --- casting-suggestion #112/#117/#118: bundled non-waivable disqualifiers must
+# block the local-hire override even when travel pay clears the threshold. ---
+
+
+def test_no_override_local_hire_when_bundled_state_residency_requirement():
+    """#112: New Orleans SAG feature requiring a Louisiana resident with a valid
+    Louisiana state driver's license. Residency / state ID can't be waived by pay."""
+    role = {"role_name": "Brian", "description": "Supporting role. Fly to New Orleans, LA. $1200/day for 5 days."}
+    ai_reason = (
+        "Hard location disqualifier: role requires being a Louisiana local resident "
+        "with a valid Louisiana state driver's license; also local hire in New Orleans."
+    )
+    overridden, new_reason = _maybe_override_local_hire_skip(role, "The Contemptuous Ruby", ai_reason, "paid")
+    assert overridden is False
+    assert new_reason == ai_reason
+
+
+def test_no_override_local_hire_when_bundled_language_fluency_requirement():
+    """#117: role requires fluent Italian, bundled with an NY/NJ local-hire objection."""
+    role = {"role_name": "Enzo", "description": "Warm Italian manager. Fly to New York. $2000 total."}
+    ai_reason = (
+        "Role requires fluent Italian (actor does not speak Italian); also requires "
+        "NY/NJ local hire and pay of $834/day."
+    )
+    overridden, new_reason = _maybe_override_local_hire_skip(role, "The Method", ai_reason, "paid")
+    assert overridden is False
+    assert new_reason == ai_reason
+
+
+def test_no_override_local_hire_when_bundled_real_runners_plural():
+    """#118: 'authentically skilled at running' / plural 'REAL ... RUNNERS' is a real
+    athletic-skill requirement the actor lacks, bundled with a Denver local-hire objection."""
+    role = {"role_name": "Road Runner", "description": "Fly to Denver. $1500 total."}
+    ai_reason = (
+        "Requires talent authentically skilled at running on pavement; also Denver "
+        "local hire, fly-to location."
+    )
+    overridden, new_reason = _maybe_override_local_hire_skip(role, "HOKA Denver", ai_reason, "paid")
+    assert overridden is False
+    assert new_reason == ai_reason
+
+
+def test_override_local_hire_still_fires_for_plain_local_hire_with_clearing_pay():
+    """Guard regression: a pure local-hire objection with clearing pay and no bundled
+    non-waivable disqualifier must STILL override (broadened patterns must not false-positive)."""
+    role = {"role_name": "Guy", "description": "Fly to New York. $2000 total for the shoot."}
+    ai_reason = "Requires NY local hire; shoot is a fly-to location with no reimbursement."
+    overridden, _ = _maybe_override_local_hire_skip(role, "Some Project", ai_reason, "paid")
+    assert overridden is True
