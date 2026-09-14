@@ -1516,3 +1516,31 @@ def test_override_local_hire_still_fires_for_plain_local_hire_with_clearing_pay(
     ai_reason = "Requires NY local hire; shoot is a fly-to location with no reimbursement."
     overridden, _ = _maybe_override_local_hire_skip(role, "Some Project", ai_reason, "paid")
     assert overridden is True
+
+
+# --- casting-suggestion #105: single-point age-boundary touch is not a real overlap ---
+
+
+def test_age_overlap_override_not_fired_on_single_point_boundary():
+    """#105 (Weller Bourbon): role '30-45' shares only age 30 with the actor's
+    17-30 range. That single-point touch must NOT override the AI's own
+    'cannot credibly play 30+ as a minimum' credibility judgment."""
+    from src.role_selector import _maybe_override_age_overlap_skip
+    role = {"role_name": "Pappy", "age_range": "30-45"}
+    ai_reason = (
+        "Age range is 30-45 with no overlap with actor's 17-30 range; actor "
+        "cannot credibly play 30+ as a minimum."
+    )
+    overridden, new_reason = _maybe_override_age_overlap_skip(role, ai_reason)
+    assert overridden is False
+    assert new_reason == ai_reason
+
+
+def test_age_overlap_override_still_fires_on_genuine_multi_year_window():
+    """Regression for #70: a real 2-year overlap window (28-38 vs 17-30 shares
+    28-30) must still override the AI's mistaken 'no overlap' claim."""
+    from src.role_selector import _maybe_override_age_overlap_skip
+    role = {"role_name": "Sam", "age_range": "28-38"}
+    ai_reason = "Age range 28-38, no overlap with actor's 17-30 playable range."
+    overridden, _ = _maybe_override_age_overlap_skip(role, ai_reason)
+    assert overridden is True

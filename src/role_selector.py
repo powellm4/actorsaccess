@@ -637,8 +637,14 @@ def _maybe_override_age_overlap_skip(role: dict, ai_reason: str) -> tuple[bool, 
     if role_range is None:
         return False, ai_reason
     lo, hi = role_range
-    overlaps = max(lo, _ACTOR_MIN_AGE) <= min(hi, _ACTOR_MAX_AGE)
-    if not overlaps:
+    # Require a real (>= 1-year) overlap window, not a single-point boundary
+    # touch. A role of "30-45" vs. the actor's "17-30" shares only the integer
+    # 30 — the AI's own "cannot credibly play 30+ as a minimum" judgment is a
+    # credibility call, not an arithmetic miscalculation, and must not be
+    # overridden. A genuine window like 28-30 (2 years) still overrides. See
+    # casting-suggestion #105 (Weller Bourbon) vs. #70 (the 28-38 case).
+    overlap_years = min(hi, _ACTOR_MAX_AGE) - max(lo, _ACTOR_MIN_AGE)
+    if overlap_years < 1:
         return False, ai_reason
     new_reason = (
         f"age range {lo}-{hi} overlaps actor's {_ACTOR_MIN_AGE}-{_ACTOR_MAX_AGE} "
