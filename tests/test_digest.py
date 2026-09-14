@@ -94,6 +94,39 @@ def test_build_digest_html_empty():
     assert "No applications" in html or "no applications" in html
 
 
+# --- info_note surfaced in Applied section (casting-suggestion #83 follow-up) ---
+
+
+def test_applied_section_shows_info_note_instead_of_generic_placeholder(db):
+    """When a requirement was explicitly requested but satisfied outside the
+    submission note (e.g. a size card via the AA profile), the digest must show
+    that instead of the generic 'No specific submission info requested' — which
+    looks identical to a listing that asked for nothing at all."""
+    db.record_application(
+        "role_size_card", "Size Card Project", "Model",
+        ai_reason="Good fit", project_url="https://example.com",
+        info_note="Size card requested — on file in AA profile.",
+    )
+    data = gather_digest_data(db)
+    html = build_digest_html(data)
+
+    assert "Size card requested — on file in AA profile." in html
+    assert "No specific submission info requested" not in html
+
+
+def test_applied_section_shows_generic_placeholder_when_nothing_requested(db):
+    """A listing with neither a submitted note nor an info_note should still show
+    the original generic placeholder."""
+    db.record_application(
+        "role_plain", "Plain Project", "Lead",
+        ai_reason="Good fit", project_url="https://example.com",
+    )
+    data = gather_digest_data(db)
+    html = build_digest_html(data)
+
+    assert "No specific submission info requested" in html
+
+
 # --- login failure surfaced in Needs Your Attention (casting-suggestion #63) ---
 
 
@@ -213,6 +246,44 @@ def test_build_digest_html_with_flagged():
     assert "Hero" in html
     assert "Needs SAG-AFTRA number" in html
     assert "https://example.com/flagged" in html
+
+
+def test_build_digest_html_flagged_role_later_rejected_is_not_shown_as_needing_attention():
+    """A role flagged 'needs your attention' in one run of the digest window,
+    then hard-passed for an unrelated disqualifier in a later run of the same
+    window, must not appear under 'Needs Your Attention' — the digest would
+    otherwise contradict itself, implying the role is still a live prospect
+    when it has already been passed on. See casting-suggestion evidence:
+    MOCHI HEALTH / Role 3, July 9 2026 (Paid) digest."""
+    data = {
+        "applications": [],
+        "rejections": [
+            {
+                "project_name": "MOCHI HEALTH",
+                "role_name": "Role 3: Young Male - Regular Build - 30-35",
+                "role_description": "Health and wellness campaign.",
+                "rejection_reason": "Athletic 185 lbs build doesn't match the 'regular, everyday build' required.",
+                "platform": "cn",
+                "project_url": "https://example.com/mochi",
+            }
+        ],
+        "flagged": [
+            {
+                "project_name": "MOCHI HEALTH",
+                "role_name": "Role 3: Young Male - Regular Build - 30-35",
+                "role_description": "Health and wellness campaign.",
+                "flag_reason": "Needed: email address and clothing sizes, which are not listed in the actor profile.",
+                "platform": "cn",
+                "flagged_at": "2026-07-09 01:00:00",
+            }
+        ],
+        "runs": [],
+    }
+    html = build_digest_html(data)
+    assert "Needs Your Attention" not in html
+    assert "email address and clothing sizes" not in html
+    # The rejection itself must still render normally in the Passed section.
+    assert "regular, everyday build" in html
 
 
 def test_build_digest_html_with_draft_renders_open_link_and_suggested_note():
@@ -747,6 +818,21 @@ def test_manually_applied_section_omitted_when_no_overrides():
     ("", "other"),
     (None, "other"),
     ("some inscrutable AI explanation that matches no pattern", "other"),
+    # casting-suggestion #84: cap-driven passes must bucket as submission_cap,
+    # not whatever substantive-sounding word the AI's fit discussion happened
+    # to use before landing on the cap as the real reason.
+    (
+        "Fit on age and ethnicity, and the controlling antagonist type suits him, "
+        "but capped at 3 submissions; Carter (Role 5) is the stronger villain "
+        "submission as the more prominent and better-written antagonist role",
+        "submission_cap",
+    ),
+    ("Age and gender fit, but cap of 3 already reached with stronger role matches", "submission_cap"),
+    (
+        "Physical action/stunt role fits, but cap of 3 already reached with "
+        "higher-prominence/type matches",
+        "submission_cap",
+    ),
 ])
 def test_categorize_rejection_buckets_real_reasons(reason, expected_key):
     assert _categorize_rejection(reason) == expected_key
@@ -766,6 +852,18 @@ def test_categorize_rejection_prefers_fundamental_disqualifier():
         "Ethnicity requirement excludes actor; no demo reel available either."
     )
     assert _categorize_rejection(multi2) == "ethnicity_look"
+
+
+def test_categorize_rejection_submission_cap_outranks_incidental_fit_language():
+    """A cap-driven pass often opens with genuine fit language ('age and
+    ethnicity fit') before landing on the cap as the real reason — the cap
+    must win so the digest doesn't misrepresent a fine role as disqualified
+    on ethnicity/age/skill grounds it never actually failed. See #84."""
+    reason = (
+        "Age range fits and ethnicity matches, but capped at 3 submissions "
+        "for this project; two other roles are stronger type matches."
+    )
+    assert _categorize_rejection(reason) == "submission_cap"
 
 
 def _rej(reason, role="Lead", project="Proj", platform="aa"):
@@ -882,3 +980,34 @@ def test_gather_digest_data_includes_overrides(db):
     assert "overrides" in data
     assert len(data["overrides"]) == 1
     assert data["overrides"][0]["outcome"] == "applied"
+
+
+# --- casting-suggestion #107: persistent Backstage login failure escalation ---
+
+
+def test_login_failure_escalates_after_consecutive_failures():
+    """A login failure that has recurred on 3+ runs in a row must escalate from
+    'transient' wording to a persistent-outage warning."""
+    data = {
+        "applications": [], "rejections": [], "flagged": [],
+        "runs": [{"platform": "backstage", "status": "error", "error_message": "Cloudflare block"}],
+        "overrides": [], "pending": [],
+        "login_escalation": {"backstage": {"count": 9, "since": "2026-07-11 01:34:00"}},
+    }
+    html = build_digest_html(data)
+    assert "PERSISTENTLY" in html
+    assert "9" in html
+    assert "manual refresh" in html
+
+
+def test_single_login_failure_stays_transient():
+    """A first-time failure keeps the original non-alarming wording."""
+    data = {
+        "applications": [], "rejections": [], "flagged": [],
+        "runs": [{"platform": "backstage", "status": "error", "error_message": "Cloudflare block"}],
+        "overrides": [], "pending": [],
+        "login_escalation": {"backstage": {"count": 1, "since": "2026-07-11 01:34:00"}},
+    }
+    html = build_digest_html(data)
+    assert "PERSISTENTLY" not in html
+    assert "Platform login failed" in html

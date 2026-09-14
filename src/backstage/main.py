@@ -26,6 +26,7 @@ from src.role_selector import (
     check_travel_pay,
     generate_cover_letter,
     select_best_roles,
+    _scam_red_flags,
 )
 from src.shadow import clear_run_context, flush_pending_shadows, set_run_context
 
@@ -38,8 +39,7 @@ _SKIP_PROD_TYPES = {"theater", "theatre", "musical"}
 # a self-tape / video prescreen is detected. Casting reads this in the
 # submission note and knows to ask for a tape if they're interested.
 SELFTAPE_COVER_LETTER = (
-    "If you think I would be a good fit for this role looks wise, "
-    "I would be happy to submit a self tape. Let me know."
+    "Happy to send a self-tape on short notice — just let me know."
 )
 
 
@@ -495,6 +495,14 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                         roles_skipped += 1
                         continue
 
+                    if db.is_flagged(role["role_name"], project_name, "backstage"):
+                        roles_skipped += 1
+                        logger.info(
+                            f"Already flagged (Needs Your Attention), awaiting review: "
+                            f"{project_name} — {role['role_name']}"
+                        )
+                        continue
+
                     # Secondary, name-based dedup: catches the same project/role
                     # cross-posted on another platform (see #72/#74).
                     recent = db.find_recent_application_by_name(role["role_name"], project_name)
@@ -630,7 +638,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                     # Programmatic travel pay check (overrides AI)
                     # Include pay field since Backstage stores pay as structured metadata
                     pay_text = best.get("pay", "")
-                    tp_ok, tp_reason = check_travel_pay(
+                    tp_ok, tp_reason, pay_ambiguous = check_travel_pay(
                         project_name,
                         f"{best.get('description', '')} Pay: {pay_text}" if pay_text else best.get("description", ""),
                         production.get("project_notes", ""),
@@ -669,6 +677,46 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                                 platform="backstage",
                                 mode=mode,
                             )
+                        continue
+                    if pay_ambiguous:
+                        flag_reason = (
+                            "Pay is unlisted/ambiguous — cannot confirm it meets the "
+                            "travel-pay threshold for this location. Human review needed."
+                        )
+                        logger.info(f"[TRAVEL PAY] Flagging {best['role_name']} on {project_name}: {flag_reason}")
+                        role_url = best.get("url", "")
+                        if role_url and not role_url.startswith("http"):
+                            role_url = f"https://www.backstage.com{role_url}"
+                        db.record_flagged_role(
+                            project_name=project_name,
+                            project_url=role_url or project_url,
+                            role_name=best["role_name"],
+                            role_description=best.get("description", ""),
+                            flag_reason=flag_reason,
+                            run_id=run_id,
+                            platform="backstage",
+                            mode=mode,
+                        )
+                        continue
+
+                    scam_flag = _scam_red_flags(
+                        best.get("description", ""), production.get("project_notes", ""),
+                    )
+                    if scam_flag:
+                        logger.warning(f"[SCAM] Flagging {best['role_name']} on {project_name}: {scam_flag}")
+                        role_url = best.get("url", "")
+                        if role_url and not role_url.startswith("http"):
+                            role_url = f"https://www.backstage.com{role_url}"
+                        db.record_flagged_role(
+                            project_name=project_name,
+                            project_url=role_url or project_url,
+                            role_name=best["role_name"],
+                            role_description=best.get("description", ""),
+                            flag_reason=scam_flag,
+                            run_id=run_id,
+                            platform="backstage",
+                            mode=mode,
+                        )
                         continue
 
                     # Fetch role detail page for full data (prescreen, attachments, etc.)

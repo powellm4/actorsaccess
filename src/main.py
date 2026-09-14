@@ -21,6 +21,7 @@ from src.role_selector import (
     check_partial_availability,
     check_travel_pay,
     select_best_roles,
+    _scam_red_flags,
 )
 from src.shadow import clear_run_context, flush_pending_shadows, set_run_context
 from src.calendar_check import parse_shoot_dates, check_availability, get_busy_dates
@@ -445,6 +446,14 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                             )
                             continue
 
+                        if db.is_flagged(role["role_name"], project["project_name"], "aa"):
+                            roles_skipped += 1
+                            logger.info(
+                                f"Already flagged (Needs Your Attention), awaiting review: "
+                                f"{project['project_name']} — {role['role_name']}"
+                            )
+                            continue
+
                         # Secondary, name-based dedup: catches the same project/role
                         # cross-posted on another platform, or re-listed with a
                         # shifted role_id on this same platform (see #72/#74).
@@ -567,7 +576,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                         # Include any structured pay field so _extract_total_pay
                         # can find the rate even when project_notes says "See Roles Below".
                         pay_text = best.get("pay", "") or best.get("rate_of_pay", "") or best.get("rate", "")
-                        tp_ok, tp_reason = check_travel_pay(
+                        tp_ok, tp_reason, pay_ambiguous = check_travel_pay(
                             project["project_name"],
                             f"{best.get('description', '')} Pay: {pay_text}" if pay_text else best.get("description", ""),
                             project_notes,
@@ -581,6 +590,38 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                                 role_name=best["role_name"],
                                 role_description=best.get("description", ""),
                                 rejection_reason=tp_reason,
+                                run_id=run_id,
+                                platform="aa",
+                                mode=mode,
+                            )
+                            continue
+                        if pay_ambiguous:
+                            flag_reason = (
+                                "Pay is unlisted/ambiguous — cannot confirm it meets the "
+                                "travel-pay threshold for this location. Human review needed."
+                            )
+                            logger.info(f"[TRAVEL PAY] Flagging {best['role_name']} on {project['project_name']}: {flag_reason}")
+                            db.record_flagged_role(
+                                project_name=project["project_name"],
+                                project_url=project_url,
+                                role_name=best["role_name"],
+                                role_description=best.get("description", ""),
+                                flag_reason=flag_reason,
+                                run_id=run_id,
+                                platform="aa",
+                                mode=mode,
+                            )
+                            continue
+
+                        scam_flag = _scam_red_flags(best.get("description", ""), project_notes)
+                        if scam_flag:
+                            logger.warning(f"[SCAM] Flagging {best['role_name']} on {project['project_name']}: {scam_flag}")
+                            db.record_flagged_role(
+                                project_name=project["project_name"],
+                                project_url=project_url,
+                                role_name=best["role_name"],
+                                role_description=best.get("description", ""),
+                                flag_reason=scam_flag,
                                 run_id=run_id,
                                 platform="aa",
                                 mode=mode,
@@ -677,6 +718,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                                 project_url=project_url,
                                 submission_note=analysis.get("note") or "",
                                 mode=mode,
+                                info_note=analysis.get("info_note") or "",
                             )
                             logger.info(f"[SUBMIT] SUCCESS: {best['role_name']} on {project['project_name']}")
                             roles_applied += 1

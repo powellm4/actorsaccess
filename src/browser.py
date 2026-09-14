@@ -1,6 +1,7 @@
 # src/browser.py
 import logging
 import random
+import re
 import time
 from playwright.sync_api import sync_playwright, Page, Browser, BrowserContext
 
@@ -8,6 +9,27 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://actorsaccess.com"
 BREAKDOWNS_URL = "https://actorsaccess.com/projects/"
+
+
+def _clean_scraped_description(text: str) -> str:
+    """Strip site UI artifacts that leak into a scraped role description.
+
+    scrape_roles_on_project's sibling-node walk grabs every text/element node
+    between the role link and the next A/HR/DIV tag. That boundary is too
+    permissive: it also picks up a stray leading "]" (the tail of an
+    icon/toggle element immediately after the role link) and, for roles the
+    site itself flags as a fit, a trailing "Match" badge + bracket (e.g.
+    "...DEADLINE: JULY 31, 2026 [") — neither is part of the role's actual
+    casting text. Left in, they show up in the digest and get fed to the AI
+    as if they were part of the breakdown.
+    """
+    if not text:
+        return text
+    text = text.lstrip()
+    if text.startswith(']'):
+        text = text[1:].lstrip()
+    text = re.sub(r'\s*(?:Match\s*)?\[\s*$', '', text)
+    return text.strip()
 
 # Region name -> value mapping for the region dropdown
 REGIONS = {
@@ -338,6 +360,7 @@ class ActorsAccessBrowser:
                     }""",
                     link,
                 )
+                desc_text = _clean_scraped_description(desc_text)
 
                 roles.append(
                     {

@@ -196,6 +196,29 @@ def test_get_daily_applications(db):
     assert rows[0]["project_name"] == "Daily Project"
 
 
+def test_record_application_with_info_note(db):
+    """info_note (digest-only annotation, casting-suggestion #83 follow-up) should
+    persist and round-trip through get_daily_applications."""
+    db.record_application(
+        "role_info_note", "Size Card Project", "Model",
+        info_note="Size card requested — on file in AA profile.",
+    )
+    cursor = db.conn.execute(
+        "SELECT info_note FROM applied_roles WHERE role_id = ?", ("role_info_note",)
+    )
+    assert cursor.fetchone()[0] == "Size card requested — on file in AA profile."
+    rows = db.get_daily_applications()
+    assert rows[0]["info_note"] == "Size card requested — on file in AA profile."
+
+
+def test_record_application_info_note_defaults_empty(db):
+    db.record_application("role_no_info_note", "No Info Note Project", "Lead")
+    cursor = db.conn.execute(
+        "SELECT info_note FROM applied_roles WHERE role_id = ?", ("role_no_info_note",)
+    )
+    assert cursor.fetchone()[0] == ""
+
+
 def test_get_daily_rejections(db):
     """get_daily_rejections should return today's rejections."""
     run_id = db.start_run()
@@ -551,6 +574,30 @@ def test_delete_rejection_removes_row(db):
     assert db.is_rejected("R", "P", "aa") is False
 
 
+def test_is_rejected_matches_normalized_title_variants(db):
+    """Regression for DENTITION / Luca (July 14->15 2026 digests): the same role
+    was rejected as "DENTITION" and then re-fetched the next day rendered as
+    "'Dentition'" (different case and quoting). An exact-match lookup misses the
+    prior rejection, letting the role be freshly re-evaluated — is_rejected must
+    match across formatting variants the way find_recent_application_by_name does."""
+    run_id = db.start_run()
+    db.record_rejection(
+        project_name="DENTITION", project_url="u", role_name="Luca",
+        role_description="d", rejection_reason="ethnicity", run_id=run_id, platform="backstage",
+    )
+    assert db.is_rejected("Luca", "'Dentition'", "backstage") is True
+    assert db.is_rejected("Luca", "Dentition (Additional Roles)", "backstage") is True
+
+
+def test_is_rejected_returns_false_for_different_project(db):
+    run_id = db.start_run()
+    db.record_rejection(
+        project_name="DENTITION", project_url="u", role_name="Luca",
+        role_description="d", rejection_reason="ethnicity", run_id=run_id, platform="backstage",
+    )
+    assert db.is_rejected("Luca", "A Completely Different Project", "backstage") is False
+
+
 def test_delete_flagged_removes_row(db):
     run_id = db.start_run()
     db.record_flagged_role(
@@ -629,3 +676,43 @@ def test_find_recent_application_by_name_respects_within_days_window(db):
     )
     db.conn.commit()
     assert db.find_recent_application_by_name("Tyler Fletcher", "WET HOT BOYS", within_days=14) is None
+
+
+def test_is_flagged_matches_normalized_title_variants(db):
+    """#114: a role sitting in flagged_roles must be recognized on the next run
+    (so the autonomous loop skips it instead of re-evaluating), including when
+    the project title is re-rendered with different case/quoting."""
+    run_id = db.start_run()
+    db.record_flagged_role(
+        project_name="DENTITION",
+        project_url="https://example.com",
+        role_name="Luca",
+        role_description="Villain",
+        flag_reason="Accent needs confirmation",
+        run_id=run_id,
+        platform="backstage",
+    )
+    assert db.is_flagged("Luca", "DENTITION", "backstage") is True
+    assert db.is_flagged("Luca", "'Dentition'", "backstage") is True
+    assert db.is_flagged("Luca", "Some Other Project", "backstage") is False
+    assert db.is_flagged("Luca", "DENTITION", "cn") is False  # platform is exact
+
+
+def test_is_flagged_false_when_not_flagged(db):
+    assert db.is_flagged("Nobody", "Nothing", "aa") is False
+
+
+def test_count_consecutive_failed_runs(db):
+    """#107: count only the most-recent unbroken streak of failed runs."""
+    # oldest -> newest: error, success, error, error, error
+    r1 = db.start_run(platform="backstage"); db.fail_run(r1, "cf block")
+    r2 = db.start_run(platform="backstage"); db.complete_run(r2, 5, 1, 4)
+    r3 = db.start_run(platform="backstage"); db.fail_run(r3, "cf block")
+    r4 = db.start_run(platform="backstage"); db.fail_run(r4, "cf block")
+    r5 = db.start_run(platform="backstage"); db.fail_run(r5, "cf block")
+    count, since = db.count_consecutive_failed_runs("backstage")
+    assert count == 3  # r3,r4,r5 — streak stops at the r2 success
+    assert since is not None
+    # a platform with a trailing success has a zero streak
+    r6 = db.start_run(platform="aa"); db.complete_run(r6, 1, 1, 0)
+    assert db.count_consecutive_failed_runs("aa") == (0, None)

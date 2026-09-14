@@ -23,15 +23,27 @@ def gather_digest_data(db: Database, mode: str | None = None) -> dict:
     If mode is "paid" or "unpaid", only include rows tagged with that mode.
     Passing None returns everything (legacy behavior).
     """
+    runs = db.get_daily_run_summary(mode=mode)
+    # For each platform that failed this window, count how many runs in a row it
+    # has now failed (across the whole history, not just this window) so the
+    # digest can escalate a repeated login/Cloudflare block from "transient" to
+    # a persistent-outage warning. See casting-suggestion #107.
+    login_escalation = {}
+    for platform in {r.get("platform") for r in runs if r.get("status") == "error"}:
+        if not platform:
+            continue
+        count, since = db.count_consecutive_failed_runs(platform)
+        login_escalation[platform] = {"count": count, "since": since}
     return {
         "applications": db.get_daily_applications(mode=mode),
         "rejections": db.get_daily_rejections(mode=mode),
         "flagged": db.get_daily_flagged(mode=mode),
-        "runs": db.get_daily_run_summary(mode=mode),
+        "runs": runs,
         "overrides": db.get_daily_override_outcomes(mode=mode),
         # Live queue, not mode-filtered: a stalled override on either mode
         # should surface no matter which digest goes out.
         "pending": db.list_pending_overrides(),
+        "login_escalation": login_escalation,
     }
 
 
@@ -39,6 +51,7 @@ def gather_digest_data(db: Database, mode: str | None = None) -> dict:
 # user can quickly scan the buckets they might want to override or fix,
 # and skip past the immutable mismatches (gender / age / look) at the end.
 PASS_CATEGORY_DISPLAY_ORDER = [
+    ("submission_cap",    "Submission cap reached"),
     ("missing_materials", "Missing materials"),
     ("travel_pay",        "Pay too low for travel"),
     ("skill",             "Required skill or experience"),
@@ -55,8 +68,16 @@ PASS_CATEGORY_DISPLAY_ORDER = [
 # fundamental disqualifier — gender > age > look > build > everything else.
 # This is independent of display order: a "female-only AND pay too low"
 # reason still buckets as gender, then renders wherever gender sits above.
+#
+# submission_cap goes FIRST: the selection prompt tells the AI to "cap
+# submissions at 3 per project" (select_best_roles), so a capped-out role's
+# reasoning often opens with a genuine fit assessment ("age and ethnicity
+# fit...") before landing on the real, cap-driven reason for passing. Without
+# priority, that leading fit language gets matched by e.g. "ethnicity_look"
+# or "age" first, mislabeling a cap-driven pass as a substantive disqualifier
+# that never actually applied. See casting-suggestion #84.
 _CATEGORIZER_PRIORITY = [
-    "gender", "age", "ethnicity_look", "build_height",
+    "submission_cap", "gender", "age", "ethnicity_look", "build_height",
     "travel_pay", "skill", "personal_status",
     "non_acting", "missing_materials",
 ]
@@ -64,6 +85,12 @@ _CATEGORIZER_PRIORITY = [
 # Patterns are tuned to the AI selector's actual phrasing in real digests
 # (see the plan file for verbatim samples). All matched case-insensitively.
 _PASS_CATEGORY_PATTERNS: dict[str, list[str]] = {
+    "submission_cap": [
+        r"\bcapp?ed\s+at\s+\d+\b",
+        r"\bcap\s+of\s+\d+\b",
+        r"\balready\s+reached\b.{0,20}\bcap\b",
+        r"\bsubmission\s+cap\b",
+    ],
     "gender": [
         r"\b(fe)?male[\s-]?only\b",
         r"\bwoman[\s-]?only\b", r"\bmen[\s-]?only\b", r"\bwomen[\s-]?only\b",
@@ -234,9 +261,24 @@ def build_digest_html(
     if not applications and not rejections and not flagged and not overrides and not pending and not login_failures:
         return _empty_digest_html(runs, mode=mode)
 
-    # Split flagged roles into calendar conflicts vs other
+    # Split flagged roles into calendar conflicts vs other. A role can be
+    # flagged in one run of the digest window (e.g. "needs profile info") and
+    # then independently hard-passed in a later run of the same window
+    # (e.g. a build/age mismatch) — flagged_roles and rejected_roles are
+    # queried independently with no cross-reconciliation. Without this
+    # filter the digest shows the same role as both "needs your attention"
+    # (implying it's still a live prospect) and "passed" (already
+    # disqualified for an unrelated reason) in the same email. See
+    # casting-suggestion evidence: MOCHI HEALTH / Role 3, July 9 2026
+    # (Paid) digest — flagged for a missing email/sizes request, then
+    # separately passed on for a build mismatch.
+    rejected_keys = {(r.get("project_name"), r.get("role_name")) for r in rejections}
     calendar_conflicts = [f for f in flagged if f.get("flag_reason", "").startswith("Calendar conflict")]
-    other_flagged = [f for f in flagged if not f.get("flag_reason", "").startswith("Calendar conflict")]
+    other_flagged = [
+        f for f in flagged
+        if not f.get("flag_reason", "").startswith("Calendar conflict")
+        and (f.get("project_name"), f.get("role_name")) not in rejected_keys
+    ]
 
     # Build calendar conflicts section
     calendar_section = ""
@@ -260,17 +302,40 @@ def build_digest_html(
     # Platform login failures are actionable ("check credentials, some roles may have
     # been missed") and easy to miss when they only appear in the small grey footer —
     # surface them at the top of "Needs Your Attention" instead. See casting-suggestion #63.
+    login_escalation = data.get("login_escalation", {})
     login_failure_html = ""
     for fr in login_failures:
         platform = fr.get("platform", "?")
         error_msg = fr.get("error_message", "unknown error")
+        esc = login_escalation.get(platform, {})
+        streak = esc.get("count", 0)
+        # Escalate once the same platform has failed on several runs in a row:
+        # a block that recurs every run for days is no longer "transient", it's a
+        # broken session/credentials that needs a manual refresh. See #107.
+        if streak >= 3:
+            since = esc.get("since") or "an earlier run"
+            border, bg, fg = "#b71c1c", "#ffebee", "#b71c1c"
+            headline = f"Platform login PERSISTENTLY failing ({streak} runs in a row)"
+            needed = (
+                f"This is the {streak}th consecutive failed {platform.upper()} run "
+                f"(since {since}) — this is almost certainly NOT a transient Cloudflare "
+                f"hiccup any more. The {platform.upper()} session/credentials likely need "
+                f"a manual refresh; listings have probably been missed for a while. "
+                f"(Last error: {error_msg})"
+            )
+        else:
+            border, bg, fg = "#7c4dff", "#ede7f6", "#4a148c"
+            headline = "Platform login failed"
+            needed = (
+                f"Login failed after retry ({error_msg}) — check {platform.upper()} "
+                f"credentials/session. Any roles posted during this run window may have "
+                f"been missed."
+            )
         login_failure_html += (
-            '<div style="background:#ede7f6;border-left:4px solid #7c4dff;padding:12px;'
+            f'<div style="background:{bg};border-left:4px solid {border};padding:12px;'
             'border-radius:4px;margin-bottom:8px;">\n'
-            f'{_platform_badge(platform)} <strong>Platform login failed</strong>'
-            f'<br><span style="color:#4a148c;"><strong>Needed:</strong> Login failed after '
-            f'retry ({error_msg}) — check {platform.upper()} credentials/session. Any roles '
-            'posted during this run window may have been missed.</span>\n'
+            f'{_platform_badge(platform)} <strong>{headline}</strong>'
+            f'<br><span style="color:{fg};"><strong>Needed:</strong> {needed}</span>\n'
             '</div>\n'
         )
 
@@ -535,8 +600,11 @@ def build_digest_html(
             section += f'<br><span style="color:#555;">{desc}</span>' if desc else ""
             section += f'<br><strong>Reason:</strong> {app.get("ai_reason", "N/A")}'
             note = app.get("submission_note", "")
+            info_note = app.get("info_note", "")
             if note:
                 section += f'<br><strong>Note submitted:</strong> <em>{note}</em>'
+            elif info_note:
+                section += f'<br><span style="color:#888;">{info_note}</span>'
             else:
                 section += '<br><span style="color:#888;">No specific submission info requested</span>'
             section += '\n</div>\n'

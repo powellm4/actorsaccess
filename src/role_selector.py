@@ -98,6 +98,7 @@ _FLY_TO_KEYWORDS = [
     "wilmington, nc", "wilmington nc", "pittsburgh", "minneapolis",
     "washington, dc", "d.c.", "st. louis", "charlotte", "orlando",
     "savannah", "albuquerque", "salt lake", "honolulu", "hawaii",
+    "dfw", "santa fe",
     "italy", "china", "london", "paris", "australia", "canada",
     "mexico", "spain", "germany", "japan", "korea", "india",
     "bari, italy", "beijing",
@@ -166,6 +167,24 @@ def _extract_total_pay(text: str) -> float | None:
             days_m = re.search(r'(?:approx\.?\s*)?(\d+)\s*(?:days?|shoot\s*days?)\s*(?:of work)?', text_lower)
         if days_m:
             return int(days_m.group(1))
+        # Spelled-out day counts, tolerating a parenthetical digit the digit-
+        # adjacent patterns above skip (e.g. "one (1) day of work"). A booking
+        # that states its own day count must never fall through to the
+        # production-window date-range heuristic below, which would multiply the
+        # per-day rate by the entire multi-week shoot span (a single-day booking
+        # "between August 24 - September 23" was estimated at 31 days = 31x pay).
+        # See casting-suggestion #116.
+        _word_numbers = {
+            "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+            "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+        }
+        word_m = re.search(
+            r'\b(one|two|three|four|five|six|seven|eight|nine|ten)\b'
+            r'(?:\s*\(\d+\))?\s*days?\b',
+            text_lower,
+        )
+        if word_m:
+            return _word_numbers[word_m.group(1)]
         # Date range: "Month D - Month D" or "Month D - D"
         from datetime import datetime
         range_m = re.search(
@@ -248,56 +267,59 @@ def _travel_costs_covered(text: str) -> bool:
     return any(re.search(p, text) for p in _TRAVEL_COVERED_PATTERNS)
 
 
-def check_travel_pay(
-    project_name: str,
-    role_description: str = "",
-    project_notes: str = "",
-    mode: str = "paid",
-) -> tuple[bool, str | None]:
-    """Programmatic travel pay check. Returns (should_apply, rejection_reason).
+def _detect_travel_tier(
+    project_name: str, role_description: str, project_notes: str,
+) -> tuple[str | None, str | None]:
+    """Determine the location tier (la/fly/medium/short) for a listing.
 
-    In paid mode: returns (True, None) if the role passes or location/pay
-    can't be determined, (False, reason) if pay clearly violates minimums.
-
-    In unpaid mode: always returns (True, None). Location filtering is
-    delegated to the platform's saved search (Backstage "unpaid", CN
-    "unpaid") — the programmatic keyword list was too brittle and was
-    incorrectly rejecting LA-metro locations like Santa Clarita, and
-    matching state codes like "IN" inside ordinary phrases.
+    Returns (tier, matched_location). ``tier`` is None when no LA/fly/medium/short
+    keyword and no fly-to state could be matched, i.e. location is undetermined.
     """
-    if mode == "unpaid":
-        return True, None
-
     combined = f"{project_name} {role_description} {project_notes}".lower()
 
-    def _match_location(keywords: list[str]) -> str | None:
+    def _match_location(keywords: list[str], text: str) -> str | None:
         """Match location keywords using word boundaries to avoid substring false positives."""
         for kw in keywords:
             # Use word boundaries so "paris" doesn't match inside "comparisons"
-            if re.search(r'\b' + re.escape(kw) + r'\b', combined):
+            if re.search(r'\b' + re.escape(kw) + r'\b', text):
                 return kw
         return None
 
-    # Determine location tier (check LA first — LA always passes)
-    tier = None
-    matched_location = _match_location(_LA_AREA_KEYWORDS)
-    if matched_location:
-        tier = "la"
+    def _detect_tier(text: str) -> tuple[str | None, str | None]:
+        m = _match_location(_LA_AREA_KEYWORDS, text)
+        if m:
+            return "la", m
+        m = _match_location(_FLY_TO_KEYWORDS, text)
+        if m:
+            return "fly", m
+        m = _match_location(_MEDIUM_DRIVE_KEYWORDS, text)
+        if m:
+            return "medium", m
+        m = _match_location(_SHORT_DRIVE_KEYWORDS, text)
+        if m:
+            return "short", m
+        return None, None
 
-    if tier is None:
-        matched_location = _match_location(_FLY_TO_KEYWORDS)
-        if matched_location:
-            tier = "fly"
+    # Prefer an explicit "Location:" field when present. Free-text project
+    # notes routinely mention other cities in unrelated boilerplate (a
+    # director's past festival credits, a producer's bio, etc.) — scanning
+    # the whole blob lets those incidental mentions (especially "Los
+    # Angeles", which always short-circuits the pay check) outrank the
+    # shoot's real, explicitly-stated location. Bounded to a short run of
+    # text after the label so the field capture itself can't run on into
+    # unrelated boilerplate when the listing has no line breaks.
+    tier = matched_location = None
+    # No leading \b: scraped project notes are often glued together with no
+    # whitespace between fields (e.g. "...MealsLocation: Chicago..."), so a
+    # word-boundary before "location" would silently fail to match here.
+    loc_field_m = re.search(r'location\s*:\s*([^\n.]{1,80})', combined)
+    if loc_field_m:
+        tier, matched_location = _detect_tier(loc_field_m.group(1))
 
+    # No explicit field, or the field itself didn't match a tier keyword —
+    # fall back to scanning the whole blob (check LA first — LA always passes).
     if tier is None:
-        matched_location = _match_location(_MEDIUM_DRIVE_KEYWORDS)
-        if matched_location:
-            tier = "medium"
-
-    if tier is None:
-        matched_location = _match_location(_SHORT_DRIVE_KEYWORDS)
-        if matched_location:
-            tier = "short"
+        tier, matched_location = _detect_tier(combined)
 
     if tier is None:
         # Fallback: any US state outside CA/NV/AZ counts as fly-to.
@@ -331,20 +353,59 @@ def check_travel_pay(
                 matched_location = code
                 break
 
+    return tier, matched_location
+
+
+def check_travel_pay(
+    project_name: str,
+    role_description: str = "",
+    project_notes: str = "",
+    mode: str = "paid",
+) -> tuple[bool, str | None, bool]:
+    """Programmatic travel pay check. Returns (should_apply, rejection_reason, pay_ambiguous).
+
+    In paid mode: returns (True, None, False) if the role passes, (False,
+    reason, False) if pay clearly violates minimums. When the location
+    requires a pay threshold but no numeric pay could be parsed at all
+    (e.g. "SEE BREAKDOWN", blank, non-numeric), returns (True, None, True)
+    — callers should route this to human review rather than treating it as
+    a confirmed pass, since "can't determine" is not the same as "clears
+    the threshold". See casting-suggestion #85.
+
+    In unpaid mode: always returns (True, None, False). Location filtering
+    is delegated to the platform's saved search (Backstage "unpaid", CN
+    "unpaid") — the programmatic keyword list was too brittle and was
+    incorrectly rejecting LA-metro locations like Santa Clarita, and
+    matching state codes like "IN" inside ordinary phrases.
+    """
+    if mode == "unpaid":
+        return True, None, False
+
+    combined = f"{project_name} {role_description} {project_notes}".lower()
+    tier, matched_location = _detect_travel_tier(project_name, role_description, project_notes)
+
     # If we can't determine location, don't reject
     if tier is None or tier == "la":
-        return True, None
+        return True, None, False
 
     # If travel costs (flights and/or lodging) are covered, the pay threshold
     # doesn't apply.
     if _travel_costs_covered(combined):
         logger.info(f"[TRAVEL PAY] Flights/lodging covered for {tier} location ({matched_location}), skipping pay check")
-        return True, None
+        return True, None, False
 
     # Try to extract pay
     pay = _extract_total_pay(f"{role_description} {project_notes}")
     if pay is None:
-        return True, None  # can't determine pay, don't reject
+        # Pay is genuinely unlisted/ambiguous (e.g. "SEE BREAKDOWN") for a
+        # location that DOES require a threshold — this is not the same as
+        # confirming the role clears it. Flag as ambiguous instead of
+        # silently treating "unknown" as "fine".
+        logger.info(
+            f"[TRAVEL PAY] Pay ambiguous for {tier} location ({matched_location}) on "
+            f"{project_name}; cannot confirm it meets the threshold"
+        )
+        return True, None, True
 
     thresholds = {"short": 250, "medium": 500, "fly": 1000}
     threshold = thresholds[tier]
@@ -353,9 +414,47 @@ def check_travel_pay(
         tier_label = {"short": "short drive", "medium": "medium drive", "fly": "fly-to"}[tier]
         reason = f"Travel pay too low: ${pay:.0f} for {tier_label} location ({matched_location}), minimum ${threshold}"
         logger.info(f"[TRAVEL PAY] Rejecting: {reason}")
-        return False, reason
+        return False, reason, False
 
-    return True, None
+    return True, None, False
+
+
+# Predatory/scam request patterns. A legitimate casting call never collects a
+# Social Security card, government-ID copy, or any fee/wire transfer at the
+# *submission* stage — that documentation is only gathered after a hire (I-9/W-2).
+# When one of these appears in a listing, the role must be surfaced to the human
+# with a distinct, clearly-labeled reason that can't be crowded out by an
+# unrelated note-content gap (the SSN request that got buried under a
+# missing-phone-number note). See casting-suggestion #119.
+_SCAM_RED_FLAG_PATTERNS = [
+    (r"\bsocial security\s+(?:card|number|#)", "requests a Social Security card/number"),
+    (r"\bssn\b", "requests an SSN"),
+    (r"\bcopy of your (?:social security|ss)\b", "requests a copy of your Social Security card"),
+    (r"\b(?:upfront|processing|registration|application|booking|casting)\s+fee\b", "requires an upfront/processing fee"),
+    (r"\bwire\s+transfer\b", "asks for a wire transfer"),
+    (r"\b(?:money order|cashier'?s check)\b", "asks for a money order / cashier's check"),
+    (r"\bpay(?:ment)?\s+(?:a\s+)?(?:\$?\d+\s+)?fee\b", "requires paying a fee to participate"),
+]
+
+
+def _scam_red_flags(*texts: str) -> str | None:
+    """Return a labeled warning string if any predatory/scam-request pattern
+    appears across the given text fragments (role description, project notes,
+    submission instructions), else None."""
+    combined = " ".join(t for t in texts if t)
+    if not combined:
+        return None
+    hits = []
+    for pat, label in _SCAM_RED_FLAG_PATTERNS:
+        if re.search(pat, combined, re.IGNORECASE) and label not in hits:
+            hits.append(label)
+    if not hits:
+        return None
+    return (
+        "⚠️ Possible scam indicator: " + "; ".join(hits) +
+        " at the submission stage — a legitimate casting call never asks for this "
+        "before a hire. Review before submitting."
+    )
 
 
 # Patterns matching AI rejection reasoning that boils down to "you're not local
@@ -378,14 +477,31 @@ _LOCAL_HIRE_REJECTION_PATTERNS = [
 
 
 # Patterns indicating the AI's rejection cites a genuine, non-waivable
-# disqualifier (skill/credential/physical requirement) independent of pay or
-# location. When one of these co-occurs with local-hire language, the local-hire
-# clause is not the actual reason for the SKIP and must not be overridden.
+# disqualifier (skill/credential/physical requirement, legal residency, or
+# foreign-language fluency) independent of pay or location. When one of these
+# co-occurs with local-hire language, the local-hire clause is not the actual
+# reason for the SKIP and must not be overridden — money doesn't make the actor
+# a real athlete, a legal resident of another state, or a fluent speaker.
 _NON_WAIVABLE_DISQUALIFIER_PATTERNS = [
-    r"\breal\s+(?:runner|cyclist|triathlete|athlete)\b",
+    # Athletic-skill requirements. Broadened (casting-suggestion #118) to catch
+    # the plural "REAL ... RUNNERS" and the adjective-inserted / "authentically
+    # skilled at running" phrasing the original singular-anchored patterns missed.
+    r"\breal[\s\w'\"-]{0,20}\b(?:runners?|cyclists?|triathletes?|athletes?)\b",
+    r"\b(?:genuine|authentic(?:ally)?)\b.{0,20}\bskilled\b.{0,20}\b(?:runn(?:er|ing)|cyclist|triathlete|athlet(?:e|ic))\b",
     r"\bgenuine\s+athlet(?:e|ic)\b",
     r"\brequires?\s+the\s+actor\s+to\s+be\s+a\s+real\b",
     r"\bcredential\b",
+    # State residency / state-issued ID / driver's license (casting-suggestion
+    # #112) — a legal eligibility requirement that pay cannot waive.
+    r"\bstate\s+(?:driver'?s?\s+license|id|identification)\b",
+    r"\bvalid\s+[A-Z][a-z]+\s+(?:driver'?s?\s+license|id)\b",
+    r"\blegal(?:ly)?\s+resident(?:s|cy)?\s+of\b",
+    r"\bmust\s+be\s+a\b[^.]*\bresident\b",
+    # Foreign-language fluency (casting-suggestion #117). Negative lookahead
+    # keeps "fluent English"/"American English" — which the actor does speak —
+    # from tripping the guard.
+    r"\bfluent\s+(?:in\s+)?(?!english\b|american\b)[a-z]+\b",
+    r"\bmust\s+speak\s+(?:fluent\s+)?(?!english\b|american\b)[a-z]+\b",
 ]
 
 
@@ -424,11 +540,52 @@ def _maybe_override_local_hire_skip(
     check would have passed (pay clears the threshold for the location, or
     location is unknown), the AI's local-hire objection is treated as
     rationalization and we accept the role.
+
+    The AI sometimes bundles an unrelated age-range objection into the same
+    rejection string (e.g. "Age range 30s-50s has no overlap ... also requires
+    local to Milwaukee with no pay listed"). Clearing the travel-pay threshold
+    only resolves the local-hire clause — it says nothing about whether the
+    age claim is a genuine, separate disqualifier, so a bundled age claim is
+    verified with the same arithmetic as ``_maybe_override_age_overlap_skip``
+    before the local-hire override is allowed to fire. If the role's age range
+    can't be determined, we don't guess: a missed opportunity is far cheaper
+    than submitting an actor to a role the age claim may genuinely disqualify
+    them from.
+
+    Separately, ``check_travel_pay`` returns "clears" (True, None) both when a
+    fly/medium/short-drive location's pay genuinely meets the threshold, and
+    when no pay figure could be found anywhere in the listing at all (it
+    conservatively doesn't reject on missing data). Those two cases must not be
+    treated the same here: if the listing has a real out-of-town location and no
+    pay figure exists anywhere (free text or structured field), overriding the
+    local-hire objection and telling the actor pay "clears threshold" would be
+    a fabricated claim — the objection stands instead.
     """
     if mode != "paid":
         return False, ai_reason
     if not _is_local_hire_rationalization(ai_reason):
         return False, ai_reason
+    age_reason_prefix = ""
+    if _AGE_NO_OVERLAP_RE.search(ai_reason):
+        role_range = _extract_role_age_range(role)
+        if role_range is None:
+            logger.debug(
+                f"[TRAVEL PAY OVERRIDE] Not overriding {project_name} — "
+                f"{role.get('role_name', '?')}: reason bundles an unverifiable age claim"
+            )
+            return False, ai_reason
+        lo, hi = role_range
+        if not (max(lo, _ACTOR_MIN_AGE) <= min(hi, _ACTOR_MAX_AGE)):
+            logger.debug(
+                f"[TRAVEL PAY OVERRIDE] Not overriding {project_name} — "
+                f"{role.get('role_name', '?')}: age range {lo}-{hi} genuinely doesn't "
+                f"overlap actor's {_ACTOR_MIN_AGE}-{_ACTOR_MAX_AGE} range"
+            )
+            return False, ai_reason
+        age_reason_prefix = (
+            f"age range {lo}-{hi} overlaps actor's {_ACTOR_MIN_AGE}-{_ACTOR_MAX_AGE} "
+            f"playable range; "
+        )
     # Include any structured pay field so check_travel_pay can find the rate
     # even when it isn't spelled out in the free-text description (mirrors
     # the same fix applied at the main.py call site).
@@ -436,12 +593,23 @@ def _maybe_override_local_hire_skip(
     description = (
         f"{role.get('description', '')} Pay: {pay_text}" if pay_text else role.get("description", "")
     )
-    tp_ok, tp_reason = check_travel_pay(
+    tp_ok, tp_reason, pay_ambiguous = check_travel_pay(
         project_name, description, project_notes, mode="paid",
     )
+    if tp_ok and pay_ambiguous:
+        # Pay couldn't be parsed at all — "can't determine" is not "clears the
+        # threshold". Don't fabricate confidence the check never had; leave the
+        # AI's original local-hire objection standing rather than falsely
+        # claiming pay clears a threshold that was never confirmed. This is the
+        # real out-of-town-location-with-no-pay case (casting-suggestion #85/#108).
+        logger.debug(
+            f"[TRAVEL PAY OVERRIDE] Not overriding {project_name} — {role.get('role_name', '?')}: "
+            f"pay is ambiguous, not confirmed to clear the threshold"
+        )
+        return False, ai_reason
     if tp_ok:
         new_reason = (
-            f"travel pay clears threshold; overriding AI local-hire objection "
+            f"{age_reason_prefix}travel pay clears threshold; overriding AI local-hire objection "
             f"(AI said: {ai_reason[:120]})"
         )
         logger.info(
@@ -471,6 +639,42 @@ _AGE_NO_OVERLAP_RE = re.compile(
     r'\bage\b.{0,60}\bno overlap\b|\bno overlap\b.{0,60}\bage\b', re.IGNORECASE,
 )
 
+# Patterns indicating the AI's SKIP reason also cites a genuine, non-waivable
+# structural disqualifier that has nothing to do with age arithmetic — e.g. the
+# role requires a real paired duo (dad & daughter, real couple) and the actor
+# would be submitting solo. When one of these co-occurs with the "no age
+# overlap" phrasing, the age claim is not the only reason for the SKIP, so
+# correcting the age math must not blanket-override the rest of the rejection.
+_NON_AGE_STRUCTURAL_DISQUALIFIER_PATTERNS = [
+    r"\bcannot submit solo\b",
+    r"\bcan(?:'t|not) submit (?:as a )?solo\b",
+    r"\breal\s+(?:dad|father|mom|mother|parent)s?\s*(?:&|and)?\s*(?:daughter|son|child|kids?)\s+duo\b",
+    r"\bpaired\s+(?:family\s+)?role\b",
+    r"\bmust submit as a (?:duo|pair|couple)\b",
+    r"\breal\s+couples?\s+only\b",
+    r"\breal\s+(?:duo|pair)\b",
+]
+
+
+# Rough prominence ordering (most prominent first) used only by the paid-mode
+# per-project submission-cap backstop to decide which roles to keep when the AI
+# exceeds the 3-role cap. Unknown/unmarked role types sort last but keep their
+# original relative order (Python's sort is stable).
+_PROMINENCE_ORDER = (
+    "series regular", "lead", "principal", "supporting", "recurring",
+    "guest", "co-star", "costar", "featured", "day player", "background",
+)
+
+
+def _role_prominence_rank(role: dict) -> int:
+    """Lower rank = more prominent. Used to prioritize which roles survive the
+    per-project submission cap."""
+    rtype = (role.get("role_type") or "").strip().lower()
+    for i, kw in enumerate(_PROMINENCE_ORDER):
+        if kw in rtype:
+            return i
+    return len(_PROMINENCE_ORDER)
+
 
 def _extract_role_age_range(role: dict) -> tuple[int, int] | None:
     """Best-effort numeric (min, max) age range for a role, or None if it can't be
@@ -495,15 +699,28 @@ def _maybe_override_age_overlap_skip(role: dict, ai_reason: str) -> tuple[bool, 
 
     Only fires when the reason explicitly claims "no overlap" tied to age — this
     does not touch other age-related disqualifiers (e.g. "must look under 17").
+
+    Also does not fire when the reason bundles a genuine non-age structural
+    disqualifier (e.g. "requires a real dad & daughter duo; actor cannot submit
+    solo") — correcting the age math doesn't make a solo actor into a real duo,
+    so the rest of the rejection must stand regardless of overlap arithmetic.
     """
     if not ai_reason or not _AGE_NO_OVERLAP_RE.search(ai_reason):
+        return False, ai_reason
+    if any(re.search(p, ai_reason, re.IGNORECASE) for p in _NON_AGE_STRUCTURAL_DISQUALIFIER_PATTERNS):
         return False, ai_reason
     role_range = _extract_role_age_range(role)
     if role_range is None:
         return False, ai_reason
     lo, hi = role_range
-    overlaps = max(lo, _ACTOR_MIN_AGE) <= min(hi, _ACTOR_MAX_AGE)
-    if not overlaps:
+    # Require a real (>= 1-year) overlap window, not a single-point boundary
+    # touch. A role of "30-45" vs. the actor's "17-30" shares only the integer
+    # 30 — the AI's own "cannot credibly play 30+ as a minimum" judgment is a
+    # credibility call, not an arithmetic miscalculation, and must not be
+    # overridden. A genuine window like 28-30 (2 years) still overrides. See
+    # casting-suggestion #105 (Weller Bourbon) vs. #70 (the 28-38 case).
+    overlap_years = min(hi, _ACTOR_MAX_AGE) - max(lo, _ACTOR_MIN_AGE)
+    if overlap_years < 1:
         return False, ai_reason
     new_reason = (
         f"age range {lo}-{hi} overlaps actor's {_ACTOR_MIN_AGE}-{_ACTOR_MAX_AGE} "
@@ -529,6 +746,40 @@ _HARD_SKILL_REQUIREMENT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Casting posts also mark a skill non-negotiable with "REAL <skill> PLAYER/ATHLETE"
+# phrasing (e.g. "REAL TENNIS PLAYER / ATHLETE") rather than "necessary to have"/
+# "must have"/"required:" — the AI prompt only calls out "singing, musical
+# instrument, specific martial art" as example required skills, so it consistently
+# rationalizes past this phrasing ("casting does not explicitly exclude
+# non-specialists") instead of treating it as a hard disqualifier. This is a
+# narrow, low-risk backstop for that specific "REAL <skill> <role-word>" shape —
+# it does not touch the separate "real couples only" / testimonial ("real family
+# members") disqualifiers, which use different trailing words.
+_REAL_SKILL_PLAYER_RE = re.compile(
+    r'\bREAL\s+([A-Za-z][A-Za-z\s]{2,30}?)\s+'
+    r'(?:PLAYER|ATHLETE|DANCER|MUSICIAN|SINGER|GOLFER)\b',
+    re.IGNORECASE,
+)
+
+# Casting posts also phrase a hard skill requirement as "must be able to <verb>"
+# or "must know how to <verb>" rather than "must have <skill> experience" (e.g.
+# "Must be able to swim.", "Talent must know how to ride a bicycle."). Scoped to a
+# fixed list of physical/performance skills that are unambiguous pass/fail checks
+# against ACTOR_PROFILE — deliberately excludes generic verbs like "travel",
+# "attend", or "commit" that aren't skill checks at all, and skills (dancing,
+# singing) already reliably covered elsewhere so this can't collide with an
+# ability the actor's profile phrases differently (e.g. "salsa dancing" vs. a
+# bare "dance" substring match). Matching "must know how to" too makes a shared
+# project-wide requirement disposition consistent across sibling roles instead of
+# flipping on per-role framing. See casting-suggestion #121 and #101 (SOFT
+# SHOULDER — "Talent must know how to ride a bicycle." handled two ways).
+_MUST_BE_ABLE_TO_SKILL_RE = re.compile(
+    r'\bmust\s+(?:be\s+able\s+to|know\s+how\s+to)\s+'
+    r'(swim|surf|ski|skate|juggle|whistle|yodel|'
+    r'ride\s+a\s+(?:horse|bike|bicycle|motorcycle|unicycle))\b',
+    re.IGNORECASE,
+)
+
 
 def _unmet_hard_skill_requirement(description: str) -> str | None:
     """Return the required skill phrase if the description explicitly marks a skill
@@ -537,14 +788,56 @@ def _unmet_hard_skill_requirement(description: str) -> str | None:
     """
     if not description:
         return None
-    m = _HARD_SKILL_REQUIREMENT_RE.search(description)
+    m = (
+        _HARD_SKILL_REQUIREMENT_RE.search(description)
+        or _REAL_SKILL_PLAYER_RE.search(description)
+        or _MUST_BE_ABLE_TO_SKILL_RE.search(description)
+    )
     if not m:
         return None
     skill = m.group(1).strip().lower()
     skill_word = skill.split()[0] if skill.split() else skill
-    if not skill_word or skill_word in ACTOR_PROFILE.lower():
+    # Word-boundary match, not substring — a bare skill_word like "swim" is a
+    # substring of unrelated profile text ("swimwear" modeling work) and would
+    # otherwise be misread as the actor having the skill.
+    if not skill_word or re.search(rf'\b{re.escape(skill_word)}\b', ACTOR_PROFILE, re.IGNORECASE):
         return None
     return skill
+
+
+_GENDER_LABELED_ROLE_NAME_RE = re.compile(
+    r'^(?:the\s+)?(?:wom[ae]n|female|girl|females|girls|lady|ladies)\s*#?\d*$',
+    re.IGNORECASE,
+)
+
+_INCLUSIVE_GENDER_LANGUAGE_RE = re.compile(
+    r'\bany\s+gender|\ball\s+genders?\b|\bopen\s+to\s+all\s+genders?\b|'
+    r'\bmale\s+or\s+female\b|\bfemale\s+or\s+male\b|\bman\s+or\s+woman\b|'
+    r'\bwoman\s+or\s+man\b|\beither\s+gender\b|\bmale/female\b|\bfemale/male\b|'
+    r'\bgender[\s:\-]*open\b|\ball\s+genders\s+welcome\b',
+    re.IGNORECASE,
+)
+
+
+def _unmet_gender_role_name_conflict(role_name: str, description: str) -> bool:
+    """True when a role's own name is a bare female-gendered noun (e.g. "Woman",
+    "Female Model #2") and neither the name nor the description contains any
+    explicit any-gender casting language.
+
+    The AI's gender hard-disqualifier only scans description text for exclusion
+    phrases like "Female only" and is told "when in doubt, ACCEPT" — so a role
+    whose *own name* is the gender label, paired with an unremarkable,
+    non-exclusionary description, slips through as a false FIT/SELECTED for a
+    male actor. Reproduced against the Blue Cross print project (July 13, 2026
+    Paid digest): sibling "Man" and "Woman" roles shared an identical, gender-
+    neutral description ("Warm, friendly. Experience on camera preferred."),
+    and the male actor was submitted to both — the "Woman" submission justified
+    by an "any-gender casting" claim invented by the AI and present nowhere in
+    the listing.
+    """
+    if not role_name or not _GENDER_LABELED_ROLE_NAME_RE.match(role_name.strip()):
+        return False
+    return not _INCLUSIVE_GENDER_LANGUAGE_RE.search(description or "")
 
 
 def select_best_roles(
@@ -641,7 +934,8 @@ HARD DISQUALIFIERS — reject any role that requires:
 - Requires NATURAL [specific hair color] when explicitly stated (e.g., "must be a natural redhead", "natural blonde only"). General hair color descriptions ("blond hair", "brunette character", "light brown hair") are styling choices achievable through dyeing — these are NOT disqualifiers for regular acting roles. The actor has BROWN hair. Character descriptions like "dyed hair" or "punk vibes" are never disqualifiers.
 - Age range with NO overlap with 17-30 (e.g., "31-40" is a rejection, but "25-35" is NOT because it overlaps with the actor's range)
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
-- Requires an authentic/native non-American English accent (e.g., "must have authentic British accent", "native French speaker"). EXCEPTION: Spanish is fine — the actor is fluent in Spanish, so roles requiring Spanish dialogue, a Spanish-speaking character, a native/fluent Spanish speaker, or bilingual English/Spanish are ACCEPTABLE, not disqualifiers.
+- Requires an authentic/native non-American English accent (e.g., "must have authentic British accent", "native French speaker"). EXCEPTION: Spanish is fine — the actor is fluent in Spanish, so roles requiring Spanish dialogue, a Spanish-speaking character, a native/fluent Spanish speaker, or bilingual English/Spanish are ACCEPTABLE, not disqualifiers. Regional dialects of AMERICAN English (Southern, Appalachian, Boston, New York, Midwestern, etc.) are NOT non-American accents — the actor speaks American English and these are never a disqualifier.
+- Do NOT treat an OPTIONAL trait as a hard requirement. When a breakdown marks a trait with soft language — "a plus", "bonus", "preferred but not required", "ideally", "nice to have" — it is NOT a condition of casting and must NEVER be the sole basis for a SKIP/REJECT (e.g. "Scots-Irish descent and regional Appalachian accent are all pluses" does not disqualify anyone who lacks them).
 - Requires a beard or facial hair (actor is clean-shaven)
 - Gender that EXCLUDES cisgender male. The actor is a cisgender male (and is comfortable playing LGBTQ+ characters of any orientation or gender identity, including gay/bi/queer male characters). Read gender requirements as INCLUSIVE lists, not exclusive — if the role lists "male" anywhere in the accepted genders, the actor QUALIFIES. ACCEPT (do NOT reject) any of these phrasings: "Male", "Male or Trans Male", "Male / Trans Male", "Male and Trans Male", "Cis Male or Trans Male", "Male, Female, or Non-Binary", "Any gender", "All genders", "Open to all genders", "Gender non-conforming", "Male (cis or trans)", "Male identifying". ONLY reject when the role explicitly excludes cis male — e.g., "Female only", "Trans only" / "Trans male only" / "Transgender male only" (without "or male"), "Non-binary only", "AFAB only", "Trans women only". When in doubt, ACCEPT — being male alone is enough to qualify whenever "male" appears in the listed options.
 - NOT a real acting or modeling role — consumer studies, product testing, paid research studies, focus groups, medical studies, or any role where participants are selected based on personal conditions (skin conditions, health issues, etc.) rather than acting/modeling ability. IMPORTANT: Modeling gigs ARE legitimate and the actor actively wants them — do NOT reject. This includes (non-exhaustive): TFP / Time-For-Print, print modeling, swimwear/beach/poolside shoots, fitness modeling, lifestyle content shoots, fashion/editorial, portfolio shoots, brand campaigns, catalog, lookbook, photo shoots, stills work, and photo/video commercial work. Modeling gigs do not need to be "acting roles" with named characters — judge them on physical/type fit only. Only reject actual research studies, focus groups, and medical studies. This exclusion also covers testimonial/"real person" casting where talent must have (or authentically aspire to have) a specific real-life project, story, or experience the production will document — even when framed as "not yet started," "planning to," "yet to start," or "would love to" rather than an already-completed status. If the selection criterion is the person's real life rather than their acting ability, it is a testimonial role regardless of the tense or phase of the project (e.g., "real users who want to use [Product] but have yet to start," "share your story about how you plan to...").
@@ -709,15 +1003,48 @@ REJECTED: 4 - Background/extra role, actor does not do background work"""
         still_selected = []
         for role_obj, reason in selected:
             missing_skill = _unmet_hard_skill_requirement(role_obj.get("description", ""))
+            role_name = role_obj.get("role_name", "")
             if missing_skill:
-                rejections[role_obj["role_name"]] = f"Missing required skill: {missing_skill}"
+                rejections[role_name] = f"Missing required skill: {missing_skill}"
                 logger.info(
-                    f"[REQUIRED SKILL] {project_name} — {role_obj.get('role_name', '?')}: "
+                    f"[REQUIRED SKILL] {project_name} — {role_name or '?'}: "
                     f"casting requires '{missing_skill}', not in actor profile; overriding SELECTED to reject"
+                )
+            elif _unmet_gender_role_name_conflict(role_name, role_obj.get("description", "")):
+                rejections[role_name] = (
+                    f"Role name '{role_name}' is a bare gender label conflicting with the "
+                    "actor's gender; no explicit any-gender casting language in the listing"
+                )
+                logger.info(
+                    f"[GENDER ROLE NAME] {project_name} — {role_name or '?'}: "
+                    "bare gender-labeled role name with no inclusive-casting language; "
+                    "overriding SELECTED to reject"
                 )
             else:
                 still_selected.append((role_obj, reason))
         selected = still_selected
+
+        # Code-level backstop for the per-project submission cap. The prompt tells
+        # the model to select "no more than 3" per project, but that's only a soft
+        # instruction — when the model ignores it (e.g. the "Spaghetti" project,
+        # 5 of 6 roles applied), nothing downstream caught it. Paid mode only:
+        # unpaid mode intentionally selects ALL reasonable fits. Keeps the 3 most
+        # prominent (stable sort preserves first-listed order among ties). See
+        # casting-suggestion #109.
+        if mode != "unpaid" and len(selected) > 3:
+            ranked = sorted(selected, key=lambda pair: _role_prominence_rank(pair[0]))
+            overflow = ranked[3:]
+            selected = ranked[:3]
+            for role_obj, _reason in overflow:
+                rejections[role_obj["role_name"]] = (
+                    "Submission cap reached (3 per project) — role dropped by code-level "
+                    "backstop after the AI exceeded the cap"
+                )
+            logger.info(
+                f"[SUBMISSION CAP] {project_name}: AI selected {len(selected) + len(overflow)} "
+                f"roles, capping to 3 ({[s[0]['role_name'] for s in selected]}); "
+                f"dropped {[o[0]['role_name'] for o in overflow]}"
+            )
 
         return selected, rejections
 
@@ -775,7 +1102,8 @@ DESCRIPTION: {desc}
 - Requires NATURAL [specific hair color] when explicitly stated (e.g., "must be a natural redhead", "natural blonde only"). General hair color descriptions ("blond hair", "brunette character", "light brown hair") are styling choices achievable through dyeing — these are NOT disqualifiers for regular acting roles. The actor has BROWN hair. Character descriptions like "dyed hair" or "punk vibes" are never disqualifiers.
 - Age range with NO overlap with 17-30 (e.g., "31-40" is a rejection, but "25-35" is NOT because it overlaps with the actor's range)
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
-- Requires an authentic/native non-American English accent (e.g., "must have authentic British accent", "native French speaker"). EXCEPTION: Spanish is fine — the actor is fluent in Spanish, so roles requiring Spanish dialogue, a Spanish-speaking character, a native/fluent Spanish speaker, or bilingual English/Spanish are ACCEPTABLE, not disqualifiers.
+- Requires an authentic/native non-American English accent (e.g., "must have authentic British accent", "native French speaker"). EXCEPTION: Spanish is fine — the actor is fluent in Spanish, so roles requiring Spanish dialogue, a Spanish-speaking character, a native/fluent Spanish speaker, or bilingual English/Spanish are ACCEPTABLE, not disqualifiers. Regional dialects of AMERICAN English (Southern, Appalachian, Boston, New York, Midwestern, etc.) are NOT non-American accents — the actor speaks American English and these are never a disqualifier.
+- Do NOT treat an OPTIONAL trait as a hard requirement. When a breakdown marks a trait with soft language — "a plus", "bonus", "preferred but not required", "ideally", "nice to have" — it is NOT a condition of casting and must NEVER be the sole basis for a SKIP/REJECT (e.g. "Scots-Irish descent and regional Appalachian accent are all pluses" does not disqualify anyone who lacks them).
 - Requires a beard or facial hair (actor is clean-shaven)
 - Gender that EXCLUDES cisgender male. The actor is a cisgender male (and is comfortable playing LGBTQ+ characters of any orientation or gender identity, including gay/bi/queer male characters). Read gender requirements as INCLUSIVE lists, not exclusive — if the role lists "male" anywhere in the accepted genders, the actor QUALIFIES. ACCEPT (do NOT skip) any of these phrasings: "Male", "Male or Trans Male", "Male / Trans Male", "Male and Trans Male", "Cis Male or Trans Male", "Male, Female, or Non-Binary", "Any gender", "All genders", "Open to all genders", "Gender non-conforming", "Male (cis or trans)", "Male identifying". ONLY skip when the role explicitly excludes cis male — e.g., "Female only", "Trans only" / "Trans male only" / "Transgender male only" (without "or male"), "Non-binary only", "AFAB only", "Trans women only". When in doubt, ACCEPT — being male alone is enough to qualify whenever "male" appears in the listed options.
 - NOT a real acting or modeling role — consumer studies, product testing, paid research studies, focus groups, medical studies, or any role where participants are selected based on personal conditions (skin conditions, health issues, etc.) rather than acting/modeling ability. IMPORTANT: Modeling gigs ARE legitimate and the actor actively wants them — do NOT reject. This includes (non-exhaustive): TFP / Time-For-Print, print modeling, swimwear/beach/poolside shoots, fitness modeling, lifestyle content shoots, fashion/editorial, portfolio shoots, brand campaigns, catalog, lookbook, photo shoots, stills work, and photo/video commercial work. Modeling gigs do not need to be "acting roles" with named characters — judge them on physical/type fit only. Only reject actual research studies, focus groups, and medical studies. This exclusion also covers testimonial/"real person" casting where talent must have (or authentically aspire to have) a specific real-life project, story, or experience the production will document — even when framed as "not yet started," "planning to," "yet to start," or "would love to" rather than an already-completed status. If the selection criterion is the person's real life rather than their acting ability, it is a testimonial role regardless of the tense or phase of the project (e.g., "real users who want to use [Product] but have yet to start," "share your story about how you plan to...").
@@ -823,8 +1151,28 @@ CRITICAL: Your response must start IMMEDIATELY with FIT or SKIP. Do NOT write an
         # capturing the reason text in the same regex would let the first match's
         # greedy ".*" swallow any later verdict token on the same line, defeating the
         # "take the last one" logic entirely.
-        for m in re.finditer(r'\b(FIT|SKIP)\b\s*[-–—]\s*', text, re.IGNORECASE):
-            verdict = m.group(1).upper()
+        #
+        # Besides the FIT/SKIP tokens the prompt asks for, also recognize the
+        # SELECTED/ACCEPT (→FIT) and REJECTED/PASS/DISQUALIFIED (→SKIP) synonyms
+        # the model sometimes narrates for a single role (e.g. "...Accepting on
+        # technicality: SELECTED: 1 - Hispanic/Latino match..."). Reading the last
+        # such token trusts the model's final conclusion instead of dropping the
+        # role into the uninformative "unrecognized format → SKIP" bucket with the
+        # whole self-contradictory paragraph shown as the reason. The optional
+        # "<digit> -" swallows a "SELECTED: 1 -" style prefix. See casting-suggestion #102.
+        _VERDICT_SYNONYMS = {
+            "FIT": "FIT", "SELECTED": "FIT", "ACCEPT": "FIT", "ACCEPTED": "FIT",
+            "SKIP": "SKIP", "REJECT": "SKIP", "REJECTED": "SKIP",
+            "PASS": "SKIP", "PASSED": "SKIP",
+            "DISQUALIFIED": "SKIP", "DISQUALIFIER": "SKIP",
+        }
+        _verdict_re = re.compile(
+            r'\b(FIT|SKIP|SELECTED|ACCEPTED|ACCEPT|REJECTED|REJECT|PASSED|PASS|'
+            r'DISQUALIFIED|DISQUALIFIER)\b\s*[-:–—]\s*(?:\d+\s*[-–—]\s*)?',
+            re.IGNORECASE,
+        )
+        for m in _verdict_re.finditer(text):
+            verdict = _VERDICT_SYNONYMS[m.group(1).upper()]
             last_end = m.end()
         if last_end != -1:
             verdict_line = f"{verdict} - {text[last_end:].strip()}"
@@ -850,6 +1198,19 @@ CRITICAL: Your response must start IMMEDIATELY with FIT or SKIP. Do NOT write an
                     f"casting requires '{missing_skill}', not in actor profile; overriding FIT to reject"
                 )
                 return [], {role["role_name"]: f"Missing required skill: {missing_skill}"}
+            if _unmet_gender_role_name_conflict(role.get("role_name", ""), role.get("description", "")):
+                logger.info(
+                    f"[GENDER ROLE NAME] {project_name} — {role.get('role_name', '?')}: "
+                    "bare gender-labeled role name with no inclusive-casting language; "
+                    "overriding FIT to reject"
+                )
+                return [], {
+                    role["role_name"]: (
+                        f"Role name '{role['role_name']}' is a bare gender label conflicting "
+                        "with the actor's gender; no explicit any-gender casting language in "
+                        "the listing"
+                    )
+                }
             return [(role, reason)], {}
 
         logger.warning(
@@ -866,6 +1227,32 @@ CRITICAL: Your response must start IMMEDIATELY with FIT or SKIP. Do NOT write an
         return [], {role["role_name"]: f"AI check failed: {e}"}
 
 
+# A SELECTED/REJECTED reason can itself contain a self-correcting inline
+# verdict token when the model talks itself into the opposite conclusion
+# mid-sentence (e.g. "SELECTED: 2 - requires electric bass guitar, a skill
+# the actor does not have. DISQUALIFIER: ..." or "REJECTED: 4 - ... —
+# FIT - Hispanic ethnicity qualifies, age overlaps..."). _check_single_role_fit
+# already trusts the LAST FIT/SKIP token in its response for this reason; this
+# mirrors that logic for the per-line reason text captured by SELECTED:/
+# REJECTED:. Only a colon/dash-qualified token counts, matching the shape the
+# model actually uses when self-correcting — a bare mention of "skip" or
+# "disqualifier" inside ordinary prose should not trigger a flip.
+# See casting-suggestion #86 (REJECTED reason ending in a FIT conclusion) and
+# its symmetric gap (SELECTED reason ending in a SKIP/DISQUALIFIER conclusion,
+# e.g. Eric Mason / 27 CLUB, July 6 UNPAID digest).
+_INLINE_VERDICT_RE = re.compile(r'\b(FIT|SKIP|DISQUALIFIER)\b\s*[-:–—]', re.IGNORECASE)
+
+
+def _last_inline_verdict(reason: str) -> str | None:
+    """Return 'FIT' or 'SKIP' for the LAST inline verdict token in reason text,
+    or None if no such token appears. DISQUALIFIER counts as a SKIP token."""
+    verdict = None
+    for m in _INLINE_VERDICT_RE.finditer(reason or ""):
+        token = m.group(1).upper()
+        verdict = "SKIP" if token in ("SKIP", "DISQUALIFIER") else "FIT"
+    return verdict
+
+
 def _parse_structured_response(
     text: str, roles: list[dict], project_name: str,
 ) -> tuple[list[tuple[dict, str]], dict[str, str]]:
@@ -874,10 +1261,43 @@ def _parse_structured_response(
 
     # Check for SKIP — must be "SKIP" alone or "SKIP - reason" (may appear after AI preamble)
     skip_re = re.compile(r"^SKIP\s*(?:[-–—]\s*(.*))?$", re.IGNORECASE)
-    for line in lines:
+    for i, line in enumerate(lines):
         m = skip_re.match(line.strip())
         if m:
-            skip_reason = (m.group(1) or "").strip() or line.strip()
+            skip_reason = (m.group(1) or "").strip()
+            if not skip_reason:
+                # The model returned a bare "SKIP" with no reason on that line.
+                # Storing the literal token "SKIP" as the rejection reason gives a
+                # human sanity-checking the digest zero information
+                # ("Reason (all roles): SKIP"). Recover the explanation the model
+                # actually wrote: the prompt only requires "explain why" after SKIP,
+                # not that it follow a dash on the same line — the model often puts
+                # SKIP alone on its first line and the reason on the next line(s).
+                # 1) prefer the trailing line(s) immediately after SKIP (up to the
+                #    next blank line); 2) fall back to any other non-empty line in
+                #    the response; 3) settle for an explicit "no reason" marker —
+                #    never the bare token itself. See casting-suggestion digest
+                #    evidence: PASSING THE BAR and WEST TEXAS NATIONAL BANK.
+                trailing = []
+                for follow in lines[i + 1:]:
+                    if not follow.strip():
+                        break
+                    trailing.append(follow.strip())
+                if trailing:
+                    skip_reason = " ".join(trailing).strip()
+                else:
+                    other_lines = [
+                        ln.strip() for ln in lines
+                        if ln.strip() and ln.strip().upper() != "SKIP"
+                    ]
+                    skip_reason = (
+                        " ".join(other_lines)[:300] if other_lines
+                        else "AI returned bare SKIP verdict with no explanation"
+                    )
+                logger.warning(
+                    f"AI skipped project {project_name} with no reason given; "
+                    f"raw response: {text[:200]!r}"
+                )
             rejections = {r["role_name"]: skip_reason for r in roles}
             logger.info(f"AI skipped project {project_name}: {skip_reason}")
             return [], rejections
@@ -902,6 +1322,28 @@ def _parse_structured_response(
             if 0 <= idx < len(roles):
                 rejections[roles[idx]["role_name"]] = reason
 
+    # Re-scan each captured reason for a self-correcting inline verdict token
+    # that reverses the line's own SELECTED/REJECTED bucket, before any other
+    # reconciliation logic runs (a rejected-but-actually-FIT role can turn a
+    # would-be "all rejected" project into one with a real selection).
+    for role_name in list(rejections):
+        if _last_inline_verdict(rejections[role_name]) == "FIT":
+            role_obj = next((r for r in roles if r["role_name"] == role_name), None)
+            if role_obj is not None:
+                logger.info(
+                    f"[CONTRADICTION] {project_name} — {role_name}: REJECTED reason "
+                    f"ends in a FIT conclusion; promoting to selected"
+                )
+                selected.append((role_obj, rejections.pop(role_name)))
+    for role_obj, reason in list(selected):
+        if _last_inline_verdict(reason) == "SKIP":
+            logger.info(
+                f"[CONTRADICTION] {project_name} — {role_obj.get('role_name', '?')}: "
+                f"SELECTED reason ends in a SKIP/DISQUALIFIER conclusion; demoting to rejected"
+            )
+            rejections[role_obj["role_name"]] = reason
+            selected.remove((role_obj, reason))
+
     # If we found REJECTED lines but no SELECTED lines, the AI legitimately rejected all roles
     if not selected and rejections:
         logger.info(f"AI rejected all {len(rejections)} role(s) for {project_name}")
@@ -920,10 +1362,21 @@ def _parse_structured_response(
         if name in selected_names:
             del rejections[name]
 
-    # Fill in any roles not mentioned in rejections
+    # Fill in any roles the AI's response never addressed at all — no SELECTED
+    # and no REJECTED line for them. This is an information gap, not a judged
+    # rejection, so store an honest, human-readable reason (never the raw
+    # internal "not mentioned by AI" marker, which read in the digest like a real
+    # disqualifier) and log the omission so its frequency is visible. See
+    # casting-suggestion #110/#113 (FW Global Reebok, HOMEGIRLS BEFORE HUSBAND).
     for role in roles:
         if role["role_name"] not in selected_names and role["role_name"] not in rejections:
-            rejections[role["role_name"]] = "not mentioned by AI"
+            logger.warning(
+                f"AI omitted role {role['role_name']!r} from its response for "
+                f"{project_name} (neither SELECTED nor REJECTED); filing as not-evaluated"
+            )
+            rejections[role["role_name"]] = (
+                "AI did not address this role in its response — not evaluated, needs review"
+            )
 
     logger.info(f"AI selected {len(selected)} role(s) for {project_name}: {[s[0]['role_name'] for s in selected]}")
     return selected, rejections
@@ -1188,11 +1641,19 @@ _DEMO_CLIP_PHRASES = (
     "include demo clip", "your online demo",
 )
 
+_SIZE_CARD_PHRASES = ("size card", "size cards")
+
 
 def _clips_explicitly_requested(desc: str, project_notes: str) -> bool:
     """True when the breakdown explicitly asks for demo clips/reel in submissions."""
     combined = (desc + " " + project_notes).lower()
     return any(p in combined for p in _DEMO_CLIP_PHRASES)
+
+
+def _size_card_explicitly_requested(desc: str, project_notes: str) -> bool:
+    """True when the breakdown explicitly asks for a size card in submissions."""
+    combined = (desc + " " + project_notes).lower()
+    return any(p in combined for p in _SIZE_CARD_PHRASES)
 
 
 def analyze_submission_requirements(role: dict, project_name: str, project_notes: str = "", confirmed_dates: str | None = None, mode: str = "paid", has_media: bool = False) -> dict:
@@ -1213,7 +1674,8 @@ def analyze_submission_requirements(role: dict, project_name: str, project_notes
     Returns:
         {"action": "SUBMIT" | "SUBMIT_WITH_NOTE" | "NEEDS_INPUT",
          "note": str | None,
-         "needs_input_reason": str | None}
+         "needs_input_reason": str | None,
+         "info_note": str | None}  # digest-display only, never submitted to casting
     """
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -1250,7 +1712,7 @@ Analyze BOTH the role description AND any project-level instructions to determin
    ACTION: SUBMIT_WITH_NOTE
    NOTE: <1 sentence, max 30 words, in first person. ONLY state the facts they asked for. No selling, no qualifications, no acting skills, no why-you're-right-for-the-role.>
 
-3. If the description asks for information you CANNOT answer (e.g., links to demo reel or website, union status/SAG-AFTRA number, specific wardrobe sizes, COVID test results, references, self-tape samples), respond:
+3. If the description asks for information you CANNOT answer (e.g., a personal website link, union status/SAG-AFTRA number, specific wardrobe sizes, COVID test results, references, self-tape samples), respond:
    ACTION: NEEDS_INPUT
    REASON: <brief description of what info is needed>
 
@@ -1269,9 +1731,9 @@ IMPORTANT RULES:
 - NEVER volunteer information that was not explicitly asked for — no location, no transportation, no contact info, no availability unless the post explicitly asks you to NOTE it in the submission
 - If the post asks for availability/dates and CONFIRMED AVAILABILITY is provided above, include the specific dates in the note
 - If they ask for an email address or phone number: the actor profile does NOT list either. Do NOT invent one, and do NOT claim one is "on file" or "available upon request" — both are fabrications. Respond with ACTION: SUBMIT (no note) unless Instagram was also requested, in which case include only @marshallpowell.
-- PHYSICAL-SKILL FOOTAGE REQUESTS: if the casting asks for footage, clips, or a reel specifically demonstrating a NAMED physical skill (e.g., "submit dance clips", "include skating footage", "gymnastic reel", "martial arts clips", "stunt reel", "show us your [sport] skills") — this is a role REQUIREMENT check, NOT a generic demo reel request. Apply the following logic: (a) if the named skill IS in the actor profile → respond SUBMIT_WITH_NOTE with a brief note about that experience (this is the narrow exception to the no-experience rule); (b) if the named skill is NOT in the actor profile → respond NEEDS_INPUT so the human can decide whether to apply without it. Examples: "please submit salsa clips" + actor has 5+ years salsa → SUBMIT_WITH_NOTE ("5+ years of salsa dancing."). "please submit ice skating footage" + actor has no skating experience → NEEDS_INPUT ("Ice skating footage requested; actor has no skating experience listed.").
-- GENERIC DEMO REEL REQUESTS: if they ask for a general demo reel, showreel, reel link, online clips, video samples, or "show us your work" without specifying a particular skill → respond with ACTION: SUBMIT. The submission process attaches clips from the actor's profile automatically. This is never a blocker.
-- If multiple requirements exist and you can answer SOME but not all, use NEEDS_INPUT — UNLESS the unanswerable item is a generic demo reel / demo clips / reel link / video samples (apply anyway). This exception does NOT apply to named-skill footage requests.
+- PHYSICAL-SKILL FOOTAGE REQUESTS: if the casting asks for footage, clips, or a reel specifically demonstrating a NAMED PHYSICAL skill (e.g., "submit dance clips", "include skating footage", "gymnastic reel", "martial arts clips", "stunt reel", "show us your [sport] skills") — this is a role REQUIREMENT check, NOT a generic demo reel request. Apply the following logic: (a) if the named skill IS in the actor profile → respond SUBMIT_WITH_NOTE with a brief note about that experience (this is the narrow exception to the no-experience rule); (b) if the named skill is NOT in the actor profile → respond NEEDS_INPUT so the human can decide whether to apply without it. Examples: "please submit salsa clips" + actor has 5+ years salsa → SUBMIT_WITH_NOTE ("5+ years of salsa dancing."). "please submit ice skating footage" + actor has no skating experience → NEEDS_INPUT ("Ice skating footage requested; actor has no skating experience listed.").
+- GENERIC DEMO REEL / NON-PHYSICAL-EXPERIENCE REEL REQUESTS: if they ask for a general demo reel, showreel, reel link, online clips, video samples, "show us your work", OR a reel/clip demonstrating a NAMED NON-PHYSICAL skill or experience (e.g., "hosting reel", "MC reel", "interview reel", "comedy reel") → respond with ACTION: SUBMIT regardless of whether the actor has that reel or that experience. The actor profile explicitly states no demo reel currently exists and to still apply for roles requesting one — this is never a blocker, and unlike the physical-skill case above, do NOT respond NEEDS_INPUT for it. Do NOT add a note volunteering that the reel or experience is missing (see the "specific types of experience" and "never volunteer negative info" rules above) — just submit with no note on that point.
+- If multiple requirements exist and you can answer SOME but not all, use NEEDS_INPUT — UNLESS the unanswerable item is a generic demo reel / non-physical-experience reel / demo clips / reel link / video samples (apply anyway, no note on that item). This exception does NOT apply to named-PHYSICAL-skill footage requests.
 - When in doubt between SUBMIT and SUBMIT_WITH_NOTE, ALWAYS prefer SUBMIT
 - Treat project-level REQUIREMENTS (e.g., "NOTE YOUR DETAILED AVAILABILITY") with the same weight as role-level requests — these apply to every role submission
 - "PLEASE INCLUDE SIZE CARDS" or "include size card" means wardrobe measurements — these are handled in the actor's Actors Access profile, NOT in submission notes. Respond with ACTION: SUBMIT
@@ -1344,6 +1806,19 @@ Respond with ONLY the action line (and NOTE/REASON line if applicable). No other
             f"[CLIPS] {project_name} — {role.get('role_name', '?')}: "
             f"breakdown requested demo clips; confirming reel attached in note"
         )
+
+    # Digest-only annotation (never submitted to casting) for explicit requests
+    # that were satisfied through a channel other than the submission note —
+    # size cards live in the AA profile, and a demo-clip request with no reel
+    # on file has nothing to attach. Without this, the digest's generic "No
+    # specific submission info requested" looks identical to a listing that
+    # asked for nothing at all, which is exactly what casting-suggestion #83
+    # flagged. See casting-suggestion follow-up to #83.
+    if result["action"] == "SUBMIT" and not result.get("note"):
+        if _size_card_explicitly_requested(desc, project_notes):
+            result["info_note"] = "Size card requested — on file in AA profile."
+        elif _clips_explicitly_requested(desc, project_notes):
+            result["info_note"] = "Demo clips requested — no reel on file; applied anyway."
 
     return result
 
@@ -1468,6 +1943,15 @@ def _validate_note(note: str, role: dict, project_name: str) -> bool:
         logger.warning(f"Rejected note mentioning experience for {role.get('role_name', '')} on {project_name}: {note}")
         return False
 
+    # Reject notes that volunteer a missing reel/footage/experience — the prompt already
+    # forbids this (never volunteer a negative), but observed regressions (e.g. "No host
+    # reel currently available.") slipped through prompt-only enforcement. Backstop it here
+    # the same way the contact-info fabrication guards below backstop the email/phone rules.
+    if re.search(r'\bno\b.{0,25}\b(reel|footage|demo clip|clips|showreel)\b', note, re.IGNORECASE) \
+            or re.search(r'\b(reel|footage|demo clip|clips|showreel)\b.{0,25}\b(unavailable|not available|don\'t have|do not have)\b', note, re.IGNORECASE):
+        logger.warning(f"Rejected note volunteering missing reel/footage for {role.get('role_name', '')} on {project_name}: {note}")
+        return False
+
     # Reject fabricated contact details — ACTOR_PROFILE has no email or phone number,
     # so any email/phone appearing in a note was invented rather than pulled from the
     # profile (same fabrication class as the demo-reel guard above, applied to contact info).
@@ -1480,12 +1964,15 @@ def _validate_note(note: str, role: dict, project_name: str) -> bool:
         logger.warning(f"Rejected note with fabricated phone number for {role.get('role_name', '')} on {project_name}: {note}")
         return False
 
-    # Reject claims that contact info is "on file" or available "upon request" — nothing
-    # is on file beyond what's explicitly listed in ACTOR_PROFILE (Instagram only). The
-    # trigger phrase can appear either before or after the contact-type keyword
-    # ("email on file" / "happy to provide my phone number").
+    # Reject claims that contact info is "on file", available "upon request", or simply
+    # "available" — nothing is on file beyond what's explicitly listed in ACTOR_PROFILE
+    # (Instagram only). "is available" is the same deflection as "on file"/"upon request"
+    # (casting-suggestion #66) with different wording — e.g. "Best contact number is
+    # available — please reach out via my submission profile" (July 28, 2026 digest,
+    # "Norbit Stream" — Fitness trainer). The trigger phrase can appear either before or
+    # after the contact-type keyword ("email on file" / "happy to provide my phone number").
     _contact_kw = r'(?:email|phone|cell|number)'
-    _on_file_kw = r'(?:on file|upon request|happy to provide)'
+    _on_file_kw = r'(?:on file|upon request|happy to provide|is available)'
     if (re.search(rf'\b{_on_file_kw}\b.{{0,20}}\b{_contact_kw}\b', note, re.IGNORECASE)
             or re.search(rf'\b{_contact_kw}\b.{{0,20}}\b{_on_file_kw}\b', note, re.IGNORECASE)):
         logger.warning(f"Rejected note with unfounded contact-on-file claim for {role.get('role_name', '')} on {project_name}: {note}")

@@ -9,3 +9,5 @@ debug_*
 docs/
 .claude/
 .worktrees/
+
+.venv/

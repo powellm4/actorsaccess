@@ -172,6 +172,14 @@ class Database:
             self.conn.execute("ALTER TABLE applied_roles ADD COLUMN submission_note TEXT DEFAULT ''")
         except sqlite3.OperationalError:
             pass
+        # Display-only annotation for requirements that were explicitly requested
+        # but satisfied through a channel other than the submission note itself
+        # (e.g. size card via the AA profile, demo clips with no reel on file).
+        # Never sent to casting — see casting-suggestion #83 follow-up.
+        try:
+            self.conn.execute("ALTER TABLE applied_roles ADD COLUMN info_note TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
         # Mode column: 'paid' (default) or 'unpaid'. Tracks which workflow
         # applied or rejected the role. Does NOT affect dedup — role_id UNIQUE
         # still prevents double-applying across modes.
@@ -246,24 +254,56 @@ class Database:
         return cursor.fetchone() is not None
 
     def is_rejected(self, role_name: str, project_name: str, platform: str = "aa") -> bool:
+        """True if this role was already rejected under this or an equivalently-
+        formatted project name.
+
+        Uses a normalized project-name comparison (same normalization as
+        `find_recent_application_by_name`) rather than an exact string match.
+        A platform occasionally re-renders a project's title with different
+        capitalization or punctuation between fetches (e.g. "DENTITION" vs
+        "'Dentition'") — an exact match would silently miss the prior rejection,
+        letting the role be freshly re-evaluated (and, since AI verdicts aren't
+        deterministic across separate calls, potentially flip a correct reject
+        into an incorrect apply). See casting-suggestion re: DENTITION / Luca
+        (July 14→15 2026 digests).
+        """
+        normalized_target = _normalize_project_name(project_name)
         cursor = self.conn.execute(
-            "SELECT 1 FROM rejected_roles WHERE role_name = ? AND project_name = ? AND platform = ?",
-            (role_name, project_name, platform),
+            "SELECT project_name FROM rejected_roles WHERE role_name = ? AND platform = ?",
+            (role_name, platform),
         )
-        return cursor.fetchone() is not None
+        return any(_normalize_project_name(row[0]) == normalized_target for row in cursor.fetchall())
+
+    def is_flagged(self, role_name: str, project_name: str, platform: str = "aa") -> bool:
+        """True if this role is currently sitting in flagged_roles (Needs Your
+        Attention) under this or an equivalently-formatted project name.
+
+        Mirrors `is_rejected` (including the normalized project-name comparison)
+        so the autonomous apply loop can skip a role a human hasn't resolved yet,
+        instead of silently re-evaluating it from scratch on the next run and
+        potentially auto-applying against an unresolved flag. The role stays
+        reachable through the "Apply anyway" override path, which calls
+        `delete_flagged` on resolution. See casting-suggestion #114.
+        """
+        normalized_target = _normalize_project_name(project_name)
+        cursor = self.conn.execute(
+            "SELECT project_name FROM flagged_roles WHERE role_name = ? AND platform = ?",
+            (role_name, platform),
+        )
+        return any(_normalize_project_name(row[0]) == normalized_target for row in cursor.fetchall())
 
     def record_application(
         self, role_id: str, project_name: str, role_name: str,
         role_description: str = "", ai_reason: str = "", candidates_considered: int = 1,
         platform: str = "aa", project_url: str = "", submission_note: str = "",
-        mode: str = "paid", status: str = "submitted",
+        mode: str = "paid", status: str = "submitted", info_note: str = "",
     ):
         logger.info(f"[DB] Recording application: {project_name} — {role_name} (id={role_id}, mode={mode}, status={status})")
         self.conn.execute(
             """INSERT OR IGNORE INTO applied_roles
-               (role_id, project_name, role_name, role_description, ai_reason, candidates_considered, platform, project_url, applied_at, submission_note, mode, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (role_id, project_name, role_name, role_description, ai_reason, candidates_considered, platform, project_url, self._utcnow(), submission_note, mode, status),
+               (role_id, project_name, role_name, role_description, ai_reason, candidates_considered, platform, project_url, applied_at, submission_note, mode, status, info_note)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (role_id, project_name, role_name, role_description, ai_reason, candidates_considered, platform, project_url, self._utcnow(), submission_note, mode, status, info_note),
         )
         self.conn.commit()
 
@@ -322,6 +362,28 @@ class Database:
         )
         self.conn.commit()
 
+    def count_consecutive_failed_runs(self, platform: str) -> tuple[int, str | None]:
+        """Count the most-recent consecutive status='error' runs for a platform
+        (stopping at the first success), returning (count, earliest_started_at in
+        that streak). Used to escalate a repeated Backstage login/Cloudflare
+        block from a one-off 'transient' notice to a persistent-outage warning
+        once it has recurred on several runs in a row. See casting-suggestion #107."""
+        cursor = self.conn.execute(
+            """SELECT status, started_at FROM run_history
+               WHERE platform = ? AND status IN ('success', 'error')
+               ORDER BY started_at DESC, id DESC""",
+            (platform,),
+        )
+        count = 0
+        earliest = None
+        for status, started_at in cursor.fetchall():
+            if status == "error":
+                count += 1
+                earliest = started_at
+            else:
+                break
+        return count, earliest
+
     def get_last_digest_time(self) -> str:
         """Return the timestamp of the last digest sent, or 24 hours ago if none."""
         cursor = self.conn.execute(
@@ -353,7 +415,7 @@ class Database:
         mode_params = (mode,) if mode else ()
         if since:
             query = f"""SELECT project_name, role_name, role_description, ai_reason,
-                              candidates_considered, platform, project_url, applied_at, submission_note, mode, status
+                              candidates_considered, platform, project_url, applied_at, submission_note, mode, status, info_note
                        FROM applied_roles
                        WHERE applied_at > ?{mode_clause}
                          AND COALESCE(status, 'submitted') = 'submitted'
@@ -361,7 +423,7 @@ class Database:
             cursor = self.conn.execute(query, (since,) + mode_params)
         else:
             query = f"""SELECT project_name, role_name, role_description, ai_reason,
-                          candidates_considered, platform, project_url, applied_at, submission_note, mode, status
+                          candidates_considered, platform, project_url, applied_at, submission_note, mode, status, info_note
                    FROM applied_roles
                    WHERE applied_at >= datetime('now', '-24 hours'){mode_clause}
                      AND COALESCE(status, 'submitted') = 'submitted'
