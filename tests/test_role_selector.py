@@ -904,13 +904,38 @@ def test_travel_pay_waived_when_only_airfare_provided():
     assert reason is None
 
 
-def test_travel_pay_waived_when_only_hotel_provided():
-    """Lodging coverage alone is enough to waive the fly-to threshold."""
+def test_hotel_only_does_not_waive_fly_to_threshold():
+    """casting-suggestion (PARANORMAL NOBODIES / SWIMMING BOYFRIEND, $130/day North
+    Shore MA): lodging-only coverage must NOT waive a fly-to threshold — the actor
+    still pays airfare, the dominant cost of a fly-to booking. 'Hotel provided' with
+    no flight coverage at a fly-to location is still a reject."""
     ok, reason, _ = check_travel_pay(
         "NY Short",
         "Supporting role. Hotel provided. $150/day for 1 day. Shoots in New York.",
     )
-    assert ok is True, f"expected pass, got rejection: {reason}"
+    assert ok is False, "expected rejection — airfare uncovered at a fly-to location"
+    assert reason and "too low" in reason.lower()
+
+
+def test_hotel_only_still_waives_drive_tier_threshold():
+    """At a drive tier (no flight involved) lodging coverage still meaningfully
+    offsets the booking's cost, so it still waives the (lower) threshold."""
+    ok, reason, _ = check_travel_pay(
+        "Vegas Gig",
+        "Supporting role. Hotel provided. $150/day for 1 day. Shoots in Las Vegas.",
+    )
+    assert ok is True, f"expected waiver at drive tier, got rejection: {reason}"
+    assert reason is None
+
+
+def test_flight_coverage_still_waives_fly_to_threshold():
+    """Flight/airfare coverage (with or without hotel) still waives at a fly-to
+    location — the dominant cost is covered."""
+    ok, reason, _ = check_travel_pay(
+        "NY Shoot",
+        "Supporting role. Airfare and hotel provided. $150/day for 1 day. Shoots in New York.",
+    )
+    assert ok is True, f"expected waiver when airfare covered, got rejection: {reason}"
     assert reason is None
 
 
