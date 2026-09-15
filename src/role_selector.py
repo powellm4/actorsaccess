@@ -235,28 +235,38 @@ def _extract_total_pay(text: str) -> float | None:
     return None
 
 
-# Phrasings indicating the production covers travel costs (flights and/or
-# lodging). When any of these match, the actor's out-of-pocket travel cost is
-# effectively zero, so the location-based pay threshold no longer applies.
-_TRAVEL_COVERED_PATTERNS = [
+# Phrasings where the production covers TRAVEL / FLIGHT — the dominant cost of a
+# fly-to booking. Any of these waives the location pay threshold at ANY tier.
+_TRAVEL_FLIGHT_COVERED_PATTERNS = [
     r'travel\s+(?:and\s+)?(?:lodging|housing|accommodations?)\s+(?:will be\s+)?provided',
     r'(?:lodging|housing|accommodations?)\s+(?:and\s+)?travel\s+(?:will be\s+)?provided',
     r'travel\s+(?:is\s+)?(?:covered|included|paid)',
     r'(?:we|production)\s+(?:will\s+)?(?:cover|provide|pay\s+for)\s+travel',
-    # Flight coverage
     r'\b(?:flights?|airfare|air\s*fare|air\s*travel|plane\s*tickets?|airline\s*tickets?)\b',
-    # Lodging coverage
+]
+
+# Lodging / hotel coverage with NO flight term. This meaningfully covers a
+# drive-in booking's overnight cost, but at a fly-to location the actor still
+# pays airfare out of pocket — so lodging-only must NOT waive the fly-to
+# threshold. Real example that slipped through: PARANORMAL NOBODIES / SWIMMING
+# BOYFRIEND, a $130/8hr day player in North Shore, MA — "Modified Local Hire.
+# Lodging will be provided for actors who can't work as a local hire" — applied
+# to despite the actor having to fly to Massachusetts for $130/day.
+_LODGING_ONLY_COVERED_PATTERNS = [
     r'\b(?:hotel|lodging|housing|accommodations?)\b',
 ]
 
 
-def _travel_costs_covered(text: str) -> bool:
-    """True if the listing indicates the production covers flights and/or lodging.
+def _travel_costs_covered(text: str, tier: str | None = None) -> bool:
+    """True if the production covers enough of the actor's travel cost to waive
+    the location pay threshold.
 
-    Matching either a flight term or a lodging term is sufficient — these terms
-    appear in casting notices almost exclusively when production is providing
-    them. Lightweight negation guards keep phrasings like "no hotel provided" or
-    "must provide own airfare" from triggering a false waiver.
+    Flight/travel coverage waives at any tier. Lodging-only coverage waives at
+    the drive tiers (short/medium) but NOT at a fly-to location, where airfare —
+    the dominant cost — is still on the actor. `tier` defaults to None (treated
+    as a non-fly tier) for callers that only care whether any coverage exists.
+    Lightweight negation guards keep "no hotel provided" / "must provide own
+    airfare" from triggering a false waiver.
     """
     if re.search(r'\bno\s+(?:travel|flights?|airfare|hotel|lodging|housing|accommodations?|relocation)\b', text):
         return False
@@ -264,7 +274,11 @@ def _travel_costs_covered(text: str) -> bool:
         return False
     if re.search(r'\b(?:own|self[-\s]?funded|self[-\s]?paid)\s+(?:travel|flights?|airfare|hotel|lodging|accommodations?)\b', text):
         return False
-    return any(re.search(p, text) for p in _TRAVEL_COVERED_PATTERNS)
+    if any(re.search(p, text) for p in _TRAVEL_FLIGHT_COVERED_PATTERNS):
+        return True
+    if tier != "fly" and any(re.search(p, text) for p in _LODGING_ONLY_COVERED_PATTERNS):
+        return True
+    return False
 
 
 def _detect_travel_tier(
@@ -390,7 +404,7 @@ def check_travel_pay(
 
     # If travel costs (flights and/or lodging) are covered, the pay threshold
     # doesn't apply.
-    if _travel_costs_covered(combined):
+    if _travel_costs_covered(combined, tier):
         logger.info(f"[TRAVEL PAY] Flights/lodging covered for {tier} location ({matched_location}), skipping pay check")
         return True, None, False
 
