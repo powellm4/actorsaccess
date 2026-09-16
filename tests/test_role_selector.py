@@ -1724,3 +1724,36 @@ def test_must_know_how_to_ride_a_bicycle_is_a_hard_skill():
     assert _unmet_hard_skill_requirement("Talent must know how to ride a bicycle.") is not None
     # generic logistics phrasing is still not a skill check
     assert _unmet_hard_skill_requirement("Must know how to get to set on time.") is None
+
+
+# --- unpaid romance-only gate (male lead/principal, straight romance) ---
+
+
+def test_unpaid_romance_block_present_for_unpaid_only():
+    """The romance-only gate must be injected in unpaid mode and absent in paid."""
+    from src.role_selector import _unpaid_romance_block
+    unpaid = _unpaid_romance_block("unpaid")
+    assert _unpaid_romance_block("paid") == ""
+    # key conditions are all present in the unpaid gate
+    for token in ("ROMANCE", "LEAD or PRINCIPAL", "STRAIGHT", "M/M", "SKIP"):
+        assert token in unpaid, f"expected {token!r} in unpaid romance gate"
+
+
+def test_unpaid_prompt_includes_romance_gate_paid_does_not():
+    """End-to-end plumbing: the unpaid selection prompt carries the gate; paid doesn't.
+    Captures the prompt passed to the model via a patched shadowed_completion."""
+    import src.role_selector as rs
+    captured = {}
+
+    def fake_completion(prompt, **kwargs):
+        captured["prompt"] = prompt
+        return "SKIP - not a romance lead"
+
+    role = {"role_name": "Jake", "role_type": "Lead", "description": "Romantic lead. LEAD."}
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.object(rs, "shadowed_completion", fake_completion):
+            rs.select_best_roles([role], "Love Story", mode="unpaid")
+            assert "UNPAID ROMANCE-ONLY MODE" in captured["prompt"]
+            captured.clear()
+            rs.select_best_roles([role], "Love Story", mode="paid")
+            assert "UNPAID ROMANCE-ONLY MODE" not in captured["prompt"]

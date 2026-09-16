@@ -149,6 +149,34 @@ def _travel_pay_block(mode: str) -> str:
     return _UNPAID_TRAVEL_BLOCK if mode == "unpaid" else _PAID_TRAVEL_PAY_BLOCK
 
 
+# Unpaid mode is deliberately narrowed to ONE kind of role: the actor as a male
+# romantic lead in a straight romance. This is a hard, overriding gate injected
+# into the selection prompts for unpaid mode only. Genre/orientation/billing are
+# rarely structured fields, so the model (which reads the whole breakdown) is the
+# right place to judge this; when it can't confirm all three conditions it skips.
+_UNPAID_ROMANCE_BLOCK = """
+UNPAID ROMANCE-ONLY MODE — this overrides everything below. Only SELECT/FIT a
+role if ALL THREE of these are clearly true from the breakdown:
+  1. ROMANCE: the project is a romance, or the actor's storyline is a central
+     romantic relationship (rom-com, romantic drama, love story, a lead with a
+     love interest). A project with only incidental romance does NOT count.
+  2. MALE LEAD/PRINCIPAL: the actor would be a male romantic LEAD or PRINCIPAL —
+     the (or a) main romantic male role. SKIP supporting, day-player, featured,
+     background, or minor romantic roles.
+  3. STRAIGHT: it is a heterosexual (male-female) romance — the actor's love
+     interest is a woman. SKIP gay/queer male romances and any M/M pairing where
+     the actor's romantic partner is a man.
+SKIP everything that is not a straight romance with the actor as the male
+lead/principal — including all non-romance projects. If you cannot clearly
+confirm all three conditions from the breakdown, SKIP.
+"""
+
+
+def _unpaid_romance_block(mode: str) -> str:
+    """Return the unpaid romance-only gate for unpaid mode, else empty string."""
+    return _UNPAID_ROMANCE_BLOCK if mode == "unpaid" else ""
+
+
 def _extract_total_pay(text: str) -> float | None:
     """Try to extract a numeric pay amount from text. Returns estimated total or None."""
     text_lower = text.lower()
@@ -938,7 +966,7 @@ AVAILABLE ROLES:
 {chr(10).join(role_options)}
 
 {scope_line}
-
+{_unpaid_romance_block(mode)}
 IMPORTANT: If ANY role description says "submit for only one role", "one submission per actor", or similar, you MUST select only ONE role (the best fit) no matter what.
 
 HARD DISQUALIFIERS — reject any role that requires:
@@ -1109,7 +1137,7 @@ PROJECT: {project_name}
 ROLE: {role['role_name']}
 DESCRIPTION: {desc}
 
-{unpaid_line}HARD DISQUALIFIERS — SKIP if the role requires ANY of these:
+{unpaid_line}{_unpaid_romance_block(mode)}HARD DISQUALIFIERS — SKIP if the role requires ANY of these:
 - Height outside 5'10"–6'1" (e.g., "must be 6'3"+", "under 5'6"")
 - Large/heavyset/stocky/overweight build (actor is athletic, 185 lbs)
 - Specific ethnicity that excludes both White AND Latino/Hispanic (e.g., "Black only", "Asian only" — reject. But "Hispanic", "Latino", "White" — accept)
