@@ -1103,6 +1103,21 @@ REJECTED: 4 - Background/extra role, actor does not do background work"""
         return [], rejections
 
 
+# Verdict token synonyms the model uses interchangeably when narrating a
+# FIT/SKIP conclusion (single-role path) or a SELECTED/REJECTED conclusion
+# self-correcting mid-reason (multi-role path, see _last_inline_verdict
+# below) — e.g. "...Accepting on technicality: SELECTED: 1 - ..." or "...
+# DISQUALIFIER: requires electric bass guitar...". Module-level so both
+# paths read the same mapping instead of drifting apart. See
+# casting-suggestion #102.
+_VERDICT_SYNONYMS = {
+    "FIT": "FIT", "SELECTED": "FIT", "ACCEPT": "FIT", "ACCEPTED": "FIT",
+    "SKIP": "SKIP", "REJECT": "SKIP", "REJECTED": "SKIP",
+    "PASS": "SKIP", "PASSED": "SKIP",
+    "DISQUALIFIED": "SKIP", "DISQUALIFIER": "SKIP",
+}
+
+
 def _check_single_role_fit(
     role: dict, project_name: str, api_key: str, mode: str = "paid",
 ) -> tuple[list[tuple[dict, str]], dict[str, str]]:
@@ -1201,13 +1216,8 @@ CRITICAL: Your response must start IMMEDIATELY with FIT or SKIP. Do NOT write an
         # such token trusts the model's final conclusion instead of dropping the
         # role into the uninformative "unrecognized format → SKIP" bucket with the
         # whole self-contradictory paragraph shown as the reason. The optional
-        # "<digit> -" swallows a "SELECTED: 1 -" style prefix. See casting-suggestion #102.
-        _VERDICT_SYNONYMS = {
-            "FIT": "FIT", "SELECTED": "FIT", "ACCEPT": "FIT", "ACCEPTED": "FIT",
-            "SKIP": "SKIP", "REJECT": "SKIP", "REJECTED": "SKIP",
-            "PASS": "SKIP", "PASSED": "SKIP",
-            "DISQUALIFIED": "SKIP", "DISQUALIFIER": "SKIP",
-        }
+        # "<digit> -" swallows a "SELECTED: 1 -" style prefix. See casting-suggestion
+        # #102. (_VERDICT_SYNONYMS is module-level — shared with _last_inline_verdict.)
         _verdict_re = re.compile(
             r'\b(FIT|SKIP|SELECTED|ACCEPTED|ACCEPT|REJECTED|REJECT|PASSED|PASS|'
             r'DISQUALIFIED|DISQUALIFIER)\b\s*[-:–—]\s*(?:\d+\s*[-–—]\s*)?',
@@ -1282,16 +1292,40 @@ CRITICAL: Your response must start IMMEDIATELY with FIT or SKIP. Do NOT write an
 # See casting-suggestion #86 (REJECTED reason ending in a FIT conclusion) and
 # its symmetric gap (SELECTED reason ending in a SKIP/DISQUALIFIER conclusion,
 # e.g. Eric Mason / 27 CLUB, July 6 UNPAID digest).
-_INLINE_VERDICT_RE = re.compile(r'\b(FIT|SKIP|DISQUALIFIER)\b\s*[-:–—]', re.IGNORECASE)
+#
+# Token set: recognize the same SELECTED/ACCEPT(ED)/REJECT(ED)/PASS(ED)
+# synonyms _check_single_role_fit already trusts for the single-role path
+# (see _VERDICT_SYNONYMS above), not just the bare FIT/SKIP/DISQUALIFIER
+# tokens the prompt nominally asks for — the model uses these interchangeably.
+#
+# Sentence-boundary fallback: REJECT/REJECTED/DISQUALIFIED/DISQUALIFIER are
+# not ordinary English words that show up mid-sentence in casting reasoning,
+# so when one of them opens a fresh sentence within the reason (after ".",
+# "!", "?", or a "— wait," hedge) it counts as a self-correction even without
+# a following dash/colon — that prose shape ("...clears the threshold?
+# — wait, Nebraska requires air travel: $750 total. That is under $1,000.
+# REJECT on travel pay.") is exactly how the model phrases a numeric
+# self-correction. FIT/SELECTED/ACCEPT(ED)/PASS(ED) are deliberately excluded
+# from this fallback — they're common English words ("a good fit for",
+# "passable") that would false-trigger if matched without the dash/colon
+# requirement. See casting-suggestion digest evidence: Nebraska Culinary
+# Exploration — OMAHA DUO, Sept 14 2026 9:48pm Paid digest (applied despite
+# its own reasoning ending "REJECT on travel pay").
+_INLINE_VERDICT_RE = re.compile(
+    r'\b(FIT|SELECTED|ACCEPTED|ACCEPT|SKIP|REJECTED|REJECT|PASSED|PASS|'
+    r'DISQUALIFIED|DISQUALIFIER)\b\s*[-:–—]'
+    r'|(?:^|[.!?]\s+|—\s*wait,?\s+)(REJECT|REJECTED|DISQUALIFIED|DISQUALIFIER)\b',
+    re.IGNORECASE,
+)
 
 
 def _last_inline_verdict(reason: str) -> str | None:
     """Return 'FIT' or 'SKIP' for the LAST inline verdict token in reason text,
-    or None if no such token appears. DISQUALIFIER counts as a SKIP token."""
+    or None if no such token appears."""
     verdict = None
     for m in _INLINE_VERDICT_RE.finditer(reason or ""):
-        token = m.group(1).upper()
-        verdict = "SKIP" if token in ("SKIP", "DISQUALIFIER") else "FIT"
+        token = (m.group(1) or m.group(2)).upper()
+        verdict = _VERDICT_SYNONYMS[token]
     return verdict
 
 
