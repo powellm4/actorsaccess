@@ -12,6 +12,12 @@ description: >
   every step at least one complete copy exists on the release, so a failure
   can only leave a stale name behind, never no database.
 
+  After a successful swap it also keeps a dated snapshot (applied-YYYYMMDD.db,
+  first upload of each UTC day) and prunes snapshots older than
+  `snapshot-days`, so a database that was uploaded fine but is wrong (bad
+  migration, cleanup gone wrong, mass mis-apply) can be rolled back too.
+  Snapshotting is best-effort: a failure there warns but never fails the run.
+
 inputs:
   github-token:
     description: GitHub token with contents:write on the repository.
@@ -28,6 +34,10 @@ inputs:
     description: Asset name of the database on the release.
     required: false
     default: applied.db
+  snapshot-days:
+    description: How many days of dated snapshots (applied-YYYYMMDD.db) to keep. 0 disables snapshots.
+    required: false
+    default: "7"
 
 runs:
   using: composite
@@ -39,6 +49,7 @@ runs:
         DB_PATH: ${{ inputs.db-path }}
         TAG: ${{ inputs.release-tag }}
         NAME: ${{ inputs.asset-name }}
+        SNAPSHOT_DAYS: ${{ inputs.snapshot-days }}
       run: |
         set -euo pipefail
         REPO="$GITHUB_REPOSITORY"
@@ -120,4 +131,35 @@ runs:
         echo "Renaming $TMP_NAME (id=$TMP_ID) -> $NAME"
         gh api -X PATCH "repos/$REPO/releases/assets/$TMP_ID" -f name="$NAME" >/dev/null
         echo "Uploaded $NAME ($LOCAL_SIZE bytes) to release $TAG"
+
+        # 5. Best-effort dated snapshot + pruning. Never fails the run: the
+        #    live database is already safely in place by now.
+        if [ "${SNAPSHOT_DAYS:-0}" -gt 0 ] 2>/dev/null; then
+          set +e
+          STEM="${NAME%.*}"; EXT="${NAME##*.}"
+          TODAY=$(date -u +%Y%m%d)
+          SNAP_NAME="${STEM}-${TODAY}.${EXT}"
+          if [ -z "$(asset_id_by_name "$SNAP_NAME" uploaded)" ]; then
+            SNAP_FILE="$RUNNER_TEMP/$SNAP_NAME"
+            cp "$DB_PATH" "$SNAP_FILE"
+            for id in $(list_assets | awk -v n="$SNAP_NAME" '$4 == n {print $1}'); do delete_asset "$id" "partial $SNAP_NAME"; done
+            if gh release upload "$TAG" "$SNAP_FILE" --repo "$REPO"; then
+              echo "Snapshot $SNAP_NAME saved"
+            else
+              echo "::warning::snapshot upload of $SNAP_NAME failed (live $NAME is unaffected)"
+            fi
+          else
+            echo "Snapshot $SNAP_NAME already exists for today"
+          fi
+          CUTOFF=$(date -u -d "-${SNAPSHOT_DAYS} days" +%Y%m%d)
+          list_assets | awk -v stem="$STEM" -v ext="$EXT" -v cutoff="$CUTOFF" '
+            { name = $4; pfx = stem "-"; sfx = "." ext }
+            index(name, pfx) == 1 && substr(name, length(name) - length(sfx) + 1) == sfx {
+              d = substr(name, length(pfx) + 1, length(name) - length(pfx) - length(sfx))
+              if (d ~ /^[0-9]{8}$/ && d < cutoff) print $1, name
+            }' | while read -r id name; do
+              delete_asset "$id" "expired snapshot $name" || echo "::warning::could not prune $name"
+            done
+          set -e
+        fi
         list_assets
