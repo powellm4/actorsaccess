@@ -21,6 +21,10 @@ jobs:
   cleanup:
     runs-on: ubuntu-latest
     steps:
+      # Needed for the local ./.github/actions/upload-db action.
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
       - name: Download database
         env:
           GH_TOKEN: ${{ github.token }}
@@ -56,6 +60,6 @@ jobs:
           SQL
 
       - name: Upload database
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload db-storage data/applied.db --clobber --repo "${{ github.repository }}"
+        uses: ./.github/actions/upload-db
+        with:
+          github-token: ${{ github.token }}

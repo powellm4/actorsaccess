@@ -1,0 +1,123 @@
+name: Upload database to release (non-destructive)
+description: >
+  Replaces the applied.db asset on the db-storage release WITHOUT the
+  delete-then-upload gap of `gh release upload --clobber`. On 2026-09-17 that
+  gap lost the whole database: --clobber deleted the old asset, the new upload
+  failed with an HTTP 500 from GitHub, and the release was left empty.
+
+  Sequence here: (1) upload the new file under a temporary name, retrying on
+  transient errors; (2) verify GitHub reports it fully uploaded with the right
+  size; (3) rename the current applied.db to applied.db.prev (keeping one
+  generation of backup); (4) rename the temporary asset to applied.db. At
+  every step at least one complete copy exists on the release, so a failure
+  can only leave a stale name behind, never no database.
+
+inputs:
+  github-token:
+    description: GitHub token with contents:write on the repository.
+    required: true
+  db-path:
+    description: Local path of the SQLite database to upload.
+    required: false
+    default: data/applied.db
+  release-tag:
+    description: Tag of the release that stores the database.
+    required: false
+    default: db-storage
+  asset-name:
+    description: Asset name of the database on the release.
+    required: false
+    default: applied.db
+
+runs:
+  using: composite
+  steps:
+    - name: Upload database (safe swap)
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        DB_PATH: ${{ inputs.db-path }}
+        TAG: ${{ inputs.release-tag }}
+        NAME: ${{ inputs.asset-name }}
+      run: |
+        set -euo pipefail
+        REPO="$GITHUB_REPOSITORY"
+        TMP_NAME="${NAME}.uploading"
+        PREV_NAME="${NAME}.prev"
+
+        if [ ! -s "$DB_PATH" ]; then
+          echo "::error::$DB_PATH is missing or empty — refusing to upload"; exit 1
+        fi
+        python3 - "$DB_PATH" <<'PY'
+        import sqlite3, sys
+        conn = sqlite3.connect(sys.argv[1])
+        ok = conn.execute("PRAGMA integrity_check").fetchone()[0]
+        if ok != "ok":
+            sys.exit(f"integrity_check failed: {ok}")
+        n = conn.execute("SELECT COUNT(*) FROM applied_roles").fetchone()[0]
+        print(f"integrity_check ok, applied_roles={n}")
+        if n == 0:
+            sys.exit("applied_roles is empty — refusing to upload an empty database")
+        PY
+        LOCAL_SIZE=$(stat -c %s "$DB_PATH")
+
+        RELEASE_ID=$(gh api "repos/$REPO/releases/tags/$TAG" --jq .id)
+        list_assets() {
+          # Includes assets stuck in state=starter (failed uploads), which the
+          # release view and `gh release download` silently hide.
+          gh api "repos/$REPO/releases/$RELEASE_ID/assets" --paginate \
+            --jq '.[] | "\(.id) \(.state) \(.size) \(.name)"'
+        }
+        asset_id_by_name() {  # $1 = name, $2 = optional state filter
+          list_assets | awk -v n="$1" -v s="${2:-}" '$4 == n && (s == "" || $2 == s) {print $1; exit}'
+        }
+        delete_asset() {
+          echo "Deleting asset id=$1 ($2)"
+          gh api -X DELETE "repos/$REPO/releases/assets/$1" >/dev/null
+        }
+
+        # Clear leftovers from earlier failed attempts: any asset with the temp
+        # name, and any half-created ('starter') asset with the final name —
+        # the latter blocks re-using the name.
+        for id in $(list_assets | awk -v n="$TMP_NAME" '$4 == n {print $1}'); do delete_asset "$id" "$TMP_NAME"; done
+        for id in $(list_assets | awk -v n="$NAME" '$4 == n && $2 != "uploaded" {print $1}'); do delete_asset "$id" "dead $NAME"; done
+
+        # 1. Upload under the temporary name (retry transient failures).
+        TMP_FILE="$RUNNER_TEMP/$TMP_NAME"
+        cp "$DB_PATH" "$TMP_FILE"
+        uploaded=0
+        for attempt in 1 2 3 4; do
+          if gh release upload "$TAG" "$TMP_FILE" --clobber --repo "$REPO"; then uploaded=1; break; fi
+          echo "::warning::upload attempt $attempt failed, retrying"
+          for id in $(list_assets | awk -v n="$TMP_NAME" '$4 == n {print $1}'); do delete_asset "$id" "$TMP_NAME"; done
+          sleep $((15 * attempt))
+        done
+        if [ "$uploaded" != 1 ]; then
+          echo "::error::could not upload $TMP_NAME after 4 attempts; existing $NAME left untouched"; exit 1
+        fi
+
+        # 2. Verify the upload really landed.
+        TMP_ID=$(asset_id_by_name "$TMP_NAME" uploaded)
+        if [ -z "$TMP_ID" ]; then
+          echo "::error::$TMP_NAME not in state=uploaded after upload; existing $NAME left untouched"; exit 1
+        fi
+        REMOTE_SIZE=$(gh api "repos/$REPO/releases/assets/$TMP_ID" --jq .size)
+        if [ "$REMOTE_SIZE" != "$LOCAL_SIZE" ]; then
+          echo "::error::size mismatch (local $LOCAL_SIZE, remote $REMOTE_SIZE); existing $NAME left untouched"; exit 1
+        fi
+
+        # 3. Rotate: current NAME -> PREV_NAME (drop the older PREV first).
+        for id in $(list_assets | awk -v n="$PREV_NAME" '$4 == n {print $1}'); do delete_asset "$id" "$PREV_NAME"; done
+        CUR_ID=$(asset_id_by_name "$NAME" uploaded)
+        if [ -n "$CUR_ID" ]; then
+          echo "Renaming current $NAME (id=$CUR_ID) -> $PREV_NAME"
+          gh api -X PATCH "repos/$REPO/releases/assets/$CUR_ID" -f name="$PREV_NAME" >/dev/null
+        else
+          echo "::warning::no existing $NAME asset on the release (first upload or recovery)"
+        fi
+
+        # 4. Promote the verified upload.
+        echo "Renaming $TMP_NAME (id=$TMP_ID) -> $NAME"
+        gh api -X PATCH "repos/$REPO/releases/assets/$TMP_ID" -f name="$NAME" >/dev/null
+        echo "Uploaded $NAME ($LOCAL_SIZE bytes) to release $TAG"
+        list_assets
