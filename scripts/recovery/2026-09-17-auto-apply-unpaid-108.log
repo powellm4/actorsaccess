@@ -1,0 +1,35 @@
+# total lines in full log: 2921
+# matched lines (incl. 3 platform step headers): 33
+2026-09-17T19:37:36.5417060Z ##[group]Run python -m src.main --once --mode unpaid \
+2026-09-17T19:37:37.1597667Z 2026-09-17 19:37:37,159 [INFO] src.database: [DB] Started run id=2827 platform=aa mode=unpaid
+2026-09-17T19:38:33.2755688Z 2026-09-17 19:38:33,275 [INFO] src.database: [DB] Recording application: DEVIL'S GATE (PILOT: CSUN BA THESIS) — JETT ROCKEWELL (id=906065_5366096, mode=unpaid, status=submitted)
+2026-09-17T19:38:51.6871566Z 2026-09-17 19:38:51,686 [INFO] src.database: [DB] Recording application: DEVIL'S GATE (PILOT: CSUN BA THESIS) — CLIVE (id=906065_5366097, mode=unpaid, status=submitted)
+2026-09-17T19:39:20.0473234Z 2026-09-17 19:39:20,046 [INFO] src.database: [DB] Recording application: CHICAGO RUTHLESS — DANTE MORETTI (id=906134_5366370, mode=unpaid, status=submitted)
+2026-09-17T19:45:01.9202880Z 2026-09-17 19:45:01,920 [INFO] src.database: [DB] Recording application: SCENE FROM 50/50 (USC DIRECTING CLASS) (Spec Change for LEADS) — KYLE (id=905306_5362605, mode=unpaid, status=submitted)
+2026-09-17T19:46:31.1401593Z 2026-09-17 19:46:31,140 [INFO] src.database: [DB] Completed run id=2827: found=355, applied=4, skipped=54
+2026-09-17T19:46:31.1420843Z 2026-09-17 19:46:31,141 [INFO] actorsaccess: Run complete: 4 applied, 297 filtered out, 54 already applied, 355 total roles found
+2026-09-17T19:46:59.2916554Z ##[group]Run xvfb-run --auto-servernum python -m src.cn.main --once --mode unpaid \
+2026-09-17T19:46:59.4417711Z 2026-09-17 19:46:59,441 [INFO] src.database: [DB] Started run id=2828 platform=cn mode=unpaid
+2026-09-17T19:47:24.8112110Z 2026-09-17 19:47:24,810 [INFO] src.database: [DB] Recording rejection: Kozmiel's Boxed In — THE UNMADE (role-type not specified/unclear for an acting role, and this is an unpaid short film; under unpaid mode, only straight romance leads qualify — this is a creature/physical performance role with no romantic storyline., mode=unpaid)
+2026-09-17T19:47:45.1603501Z 2026-09-17 19:47:45,160 [INFO] src.database: [DB] Recording application: Before Sunrise - Four Minute Scene Exercise — Jesse (id=cn_16058812_67470974, mode=unpaid, status=submitted)
+2026-09-17T19:48:21.6180593Z 2026-09-17 19:48:21,617 [INFO] src.database: [DB] Completed run id=2828: found=200, applied=1, skipped=85
+2026-09-17T19:48:21.6194154Z 2026-09-17 19:48:21,619 [INFO] castingnetworks: Run complete: 1 applied, 113 filtered out, 85 already applied, 200 total roles found
+2026-09-17T20:14:56.0601907Z ##[group]Run python -m src.backstage.main --once --mode unpaid \
+2026-09-17T20:14:56.1513580Z 2026-09-17 20:14:56,151 [INFO] src.database: [DB] Started run id=2829 platform=backstage mode=unpaid
+2026-09-17T20:15:18.8899576Z 2026-09-17 20:15:18,889 [INFO] src.database: [DB] Recording application: Thesis Film About Two Friends Who Win The Lottery. — Calvin (id=backstage_3282351_5630861, mode=unpaid, status=submitted)
+2026-09-17T20:15:37.3232534Z 2026-09-17 20:15:37,322 [INFO] src.database: [DB] Recording application: Thesis Film About Two Friends Who Win The Lottery. — Tyler (id=backstage_3282351_5630862, mode=unpaid, status=submitted)
+2026-09-17T20:15:40.0325777Z 2026-09-17 20:15:40,032 [INFO] src.database: [DB] Recording rejection: Local Yoga Business Photo Shoot — Model (yoga experience required; no indication actor has yoga experience or training, mode=unpaid)
+2026-09-17T20:15:41.9515409Z 2026-09-17 20:15:41,951 [INFO] src.database: [DB] Recording rejection: 'Secret Santa' — Jesse (Unpaid project is not a romance; fails Unpaid Romance-Only Mode (non-romance project)., mode=unpaid)
+2026-09-17T20:15:44.1081375Z 2026-09-17 20:15:44,107 [INFO] src.database: [DB] Recording rejection: 'Have A Good One' — Hotel Security Guard (Single-scene/day player role (security guard who orders John to leave); fails the role-type rule with no modeling exemption applicable., mode=unpaid)
+2026-09-17T20:15:46.2883949Z 2026-09-17 20:15:46,287 [INFO] src.database: [DB] Recording rejection: 'No Tripe' — Chucky Kaminski (Role requires out-of-shape build with receding hairline; actor is athletic/185 lbs with full hair — hard physical mismatch for this specific character description., mode=unpaid)
+2026-09-17T20:15:49.5150396Z 2026-09-17 20:15:49,514 [INFO] src.database: [DB] Recording rejection: 'OATH' — Nate Wilson (Project is not a romance; UNPAID ROMANCE-ONLY MODE applies and this psychological mystery/drama does not qualify as a romance or romance-driven storyline, mode=unpaid)
+2026-09-17T20:15:49.5163378Z 2026-09-17 20:15:49,516 [INFO] src.database: [DB] Recording rejection: 'OATH' — Logan Bone (Project is not a romance; UNPAID ROMANCE-ONLY MODE applies and this psychological mystery/drama does not qualify as a romance or romance-driven storyline, mode=unpaid)
+2026-09-17T20:15:49.5178624Z 2026-09-17 20:15:49,517 [INFO] src.database: [DB] Recording rejection: 'OATH' — Roy Luskin (Project is not a romance; UNPAID ROMANCE-ONLY MODE applies and this psychological mystery/drama does not qualify as a romance or romance-driven storyline, mode=unpaid)
+2026-09-17T20:15:53.4991730Z 2026-09-17 20:15:53,498 [INFO] src.database: [DB] Recording rejection: 48 Hour Film Project — Supprting Role (Supporting role fails the role-type rule (Supporting roles are not Lead/Principal/Series Regular), and additionally fails UNPAID ROMANCE-ONLY MODE as a non-romance project, mode=unpaid)
+2026-09-17T20:16:15.8694077Z 2026-09-17 20:16:15,869 [INFO] src.database: [DB] Recording application: 48 Hour Film Project — Male Leading Role (id=backstage_3280286_5630139, mode=unpaid, status=submitted)
+2026-09-17T20:16:18.2943902Z 2026-09-17 20:16:18,294 [INFO] src.database: [DB] Recording rejection: 'Where Lilies Grow' — Soleil (Role is female (Soleil is a woman — bisexual "lover girl," girlfriend to Lyra); cisgender male actor does not fit this gender requirement., mode=unpaid)
+2026-09-17T20:16:20.2068470Z 2026-09-17 20:16:20,206 [INFO] src.database: [DB] Recording rejection: soundspeed — Shota (Requires fluency in Japanese; actor does not speak Japanese, mode=unpaid)
+2026-09-17T20:16:20.2084720Z 2026-09-17 20:16:20,208 [INFO] src.database: [DB] Recording rejection: soundspeed — Ryohei (Requires fluency in Japanese; actor does not speak Japanese, mode=unpaid)
+2026-09-17T20:16:23.9475208Z 2026-09-17 20:16:23,947 [INFO] src.database: [DB] Recording rejection: 'Imagine Tomorrow' — John Baxter (role requires ASL (American Sign Language), a skill the actor does not have, mode=unpaid)
+2026-09-17T20:16:28.0081755Z 2026-09-17 20:16:28,008 [INFO] src.database: [DB] Completed run id=2829: found=142, applied=3, skipped=72
+2026-09-17T20:16:28.0098102Z 2026-09-17 20:16:28,009 [INFO] backstage: Run complete: 3 applied, 55 filtered out, 72 already applied, 142 total roles found

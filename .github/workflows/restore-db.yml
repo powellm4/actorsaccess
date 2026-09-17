@@ -1,0 +1,116 @@
+name: Restore database from archive
+
+# Disaster recovery for the db-storage release asset (applied.db).
+#
+# Rebuilds applied.db from the submissions archive published on gh-pages
+# (scripts/rebuild_db_from_archive.py), merges any DB events mined from job
+# logs under scripts/recovery/, backs up the current gh-pages pages to the
+# release, and uploads the rebuilt database with the non-destructive
+# upload-db action.
+#
+# Refuses to run unless `confirm` is exactly "restore", and refuses to replace
+# an existing, fully uploaded applied.db unless `allow_overwrite` is set —
+# so an accidental dispatch cannot clobber a healthy database.
+#
+# Trigger via the Actions tab → "Restore database from archive" → Run workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "restore" to confirm'
+        required: true
+        default: ""
+      allow_overwrite:
+        description: "Replace applied.db even if a healthy copy exists on the release"
+        type: boolean
+        default: false
+      last_digest:
+        description: "UTC time of the last digest actually sent (seeds digest_history so the next digest does not cover all history)"
+        required: false
+        default: "2026-09-17 20:16:00.000000"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: db-access
+  cancel-in-progress: false
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check confirmation
+        if: inputs.confirm != 'restore'
+        run: |
+          echo "::error::confirm input must be exactly 'restore'"; exit 1
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Checkout published archive (gh-pages)
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: site
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Refuse to clobber a healthy database
+        if: ${{ !inputs.allow_overwrite }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RELEASE_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/db-storage" --jq .id)
+          echo "Current assets:"
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets" --paginate \
+            --jq '.[] | "\(.id) \(.state) \(.size) \(.name) \(.updated_at)"'
+          HEALTHY=$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets" --paginate \
+            --jq '[.[] | select(.name == "applied.db" and .state == "uploaded")] | length')
+          if [ "$HEALTHY" != "0" ]; then
+            echo "::error::a fully uploaded applied.db already exists on the release; re-run with allow_overwrite if you really mean to replace it"
+            exit 1
+          fi
+
+      - name: Back up the current gh-pages pages to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+          mkdir -p backup
+          cp site/index.html "backup/archive-before-restore-$STAMP.html"
+          if [ -f site/shadow/index.html ]; then
+            cp site/shadow/index.html "backup/shadow-before-restore-$STAMP.html"
+          fi
+          gh release upload db-storage backup/* --repo "$GITHUB_REPOSITORY"
+          ls -la backup
+
+      - name: Rebuild applied.db from the archive
+        run: |
+          mkdir -p data
+          EXTRA=""
+          for f in scripts/recovery/*.log; do [ -f "$f" ] && EXTRA="$EXTRA --extra-log $f"; done
+          python scripts/rebuild_db_from_archive.py \
+            --archive site/index.html \
+            --output data/applied.db \
+            --min-records 13000 \
+            --last-digest "${{ inputs.last_digest }}" \
+            $EXTRA
+
+      - name: Upload database
+        uses: ./.github/actions/upload-db
+        with:
+          github-token: ${{ github.token }}
+
+      - name: Keep a copy of the rebuilt database as a run artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rebuilt-applied-db-${{ github.run_number }}
+          path: data/applied.db
+          retention-days: 90
+          if-no-files-found: ignore
