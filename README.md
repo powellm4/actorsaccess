@@ -159,7 +159,7 @@ Both share a `db-access` concurrency group so they don't clobber each other. CN 
 
 `data/applied.db` lives in the `db-storage` GitHub Release. Each workflow downloads it at start, updates it per step, and re-uploads at end. Local runs get a fresh SQLite (auto-created by `Database._create_tables()` on first connect) — the local DB is not production data.
 
-Uploads go through `.github/actions/upload-db`, never `gh release upload --clobber` directly: the new file is uploaded under a temporary name, verified, and only then swapped in (the previous copy is kept as `applied.db.prev`). `--clobber` deletes first and uploads second, and on 2026-09-17 a GitHub HTTP 500 between those two steps left the release with no database at all.
+Uploads go through `.github/actions/upload-db`, never `gh release upload --clobber` directly: the new file is uploaded under a temporary name, verified, and only then swapped in (the previous copy is kept as `applied.db.prev`). After each successful swap it also keeps a dated snapshot (`applied-YYYYMMDD.db`, first upload of each UTC day) and prunes snapshots older than 7 days, so a database that uploaded fine but is wrong can be rolled back by downloading a snapshot and re-uploading it with the action. `--clobber` deletes first and uploads second, and on 2026-09-17 a GitHub HTTP 500 between those two steps left the release with no database at all.
 
 If the asset is ever lost again, the "Restore database from archive" workflow (`restore-db.yml`, manual dispatch) rebuilds `applied.db` from the gh-pages archive with `scripts/rebuild_db_from_archive.py`, merging any newer DB events saved under `scripts/recovery/`. See the script's docstring for what is and isn't recoverable.
 
