@@ -66,9 +66,9 @@ jobs:
         run: python -m src.main --once
 
       - name: Upload database (after AA)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload db-storage data/applied.db --clobber
+        uses: ./.github/actions/upload-db
+        with:
+          github-token: ${{ github.token }}
 
       - name: Run CN auto-apply (headed via xvfb)
         env:
@@ -81,9 +81,9 @@ jobs:
         run: xvfb-run --auto-servernum python -m src.cn.main --once
 
       - name: Upload database (after CN)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload db-storage data/applied.db --clobber
+        uses: ./.github/actions/upload-db
+        with:
+          github-token: ${{ github.token }}
 
       - name: Run Backstage auto-apply
         env:
@@ -96,9 +96,9 @@ jobs:
         run: python -m src.backstage.main --once
 
       - name: Upload database (after Backstage)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload db-storage data/applied.db --clobber
+        uses: ./.github/actions/upload-db
+        with:
+          github-token: ${{ github.token }}
 
       # The pipeline applies on all 6 daily runs, but the digest email only
       # goes out twice a day — at 11am & 5pm PT (the "0 18,0 * * *" schedule),
@@ -123,9 +123,9 @@ jobs:
       # runs the DB was already uploaded after the Backstage step.
       - name: Upload database (after digest)
         if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 18,0 * * *'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload db-storage data/applied.db --clobber
+        uses: ./.github/actions/upload-db
+        with:
+          github-token: ${{ github.token }}
 
       - name: Publish archive site
         uses: ./.github/actions/publish-archive

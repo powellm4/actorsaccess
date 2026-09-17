@@ -78,9 +78,9 @@ jobs:
             ${{ inputs.max_pages && format('--max-pages {0}', inputs.max_pages) || '' }}
 
       - name: Upload database (after AA)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload db-storage data/applied.db --clobber
+        uses: ./.github/actions/upload-db
+        with:
+          github-token: ${{ github.token }}
 
       - name: Run CN auto-apply (unpaid, headed via xvfb)
         env:
@@ -96,9 +96,9 @@ jobs:
             ${{ inputs.max_pages && format('--max-pages {0}', inputs.max_pages) || '' }}
 
       - name: Upload database (after CN)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload db-storage data/applied.db --clobber
+        uses: ./.github/actions/upload-db
+        with:
+          github-token: ${{ github.token }}
 
       - name: Run Backstage auto-apply (unpaid)
         env:
@@ -114,9 +114,9 @@ jobs:
             ${{ inputs.max_pages && format('--max-pages {0}', inputs.max_pages) || '' }}
 
       - name: Upload database (after Backstage)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload db-storage data/applied.db --clobber
+        uses: ./.github/actions/upload-db
+        with:
+          github-token: ${{ github.token }}
 
       - name: Send digest email (unpaid)
         env:
@@ -128,9 +128,9 @@ jobs:
         run: python -m src.digest --mode unpaid
 
       - name: Upload database (after digest)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload db-storage data/applied.db --clobber
+        uses: ./.github/actions/upload-db
+        with:
+          github-token: ${{ github.token }}
 
       - name: Publish archive site
         uses: ./.github/actions/publish-archive
