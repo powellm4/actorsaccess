@@ -10,6 +10,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from src.role_selector import (
+    ACTOR_PROFILE,
     _is_transient_error,
     _maybe_override_local_hire_skip,
     _unmet_gender_role_name_conflict,
@@ -1142,7 +1143,8 @@ def test_analyze_empty_description_defaults_to_submit():
 #
 # #83 fixed the submission_note field's boilerplate, but "PLEASE INCLUDE SIZE
 # CARDS" is deliberately handled via the AA profile (not a note) and a demo-clip
-# request with no reel on file has nothing to attach — both still leave `note`
+# request on a platform that does not attach the reel (has_media False) has
+# nothing to confirm — both still leave `note`
 # empty, so the digest showed the same "No specific submission info requested"
 # text as a listing that asked for nothing at all. info_note is a digest-only
 # annotation (never submitted to casting) that distinguishes the two cases.
@@ -1161,18 +1163,40 @@ def test_analyze_size_card_request_sets_info_note():
     assert result["info_note"] == "Size card requested — on file in AA profile."
 
 
-def test_analyze_demo_clip_request_with_no_reel_sets_info_note():
-    """Demo clip requests when the actor has no reel on file (the default
-    ACTOR_PROFILE) should be visible in the digest, not indistinguishable from
-    a listing that asked for nothing."""
+def test_analyze_demo_clip_request_without_media_sets_info_note():
+    """Demo clip requests on a platform whose pipeline does not attach the reel
+    (has_media False, e.g. Casting Networks) should be visible in the digest,
+    not indistinguishable from a listing that asked for nothing."""
+    mock_anthropic, _ = _make_mock_anthropic("ACTION: SUBMIT")
+    role = {"role_name": "Host", "description": "Please submit actor's online demo clips along with submission."}
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            result = analyze_submission_requirements(role, "Test Project", has_media=False)
+    assert result["action"] == "SUBMIT"
+    assert result["note"] is None
+    assert result["info_note"] == "Demo clips requested — reel not attached on this platform; applied anyway."
+
+
+def test_analyze_demo_clip_request_with_media_confirms_reel_attached():
+    """The actor has a demo reel, so when the pipeline attaches it (has_media
+    True) an explicit demo-clip request must be answered with the confirmation
+    note rather than silently dropped. This is the regression that the stale
+    "No demo reel currently" profile line used to cause."""
     mock_anthropic, _ = _make_mock_anthropic("ACTION: SUBMIT")
     role = {"role_name": "Host", "description": "Please submit actor's online demo clips along with submission."}
     with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
         with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
             result = analyze_submission_requirements(role, "Test Project", has_media=True)
-    assert result["action"] == "SUBMIT"
-    assert result["note"] is None
-    assert result["info_note"] == "Demo clips requested — no reel on file; applied anyway."
+    assert result["action"] == "SUBMIT_WITH_NOTE"
+    assert result["note"] == "Demo reel attached."
+    assert not result.get("info_note")
+
+
+def test_actor_profile_does_not_claim_missing_reel():
+    """Guards the fix directly: nothing in the profile may tell the model the
+    actor lacks a reel, or the model volunteers that negative to casting."""
+    assert "no demo reel" not in ACTOR_PROFILE.lower()
+    assert "demo reel" in ACTOR_PROFILE.lower()
 
 
 def test_analyze_no_requirements_leaves_info_note_unset():

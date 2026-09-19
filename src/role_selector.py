@@ -67,7 +67,7 @@ ACTOR_PROFILE = """
 - Generally open availability
 - Comfortable and willing to play LGBTQ+ characters of any orientation or gender identity
 - Comfortable with on-screen kissing, intimacy, and nudity (any gender of scene partner)
-- No demo reel currently — still apply for roles requesting one
+- Has a demo reel (commercial acting reel plus additional clips); it is attached automatically to submissions on platforms that support it
 - Available for modeling work (print, stills, photo shoots, TFP/Time-For-Print, swimwear, beach, fitness, lifestyle, fashion, editorial, brand campaigns, portfolio shoots, catalog, lookbook). Modeling gigs do NOT have acting role types — evaluate them on physical/type fit only, not on Lead/Principal/etc. labels. Unpaid TFP shoots are acceptable.
 - No voice over / voice acting roles
 - No UGC
@@ -1774,7 +1774,7 @@ IMPORTANT RULES:
 - If the post asks for availability/dates and CONFIRMED AVAILABILITY is provided above, include the specific dates in the note
 - If they ask for an email address or phone number: the actor profile does NOT list either. Do NOT invent one, and do NOT claim one is "on file" or "available upon request" — both are fabrications. Respond with ACTION: SUBMIT (no note) unless Instagram was also requested, in which case include only @marshallpowell.
 - PHYSICAL-SKILL FOOTAGE REQUESTS: if the casting asks for footage, clips, or a reel specifically demonstrating a NAMED PHYSICAL skill (e.g., "submit dance clips", "include skating footage", "gymnastic reel", "martial arts clips", "stunt reel", "show us your [sport] skills") — this is a role REQUIREMENT check, NOT a generic demo reel request. Apply the following logic: (a) if the named skill IS in the actor profile → respond SUBMIT_WITH_NOTE with a brief note about that experience (this is the narrow exception to the no-experience rule); (b) if the named skill is NOT in the actor profile → respond NEEDS_INPUT so the human can decide whether to apply without it. Examples: "please submit salsa clips" + actor has 5+ years salsa → SUBMIT_WITH_NOTE ("5+ years of salsa dancing."). "please submit ice skating footage" + actor has no skating experience → NEEDS_INPUT ("Ice skating footage requested; actor has no skating experience listed.").
-- GENERIC DEMO REEL / NON-PHYSICAL-EXPERIENCE REEL REQUESTS: if they ask for a general demo reel, showreel, reel link, online clips, video samples, "show us your work", OR a reel/clip demonstrating a NAMED NON-PHYSICAL skill or experience (e.g., "hosting reel", "MC reel", "interview reel", "comedy reel") → respond with ACTION: SUBMIT regardless of whether the actor has that reel or that experience. The actor profile explicitly states no demo reel currently exists and to still apply for roles requesting one — this is never a blocker, and unlike the physical-skill case above, do NOT respond NEEDS_INPUT for it. Do NOT add a note volunteering that the reel or experience is missing (see the "specific types of experience" and "never volunteer negative info" rules above) — just submit with no note on that point.
+- GENERIC DEMO REEL / NON-PHYSICAL-EXPERIENCE REEL REQUESTS: if they ask for a general demo reel, showreel, reel link, online clips, video samples, "show us your work", OR a reel/clip demonstrating a NAMED NON-PHYSICAL skill or experience (e.g., "hosting reel", "MC reel", "interview reel", "comedy reel") → respond with ACTION: SUBMIT regardless of whether the actor has that reel or that experience. The actor has a demo reel and it is attached automatically where the platform supports it, so a reel request is never a blocker, and unlike the physical-skill case above, do NOT respond NEEDS_INPUT for it. Do NOT add a note volunteering that the reel or experience is missing (see the "specific types of experience" and "never volunteer negative info" rules above) — just submit with no note on that point.
 - If multiple requirements exist and you can answer SOME but not all, use NEEDS_INPUT — UNLESS the unanswerable item is a generic demo reel / non-physical-experience reel / demo clips / reel link / video samples (apply anyway, no note on that item). This exception does NOT apply to named-PHYSICAL-skill footage requests.
 - When in doubt between SUBMIT and SUBMIT_WITH_NOTE, ALWAYS prefer SUBMIT
 - Treat project-level REQUIREMENTS (e.g., "NOTE YOUR DETAILED AVAILABILITY") with the same weight as role-level requests — these apply to every role submission
@@ -1833,12 +1833,12 @@ Respond with ONLY the action line (and NOTE/REASON line if applicable). No other
     # will attach media from the actor's profile, confirm this with a brief note.
     # This makes the digest show "Demo reel attached." instead of the generic
     # "No specific submission info requested", and directly answers casting's ask.
-    # Guard: only fire when the actor actually has a reel. `has_media` can be True
-    # for headshots/photos alone; the profile line "No demo reel currently" means
-    # we must not tell casting a reel was attached when none exists.
+    # `has_media` is the single source of truth here: it is True only when the
+    # calling platform's pipeline will actually attach the reel (AA's
+    # submission.include_media, Backstage's submission.video_reel_ids), so the
+    # note never claims an attachment that was not made.
     desc = role.get("description", "")
     if (has_media
-            and "no demo reel" not in ACTOR_PROFILE.lower()
             and result["action"] == "SUBMIT"
             and result.get("note") is None
             and _clips_explicitly_requested(desc, project_notes)):
@@ -1851,16 +1851,17 @@ Respond with ONLY the action line (and NOTE/REASON line if applicable). No other
 
     # Digest-only annotation (never submitted to casting) for explicit requests
     # that were satisfied through a channel other than the submission note —
-    # size cards live in the AA profile, and a demo-clip request with no reel
-    # on file has nothing to attach. Without this, the digest's generic "No
-    # specific submission info requested" looks identical to a listing that
+    # size cards live in the AA profile, and a demo-clip request on a platform
+    # whose pipeline does not attach the reel (has_media False) leaves the note
+    # empty. Without this, the digest's generic "No specific submission info
+    # requested" looks identical to a listing that
     # asked for nothing at all, which is exactly what casting-suggestion #83
     # flagged. See casting-suggestion follow-up to #83.
     if result["action"] == "SUBMIT" and not result.get("note"):
         if _size_card_explicitly_requested(desc, project_notes):
             result["info_note"] = "Size card requested — on file in AA profile."
         elif _clips_explicitly_requested(desc, project_notes):
-            result["info_note"] = "Demo clips requested — no reel on file; applied anyway."
+            result["info_note"] = "Demo clips requested — reel not attached on this platform; applied anyway."
 
     return result
 

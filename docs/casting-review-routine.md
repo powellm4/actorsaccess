@@ -55,8 +55,8 @@ When the routine identifies an improvement, these are the files to edit (draft P
 The actor profile (for reference while judging fit): appears 25 / plays 17–30, male,
 White/Latino, 6'0", athletic, brown hair, clean-shaven, bilingual English/Spanish (American
 English accent only — Spanish is the exception), improv (UCB/Groundlings), salsa, guitar,
-sings, LA-based with reliable transport, non-union, no demo reel yet (still apply), no
-VO/UGC/background/theatre.
+sings, LA-based with reliable transport, non-union, has a demo reel (attached to
+submissions), no VO/UGC/background/theatre.
 
 ---
 
@@ -95,7 +95,7 @@ STEP 1 — GATHER
 STEP 2 — ANALYZE (the actor: appears 25 / plays 17-30, male, White/Latino, 6'0",
 athletic, brown hair, clean-shaven, bilingual English/Spanish [American English
 accent only; Spanish is the exception], improv/salsa/guitar/sings, LA-based,
-non-union, no demo reel yet so still applies for roles requesting one; no
+non-union, has a demo reel that is attached to submissions; no
 VO/UGC/background/theatre).
   a) Submission accuracy ("roles submitted to and why"): for each APPLIED role,
      judge whether the ai_reason is sound and the role actually fits the profile
