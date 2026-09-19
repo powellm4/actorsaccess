@@ -31,6 +31,43 @@ def _clean_scraped_description(text: str) -> str:
     text = re.sub(r'\s*(?:Match\s*)?\[\s*$', '', text)
     return text.strip()
 
+
+def _pick_media_checkboxes(labels: list[str], required_name: str = "") -> dict:
+    """Decide which checkboxes in the submission modal's media step to tick.
+
+    The modal offers a "Select All" checkbox that attaches every clip on file.
+    That is the normal path, but it is not guaranteed to be present, and the
+    old code silently attached nothing when it was missing — a submission
+    would go out with no reel and no log line saying so.
+
+    Note the caller's query returns every checkbox in the iframe, not just
+    media ones (the size card checkbox is in there too, and it is configured
+    separately). So when "Select All" is absent we tick only the clips whose
+    label matches `required_name` rather than ticking everything in sight.
+
+    Args:
+        labels: visible label text for every checkbox in the step, in DOM order.
+        required_name: a clip that must end up attached, matched
+            case-insensitively as a substring (e.g. "commercial acting reel").
+            Empty disables the check.
+
+    Returns:
+        {"indexes": list[int],      # checkbox positions to tick
+         "select_all": int | None,  # position of Select All, if present
+         "required_found": bool}    # was `required_name` actually listed?
+    """
+    lowered = [(label or "").strip().lower() for label in labels]
+    required = (required_name or "").strip().lower()
+
+    matches = [i for i, label in enumerate(lowered) if required and required in label]
+    select_all = next((i for i, label in enumerate(lowered) if "select all" in label), None)
+
+    return {
+        "indexes": [select_all] if select_all is not None else matches,
+        "select_all": select_all,
+        "required_found": bool(matches) if required else True,
+    }
+
 # Region name -> value mapping for the region dropdown
 REGIONS = {
     "Los Angeles": "5",
@@ -428,16 +465,41 @@ class ActorsAccessBrowser:
                 photo_radios[0].check()
                 _random_delay(0.5, 1)
 
-            # Step 2: Select all media (videos/self-tapes)
-            checkboxes = frame.query_selector_all('input[type="checkbox"]')
-            for cb in checkboxes:
-                label = cb.evaluate('el => { const lbl = el.closest("label") || el.parentElement; return lbl ? lbl.innerText.trim() : ""; }')
-                if "select all" in label.lower():
-                    if not cb.is_checked():
-                        cb.check()
+            # Step 2: Select media (videos/self-tapes)
+            if submission_config.get("include_media"):
+                checkboxes = frame.query_selector_all('input[type="checkbox"]')
+                labels = [
+                    cb.evaluate('el => { const lbl = el.closest("label") || el.parentElement; return lbl ? lbl.innerText.trim() : ""; }')
+                    for cb in checkboxes
+                ]
+                required_name = submission_config.get("required_media_name", "")
+                plan = _pick_media_checkboxes(labels, required_name)
+
+                for i in plan["indexes"]:
+                    if not checkboxes[i].is_checked():
+                        checkboxes[i].check()
                         _random_delay(0.5, 1)
+
+                if plan["select_all"] is not None:
                     logger.info("Selected all media")
-                    break
+                elif plan["indexes"]:
+                    logger.info(
+                        f"'Select All' not found; attached {len(plan['indexes'])} "
+                        f"clip(s) matching '{required_name}' by name"
+                    )
+                else:
+                    logger.error(
+                        f"No media attached for {role['role_name']} on {project_name}: "
+                        f"no 'Select All' checkbox and no clip matching "
+                        f"'{required_name}'. Labels seen: {labels}"
+                    )
+
+                if required_name and not plan["required_found"]:
+                    logger.warning(
+                        f"Required clip '{required_name}' was not listed in the "
+                        f"submission modal for {role['role_name']} on {project_name}. "
+                        f"Labels seen: {labels}"
+                    )
 
             # Step 3: Size card checkbox
             if submission_config.get("include_size_card"):

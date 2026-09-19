@@ -87,7 +87,7 @@ Every platform has two yaml files — one per mode. All are committed.
 | `backstage_config.yaml` | Backstage | paid |
 | `backstage_config_unpaid.yaml` | Backstage | unpaid |
 
-Common knobs (names vary by platform): `filters.region`, `filters.union_status`, `filters.paying_only`, `filters.exclude_reality_tv`, `submission.headshot_index`, `submission.include_media`, `max_pages`, `browser.headless`. See `config.example.yaml` for the AA template.
+Common knobs (names vary by platform): `filters.region`, `filters.union_status`, `filters.paying_only`, `filters.exclude_reality_tv`, `submission.headshot_index`, `submission.include_media`, `submission.required_media_name`, `max_pages`, `browser.headless`. See `config.example.yaml` for the AA template.
 
 ## Usage
 

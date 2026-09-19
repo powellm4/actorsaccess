@@ -5,7 +5,7 @@ The Playwright-driven scraping itself isn't unit tested (no live page to
 scrape against), but _clean_scraped_description() is plain string logic and
 can be tested directly.
 """
-from src.browser import _clean_scraped_description
+from src.browser import _clean_scraped_description, _pick_media_checkboxes
 
 
 # --- leading "]" artifact (casting-suggestion #122) ---
@@ -69,3 +69,73 @@ def test_both_artifacts_together():
     text = "]Man; 20 to 60 years old; White. Jimmy Fallon look-a-like. \n\nMatch\n["
     cleaned = _clean_scraped_description(text)
     assert cleaned == "Man; 20 to 60 years old; White. Jimmy Fallon look-a-like."
+
+
+# --- media selection in the submission modal ---
+#
+# The Playwright flow itself isn't unit tested, but the decision of which
+# checkboxes to tick is pure list logic and is tested here. The labels used
+# below mirror what the modal renders: a "Select All" toggle, the clips, and
+# the size card checkbox (which lives in the same iframe and must never be
+# swept up by media selection).
+
+
+def test_select_all_is_preferred_when_present():
+    """The normal path: one tick on "Select All" attaches every clip."""
+    labels = ["Select All", "commercial acting reel", "IMG_5975", "Include size card"]
+    plan = _pick_media_checkboxes(labels, "commercial acting reel")
+    assert plan["indexes"] == [0]
+    assert plan["select_all"] == 0
+    assert plan["required_found"] is True
+
+
+def test_falls_back_to_required_clip_by_name_without_select_all():
+    """If the modal has no "Select All", the required reel is ticked directly
+    rather than nothing being attached at all."""
+    labels = ["commercial acting reel", "IMG_5975", "Include size card"]
+    plan = _pick_media_checkboxes(labels, "commercial acting reel")
+    assert plan["indexes"] == [0]
+    assert plan["select_all"] is None
+    assert plan["required_found"] is True
+
+
+def test_fallback_never_ticks_the_size_card_checkbox():
+    """The caller's query returns every checkbox in the iframe. The size card
+    is configured separately, so name-matching must not sweep it in."""
+    labels = ["Include size card", "commercial acting reel"]
+    plan = _pick_media_checkboxes(labels, "commercial acting reel")
+    assert plan["indexes"] == [1]
+
+
+def test_required_clip_missing_is_reported():
+    """Select All still attaches whatever is on file, but the caller is told
+    the named reel was not among the listed clips."""
+    labels = ["Select All", "IMG_5975", "IMG_5964"]
+    plan = _pick_media_checkboxes(labels, "commercial acting reel")
+    assert plan["indexes"] == [0]
+    assert plan["required_found"] is False
+
+
+def test_required_name_matches_case_insensitively_as_substring():
+    """AA's own capitalization shouldn't decide whether the reel goes out."""
+    labels = ["Commercial Acting Reel (2026)"]
+    plan = _pick_media_checkboxes(labels, "commercial acting reel")
+    assert plan["indexes"] == [0]
+    assert plan["required_found"] is True
+
+
+def test_no_required_name_configured_reports_found():
+    """An empty required_media_name disables the check rather than warning."""
+    labels = ["Select All", "IMG_5975"]
+    plan = _pick_media_checkboxes(labels, "")
+    assert plan["indexes"] == [0]
+    assert plan["required_found"] is True
+
+
+def test_nothing_to_tick_is_surfaced_not_silent():
+    """No Select All and no matching clip yields an empty plan, which the
+    caller logs as an error. This is the case the old code hit silently."""
+    labels = ["Include size card"]
+    plan = _pick_media_checkboxes(labels, "commercial acting reel")
+    assert plan["indexes"] == []
+    assert plan["required_found"] is False
