@@ -14,6 +14,8 @@ saved_search: "unpaid"
 submission:
   default_note: ""
   video_reel_ids:
+    # Listed in attach order — commercial reel first so it leads the submission.
+    - 51321440  # commercial acting reel
     - 50089085  # new reel
     - 49385977  # IMG_5975
     - 49379289  # IMG_5964
