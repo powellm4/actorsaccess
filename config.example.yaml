@@ -13,6 +13,11 @@ filters:
 submission:
   headshot_index: 0
   include_media: true
+  # Clip that must end up attached, as Actors Access names it in the
+  # submission modal (case-insensitive substring match). If "Select All" is
+  # missing from the modal, this clip is ticked by name instead; if it is not
+  # listed at all, the run logs a warning rather than submitting silently.
+  required_media_name: "commercial acting reel"
   include_size_card: true
   default_note: ""
 

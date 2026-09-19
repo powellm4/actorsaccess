@@ -19,6 +19,7 @@ DEFAULTS = {
     "submission": {
         "headshot_index": 0,
         "include_media": False,
+        "required_media_name": "",
         "include_size_card": False,
         "default_note": "",
     },
