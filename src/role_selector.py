@@ -571,6 +571,20 @@ def _explicit_location_note_requested(project_notes: str) -> bool:
     return any(re.search(p, project_notes, re.IGNORECASE) for p in _LOCATION_IN_NOTE_PATTERNS)
 
 
+def _truncate_quoted_reason(text: str, limit: int = 120) -> str:
+    """Shorten a quoted AI reason for embedding in an override message.
+
+    Cuts at the last word boundary within ``limit`` and marks the cut with an
+    ellipsis, instead of hard-slicing mid-word — a bare ``text[:120]`` left
+    dangling, unclosed fragments in past digests (e.g. "...the listed age of
+    25-30 conflicts wi)"), making the override reasoning unreadable.
+    """
+    if len(text) <= limit:
+        return text
+    truncated = text[:limit].rsplit(" ", 1)[0]
+    return f"{truncated}…"
+
+
 def _maybe_override_local_hire_skip(
     role: dict, project_name: str, ai_reason: str, mode: str,
     project_notes: str = "",
@@ -652,7 +666,7 @@ def _maybe_override_local_hire_skip(
     if tp_ok:
         new_reason = (
             f"{age_reason_prefix}travel pay clears threshold; overriding AI local-hire objection "
-            f"(AI said: {ai_reason[:120]})"
+            f"(AI said: {_truncate_quoted_reason(ai_reason)})"
         )
         logger.info(
             f"[TRAVEL PAY OVERRIDE] {project_name} — {role.get('role_name', '?')}: "
@@ -766,7 +780,8 @@ def _maybe_override_age_overlap_skip(role: dict, ai_reason: str) -> tuple[bool, 
         return False, ai_reason
     new_reason = (
         f"age range {lo}-{hi} overlaps actor's {_ACTOR_MIN_AGE}-{_ACTOR_MAX_AGE} "
-        f"playable range; correcting AI overlap miscalculation (AI said: {ai_reason[:120]})"
+        f"playable range; correcting AI overlap miscalculation "
+        f"(AI said: {_truncate_quoted_reason(ai_reason)})"
     )
     logger.info(
         f"[AGE OVERLAP OVERRIDE] {role.get('role_name', '?')}: AI claimed no age "

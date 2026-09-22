@@ -1567,6 +1567,23 @@ def test_override_local_hire_still_fires_for_plain_local_hire_with_clearing_pay(
     assert overridden is True
 
 
+def test_override_local_hire_quotes_long_ai_reason_without_mid_word_cut():
+    """Same dangling-fragment bug as the age-overlap override (bare `[:120]`
+    slice), reachable here too since both overrides quote `ai_reason` the
+    same way. The quoted text must break at a word boundary, not mid-word."""
+    role = {"role_name": "Guy", "description": "Fly to New York. $2000 total for the shoot."}
+    ai_reason = (
+        "Requires NY local hire with no travel reimbursement offered anywhere "
+        "in the listing, and the production notes make no mention of covering "
+        "airfare, hotel, or per diem for out-of-town talent whatsoever."
+    )
+    overridden, new_reason = _maybe_override_local_hire_skip(role, "Some Project", ai_reason, "paid")
+    assert overridden is True
+    quoted = new_reason.split("AI said: ", 1)[1].rstrip(")")
+    assert quoted.endswith("…")
+    assert not quoted[:-1].endswith(" ")
+
+
 # --- casting-suggestion #105: single-point age-boundary touch is not a real overlap ---
 
 
@@ -1593,6 +1610,27 @@ def test_age_overlap_override_still_fires_on_genuine_multi_year_window():
     ai_reason = "Age range 28-38, no overlap with actor's 17-30 playable range."
     overridden, _ = _maybe_override_age_overlap_skip(role, ai_reason)
     assert overridden is True
+
+
+def test_age_overlap_override_quotes_long_ai_reason_without_mid_word_cut():
+    """Regression: a bare `ai_reason[:120]` slice left dangling, unclosed
+    fragments in the digest (e.g. Sept 20 2026 'Shaun Mercer' —
+    '...the listed age of 25-30 conflicts wi)' — cut off mid-word with no
+    ellipsis and an unclosed paren). The quoted AI reason must be shortened
+    at a word boundary and marked with an ellipsis instead."""
+    from src.role_selector import _maybe_override_age_overlap_skip
+    role = {"role_name": "Shaun Mercer", "age_range": "25-30"}
+    ai_reason = (
+        "Age range stated as \"30s-40s\" with no overlap with actor's playable "
+        "range of 17-30; the listed age of 25-30 conflicts with the prose "
+        "description, but the structured field should take precedence here."
+    )
+    overridden, new_reason = _maybe_override_age_overlap_skip(role, ai_reason)
+    assert overridden is True
+    assert "wi)" not in new_reason
+    quoted = new_reason.split("AI said: ", 1)[1].rstrip(")")
+    assert quoted.endswith("…")
+    assert not quoted[:-1].endswith(" ")
 
 
 # --- casting-suggestion #109: per-project 3-role submission cap needs a code backstop ---
