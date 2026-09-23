@@ -1781,3 +1781,37 @@ def test_unpaid_prompt_includes_romance_gate_paid_does_not():
             captured.clear()
             rs.select_best_roles([role], "Love Story", mode="paid")
             assert "UNPAID ROMANCE-ONLY MODE" not in captured["prompt"]
+
+
+def test_unpaid_role_type_rule_consistent_single_vs_multi_role():
+    """The single-role and multi-role unpaid prompts must state the same
+    ROLE-TYPE RULE. The single-role path previously told the model Supporting
+    and Recurring roles were acceptable, while the multi-role path (and the
+    actual ACCEPTED_ROLE_TYPES whitelist enforced upstream in filters.py)
+    only accept Lead/Principal/Series Regular — a real Supporting-marked role
+    evaluated alone would have been told a different rule than one evaluated
+    alongside siblings."""
+    import src.role_selector as rs
+    captured = {}
+
+    def fake_completion(prompt, **kwargs):
+        captured["prompt"] = prompt
+        return "SKIP - not an accepted role type"
+
+    single_role = {"role_name": "Jake", "role_type": "Supporting", "description": "Supporting role."}
+    two_roles = [
+        {"role_name": "Jake", "role_type": "Supporting", "description": "Supporting role."},
+        {"role_name": "Sam", "role_type": "Lead", "description": "Lead role."},
+    ]
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.object(rs, "shadowed_completion", fake_completion):
+            rs.select_best_roles([single_role], "Project", mode="unpaid")
+            single_prompt = captured["prompt"]
+            captured.clear()
+            rs.select_best_roles(two_roles, "Project", mode="unpaid")
+            multi_prompt = captured["prompt"]
+
+    for prompt in (single_prompt, multi_prompt):
+        assert "only Lead, Principal, or Series Regular roles are acceptable" in prompt
+        assert "Supporting, Principal, Series Regular, or" not in prompt
+        assert "Recurring roles are acceptable" not in prompt
