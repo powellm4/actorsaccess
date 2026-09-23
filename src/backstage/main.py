@@ -381,7 +381,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
             if mode == "unpaid":
                 raise RuntimeError(
                     f"Unpaid mode: saved search '{saved_search_name}' not found on Backstage. "
-                    f"Create it (LA + unpaid + Lead/Supporting) before running unpaid mode."
+                    f"Create it (LA + unpaid + Lead/Principal/Series Regular) before running unpaid mode."
                 )
             logger.warning(f"Saved search '{saved_search_name}' not found, using default filters")
 
@@ -1101,7 +1101,7 @@ def main():
     parser.add_argument("--once", action="store_true", help="Run once and exit")
     parser.add_argument(
         "--mode", choices=["paid", "unpaid"], default="paid",
-        help="paid (default) or unpaid (LA-local Lead/Supporting only)",
+        help="paid (default) or unpaid (LA-local Lead/Principal/Series Regular only)",
     )
     parser.add_argument("--dry-run", action="store_true", help="Preview without submitting")
     parser.add_argument("--max-pages", type=int, default=None, help="Max pages to process")

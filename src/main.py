@@ -223,8 +223,8 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
     4. Record everything in the database
 
     If dry_run is True, print what would be submitted without actually submitting.
-    In unpaid mode, only roles explicitly marked Lead/Supporting/Principal/
-    Series Regular/Recurring and shooting in LA are accepted.
+    In unpaid mode, only roles explicitly marked Lead/Principal/Series Regular
+    and shooting in LA are accepted.
     """
     run_id = db.start_run(platform="aa", mode=mode)
     set_run_context(platform="aa", mode=mode, run_id=run_id)
@@ -764,7 +764,7 @@ def main():
     parser.add_argument("--headed", action="store_true", help="Run with visible browser")
     parser.add_argument(
         "--mode", choices=["paid", "unpaid"], default="paid",
-        help="paid (default): normal paying-roles flow. unpaid: LA-local Lead/Supporting/Principal only.",
+        help="paid (default): normal paying-roles flow. unpaid: LA-local Lead/Principal/Series Regular only.",
     )
     parser.add_argument(
         "--dry-run", action="store_true",

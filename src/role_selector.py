@@ -895,8 +895,8 @@ def select_best_roles(
         roles: List of role dicts that already passed filters.
         project_name: Name of the project (for context).
         mode: "paid" (default) or "unpaid". Unpaid mode swaps in a
-            stricter prompt that requires Lead/Supporting role types and
-            LA-only location.
+            stricter prompt that requires Lead/Principal/Series Regular role
+            types and LA-only location.
 
     Returns:
         Tuple of:
@@ -1116,9 +1116,9 @@ def _check_single_role_fit(
 
         if mode == "unpaid":
             unpaid_line = (
-                "ROLE-TYPE RULE: only Lead, Supporting, Principal, Series Regular, or "
-                "Recurring roles are acceptable. SKIP if this is a Day Player, Featured, "
-                "Co-Star, or single-scene role. EXCEPTION: modeling / print / photo / "
+                "ROLE-TYPE RULE: only Lead, Principal, or Series Regular roles are "
+                "acceptable — SKIP Supporting, Recurring, Day Player, Featured, "
+                "Co-Star, or single-scene roles. EXCEPTION: modeling / print / photo / "
                 "stills / TFP gigs are EXEMPT from the role-type rule — they are not "
                 "acting roles and do not have Lead/Principal/Series Regular labels; "
                 "accept them on physical/type fit alone. Pay is NOT a reason to skip — "

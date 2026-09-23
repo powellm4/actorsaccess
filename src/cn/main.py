@@ -777,7 +777,7 @@ def main():
     parser.add_argument("--once", action="store_true", help="Run once and exit")
     parser.add_argument(
         "--mode", choices=["paid", "unpaid"], default="paid",
-        help="paid (default) or unpaid (LA-local Lead/Supporting only)",
+        help="paid (default) or unpaid (LA-local Lead/Principal/Series Regular only)",
     )
     parser.add_argument("--dry-run", action="store_true", help="Preview without submitting")
     parser.add_argument("--max-pages", type=int, default=None, help="Max pages to process")

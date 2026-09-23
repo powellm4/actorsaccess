@@ -681,8 +681,7 @@ def _wrap_html(body: str, mode: str | None = None) -> str:
             '<div style="background:#ede7f6;border-left:4px solid #7c4dff;'
             'padding:12px;margin-bottom:16px;border-radius:4px;color:#4a148c;">'
             '<strong>EXTENDED SEARCH</strong> — extended role pool via the '
-            '"unpaid" saved searches. Lead/Supporting/Principal/Series Regular/'
-            'Recurring role types only.'
+            '"unpaid" saved searches. Lead/Principal/Series Regular role types only.'
             '</div>'
         )
     elif mode == "paid":
