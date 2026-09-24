@@ -542,7 +542,11 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                             else:
                                 logger.info(f"Filtered (unpaid role-type): {project_name} — {role['role_name']} ({lead_reason})")
                             continue
-                        if has_female:
+                        if is_modeling_role(role, role.get("project_type", "")):
+                            logger.info(
+                                f"Unpaid bypass (modeling/TFP): {project_name} — {role['role_name']}"
+                            )
+                        elif has_female:
                             logger.info(
                                 f"Unpaid bypass (female cast): {project_name} — {role['role_name']}"
                             )

@@ -14,7 +14,7 @@ from src.config import load_config, ConfigError
 from src.database import Database
 from src.browser import ActorsAccessBrowser
 from src.override_email import send_override_results_email
-from src.filters import role_matches, project_matches, is_sag_only, is_lead_or_supporting, project_has_female_cast
+from src.filters import role_matches, project_matches, is_sag_only, is_lead_or_supporting, is_modeling_role, project_has_female_cast
 from src.role_selector import (
     TRANSIENT_REJECTION_PREFIX,
     analyze_submission_requirements,
@@ -501,7 +501,12 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                                         f"{role['role_name']} ({lead_reason})"
                                     )
                                 continue
-                            if has_female:
+                            if is_modeling_role(role, project.get("project_type", "")):
+                                logger.info(
+                                    f"Unpaid bypass (modeling/TFP): {project['project_name']} — "
+                                    f"{role['role_name']}"
+                                )
+                            elif has_female:
                                 logger.info(
                                     f"Unpaid bypass (female cast): {project['project_name']} — "
                                     f"{role['role_name']}"

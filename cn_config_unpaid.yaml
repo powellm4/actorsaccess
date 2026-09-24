@@ -4,6 +4,11 @@ credentials:
 
 # CN narrows the billboard by clicking a named saved search after login.
 # The user's "unpaid" saved search must exist on castingnetworks.com.
+# Its media/project-type selection must include Print / Modeling alongside
+# the acting types — the actor takes unpaid TFP (Time-For-Print) modeling
+# work — and it must NOT filter by role type, since modeling listings carry
+# no Lead/Principal label and would be dropped site-side before the scraper
+# sees them.
 # If it can't be applied, src/cn/main.py fails closed in unpaid mode
 # so we never scrape the default (paid) billboard under the unpaid flag.
 # Programmatic role_matches() + is_lead_or_supporting() still run as a

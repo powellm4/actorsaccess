@@ -1763,6 +1763,17 @@ def test_unpaid_romance_block_present_for_unpaid_only():
         assert token in unpaid, f"expected {token!r} in unpaid romance gate"
 
 
+def test_unpaid_gate_carves_out_modeling_work():
+    """Modeling/TFP gigs must be exempt from the romance gate, not skipped by it."""
+    from src.role_selector import _unpaid_romance_block
+    unpaid = _unpaid_romance_block("unpaid")
+    for token in ("TFP", "Time-For-Print", "DOES NOT APPLY", "physical/type fit"):
+        assert token in unpaid, f"expected {token!r} in unpaid modeling carve-out"
+    # The carve-out has to come before the romance conditions, or the model
+    # reads "only select if ALL THREE" first and skips the shoot.
+    assert unpaid.index("modeling") < unpaid.index("1. ROMANCE")
+
+
 def test_unpaid_prompt_includes_romance_gate_paid_does_not():
     """End-to-end plumbing: the unpaid selection prompt carries the gate; paid doesn't.
     Captures the prompt passed to the model via a patched shadowed_completion."""
@@ -1777,7 +1788,7 @@ def test_unpaid_prompt_includes_romance_gate_paid_does_not():
     with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
         with patch.object(rs, "shadowed_completion", fake_completion):
             rs.select_best_roles([role], "Love Story", mode="unpaid")
-            assert "UNPAID ROMANCE-ONLY MODE" in captured["prompt"]
+            assert "UNPAID MODE GATE" in captured["prompt"]
             captured.clear()
             rs.select_best_roles([role], "Love Story", mode="paid")
-            assert "UNPAID ROMANCE-ONLY MODE" not in captured["prompt"]
+            assert "UNPAID MODE GATE" not in captured["prompt"]

@@ -1,6 +1,8 @@
 # tests/test_filters.py
 """Tests for role filtering — focused on the unpaid female-cast bypass."""
 
+import pytest
+
 from src.filters import (
     _gender_indicates_female,
     is_lead_or_supporting,
@@ -235,3 +237,86 @@ def test_unpaid_mode_skips_pay_guard_for_all_roles():
     ok, reason = role_matches(role, mode="unpaid")
     assert ok is True
     assert reason == ""
+
+
+# ---------------------------------------------------------------------------
+# is_modeling_role — TFP / print detection breadth
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("text", [
+    "TFP shoot this weekend",
+    "Time for Print collaboration",
+    "Time-For-Print, photographer provides edited images",
+    "Trade for print shoot, downtown LA",
+    "TFCD session",
+])
+def test_tfp_spelled_out_variants_detected(text):
+    assert is_modeling_role({"role_name": "Talent", "description": text}) is True
+
+
+def test_tfp_in_pay_field_detected():
+    # Platforms often carry the only TFP signal in the rate field.
+    role = {"role_name": "Talent", "description": "Athletic male, 20s.", "pay": "TFP"}
+    assert is_modeling_role(role) is True
+
+
+@pytest.mark.parametrize("project_type", [
+    "Print",
+    "Commercial Print",
+    "Photo Shoot",
+    "Modeling, Commercial",       # Backstage joins every production type
+    "Print / Digital",
+    "Stills",
+])
+def test_compound_project_types_detected(project_type):
+    role = {"role_name": "Male Talent", "description": "Athletic male, 20s."}
+    assert is_modeling_role(role, project_type) is True
+
+
+def test_project_type_on_the_role_dict_is_used():
+    # CN/Backstage put project_type on the role itself.
+    role = {
+        "role_name": "Male Talent",
+        "description": "Athletic male, 20s.",
+        "project_type": "Commercial Print",
+    }
+    assert is_modeling_role(role) is True
+
+
+@pytest.mark.parametrize("name", [
+    "Male Model",
+    "Fitness Model",
+    "Runway Model",
+    "Models Needed",
+])
+def test_model_role_names_detected(name):
+    assert is_modeling_role({"role_name": name, "description": "20s, athletic."}) is True
+
+
+@pytest.mark.parametrize("role", [
+    {"role_name": "Dad", "description": "A role model to his kids. LEAD."},
+    {"role_name": "Engineer", "description": "Builds a 3D model of the bridge. LEAD."},
+], ids=["role-model", "3d-model"])
+def test_prose_uses_of_model_are_not_modeling_gigs(role):
+    assert is_modeling_role(role) is False
+
+
+def test_unpaid_mode_modeling_bypasses_role_type_whitelist():
+    # A print gig has no LEAD/PRINCIPAL marker; it must still be accepted.
+    role = {"fit_for_me": True, "role_name": "Male Talent", "description": "Athletic male, 20s, swimwear."}
+    ok, reason = role_matches(role, mode="unpaid")
+    assert ok is True
+    accepted, why = is_lead_or_supporting(role, "aa", "Commercial Print")
+    assert accepted is True, why
+
+
+@pytest.mark.parametrize("desc,expected", [
+    ("Swimwear campaign, poolside in Malibu.", True),
+    ("Lookbook shoot in DTLA, half day.", True),
+    ("Must be comfortable in swimwear. LEAD.", False),
+])
+def test_wardrobe_terms_need_a_shoot_noun(desc, expected):
+    # "comfortable in swimwear" is ordinary acting-breakdown wardrobe language
+    # and must not open the unpaid role-type bypass.
+    assert is_modeling_role({"role_name": "Talent", "description": desc}) is expected

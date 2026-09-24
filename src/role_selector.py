@@ -149,14 +149,33 @@ def _travel_pay_block(mode: str) -> str:
     return _UNPAID_TRAVEL_BLOCK if mode == "unpaid" else _PAID_TRAVEL_PAY_BLOCK
 
 
-# Unpaid mode is deliberately narrowed to ONE kind of role: the actor as a male
-# romantic lead in a straight romance. This is a hard, overriding gate injected
-# into the selection prompts for unpaid mode only. Genre/orientation/billing are
-# rarely structured fields, so the model (which reads the whole breakdown) is the
-# right place to judge this; when it can't confirm all three conditions it skips.
+# Unpaid ACTING work is deliberately narrowed to ONE kind of role: the actor as
+# a male romantic lead in a straight romance. This is a hard, overriding gate
+# injected into the selection prompts for unpaid mode only. Genre/orientation/
+# billing are rarely structured fields, so the model (which reads the whole
+# breakdown) is the right place to judge this; when it can't confirm all three
+# conditions it skips.
+#
+# Modeling work is carved out of the gate entirely. The actor actively wants
+# print/TFP shoots, and a photo shoot has no genre, no billing and no love
+# interest to confirm — without the carve-out the gate skipped every modeling
+# listing the unpaid run surfaced, silently undoing the modeling exemption
+# that filters.is_modeling_role() grants upstream.
 _UNPAID_ROMANCE_BLOCK = """
-UNPAID ROMANCE-ONLY MODE — this overrides everything below. Only SELECT/FIT a
-role if ALL THREE of these are clearly true from the breakdown:
+UNPAID MODE GATE — this overrides everything below.
+
+FIRST, check for modeling work. If the listing is a modeling / print / photo /
+stills gig — TFP (Time-For-Print / Time For Print / trade-for-print), print
+modeling, commercial print, swimwear/beach/poolside, fitness, lifestyle,
+fashion/editorial, portfolio, catalog, lookbook, e-commerce, brand campaign,
+photo shoot or stills work — then this romance gate DOES NOT APPLY. Judge it on
+physical/type fit alone and SELECT/FIT it if the actor fits the look. Unpaid and
+TFP modeling is exactly what the actor wants; "no pay", "TFP" or "trade for
+print" is NEVER a reason to skip a modeling gig, and a modeling gig never needs
+a romance, a love interest or a LEAD/PRINCIPAL label.
+
+OTHERWISE (acting roles), only SELECT/FIT a role if ALL THREE of these are
+clearly true from the breakdown:
   1. ROMANCE: the project is a romance, or the actor's storyline is a central
      romantic relationship (rom-com, romantic drama, love story, a lead with a
      love interest). A project with only incidental romance does NOT count.
@@ -166,7 +185,7 @@ role if ALL THREE of these are clearly true from the breakdown:
   3. STRAIGHT: it is a heterosexual (male-female) romance — the actor's love
      interest is a woman. SKIP gay/queer male romances and any M/M pairing where
      the actor's romantic partner is a man.
-SKIP everything that is not a straight romance with the actor as the male
+SKIP every acting role that is not a straight romance with the actor as the male
 lead/principal — including all non-romance projects. If you cannot clearly
 confirm all three conditions from the breakdown, SKIP.
 """
