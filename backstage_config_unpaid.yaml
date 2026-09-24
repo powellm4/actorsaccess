@@ -5,10 +5,16 @@ credentials:
 max_pages: 5
 
 # Must match the saved search name on backstage.com exactly. Its filters
-# should be: Los Angeles location + Unpaid compensation + Lead/Supporting
-# role types. If the name doesn't match, src/backstage/main.py fails closed
-# in unpaid mode (raises RuntimeError) so we never silently fall back to
-# the default (paid) filters.
+# should be: Los Angeles location + Unpaid compensation, and the category
+# selection must include Modeling / Print alongside the acting categories —
+# the actor takes unpaid TFP (Time-For-Print) modeling work. Do NOT restrict
+# the saved search by role type: modeling listings carry no Lead/Principal
+# label, so a role-type filter on the site would drop every one of them
+# before the scraper sees it. Role-type gating for acting roles happens
+# programmatically in is_lead_or_supporting(), which exempts modeling.
+# If the name doesn't match, src/backstage/main.py fails closed in unpaid
+# mode (raises RuntimeError) so we never silently fall back to the default
+# (paid) filters.
 saved_search: "unpaid"
 
 submission:

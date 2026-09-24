@@ -78,17 +78,62 @@ _SAG_ONLY_PATTERN = re.compile(
 )
 
 # Modeling / print / photo / stills work doesn't carry acting role types
-# (Lead/Principal/Series Regular). The actor accepts these gigs and they
-# should bypass the unpaid-mode role-type whitelist.
-_MODELING_PROJECT_TYPES = {"print", "photo", "modeling", "stills"}
+# (Lead/Principal/Series Regular). The actor accepts these gigs — including
+# unpaid Time-For-Print (TFP) — and they should bypass both the paid-mode
+# unpaid pay guard and the unpaid-mode role-type whitelist.
+#
+# Matched as a token anywhere in the project-type string, not as an exact
+# value: platforms hand us compound types ("Commercial Print", "Photo
+# Shoot") and Backstage joins every production type into one comma-separated
+# string ("Modeling, Commercial"), so an exact-set lookup missed nearly
+# every real listing.
+_MODELING_PROJECT_TYPE_PATTERN = re.compile(
+    r"\b(?:print|photo|photography|photoshoot|model|models|modeling|modelling"
+    r"|still|stills|fashion|editorial|lookbook|catalog|catalogue)\b",
+    re.IGNORECASE,
+)
+
+# Time-For-Print and its variants — the standard name for unpaid modeling
+# work where the actor is paid in images. Spelled-out forms ("time for
+# print", "trade for print") are as common in breakdowns as the acronym.
+_TFP_PATTERN = re.compile(
+    r"\bTFP\b"
+    r"|\bTFCD\b"
+    r"|\bT\.F\.P\.?"
+    r"|\b(?:time|trade)[\s._/-]*(?:for|4)[\s._/-]*print\b"
+    r"|\btrade[\s._/-]*for[\s._/-]*(?:photos?|images?|prints?)\b",
+    re.IGNORECASE,
+)
 
 _MODELING_KEYWORD_PATTERN = re.compile(
-    r"\bTFP\b"
-    r"|\b(?:print|photo|beach|swimwear|fitness|lifestyle|fashion|editorial|portfolio|catalog|lookbook|brand)\s+model\b"
-    r"|\bmodel(?:ing)?\s+(?:shoot|gig|session|portfolio|campaign)\b"
+    _TFP_PATTERN.pattern
+    # "<qualifier> model" — the qualifier is what keeps prose senses out
+    # ("role model", "model citizen", "3D model").
+    + r"|\b(?:print|photo|beach|pool|poolside|swimwear|swim|underwear|bodywear"
+    r"|fitness|athletic|lifestyle|fashion|editorial|portfolio|catalog|lookbook"
+    r"|brand|runway|commercial|campaign|male|men'?s|hand|hair|fit|parts"
+    r"|promotional|promo)\s+models?\b"
+    # Bare "model(s)" only inside an unambiguous casting phrase.
+    r"|\bmodels?\s+(?:needed|wanted|req(?:uired)?|call|search|casting)\b"
+    r"|\b(?:seeking|looking\s+for|casting|hiring)\s+(?:\w+\s+){0,2}models?\b"
+    r"|\bmodel(?:ing|ling)?\s+(?:shoot|gig|session|job|work|portfolio|campaign|call|opportunity)\b"
     r"|\bphoto(?:\s*shoot|graphy)\b"
-    r"|\bstills?\s+(?:shoot|model|talent)\b",
+    r"|\bstills?\s+(?:shoot|model|talent|work|photography)\b"
+    r"|\bprint\s+(?:shoot|campaign|ad|advert(?:isement)?|job|work|gig|modeling)\b"
+    r"|\be-?comm(?:erce)?\s+(?:shoot|model|photo|campaign)\b"
+    # Wardrobe/vertical + shoot noun. Deliberately requires the shoot noun:
+    # a bare "must be comfortable in swimwear" can appear in an acting
+    # breakdown and must not be read as a modeling gig.
+    r"|\b(?:swimwear|underwear|bodywear|fashion|beauty|fitness|lifestyle|apparel"
+    r"|menswear|activewear|denim|footwear)\s+(?:shoot|campaign|catalog(?:ue)?"
+    r"|lookbook|editorial|brand)\b"
+    r"|\b(?:campaign|catalog(?:ue)?|lookbook|editorial|portfolio)\s+shoot\b",
     re.IGNORECASE,
+)
+
+# Substrings that mark a role_type field as modeling work.
+_MODELING_ROLE_TYPE_KEYWORDS = (
+    "model", "print", "photo", "stills", "still photo", "fashion", "editorial",
 )
 
 
@@ -97,13 +142,19 @@ def is_modeling_role(role: dict, project_type: str = "") -> bool:
 
     Modeling work doesn't carry acting role types (Lead/Principal/etc.) and
     should be evaluated on physical/type fit only. Detected from (in order):
-    project_type field, role_type field, or keyword signals in role_name +
-    description.
+    the project_type field, the role's own project_type, the role_type field,
+    the pay/rate field (TFP is only ever modeling), or keyword signals in
+    role_name + description.
     """
-    if project_type and project_type.strip().lower() in _MODELING_PROJECT_TYPES:
+    ptype = project_type or role.get("project_type", "")
+    if ptype and _MODELING_PROJECT_TYPE_PATTERN.search(ptype):
         return True
     role_type = (role.get("role_type") or "").lower()
-    if any(kw in role_type for kw in ("model", "print", "photo", "stills")):
+    if any(kw in role_type for kw in _MODELING_ROLE_TYPE_KEYWORDS):
+        return True
+    # "TFP" in the rate field is by itself conclusive — no acting category
+    # pays in prints.
+    if _TFP_PATTERN.search(role.get("pay") or ""):
         return True
     blob = f"{role.get('role_name', '')} {role.get('description', '')}"
     return bool(_MODELING_KEYWORD_PATTERN.search(blob))

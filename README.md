@@ -135,6 +135,20 @@ Sends via Gmail SMTP using `GMAIL_APP_PASSWORD`. Recipient is hardcoded in `src/
 3. **Scrape** — project list → role list per project.
 4. **Filter** — fit-for-me, background/extra rejection, theater/musical rejection, already-applied dedup (`applied.db`, scoped by `platform` + `mode`), `check_travel_pay()` guard in paid mode, role-type whitelist (Lead/Principal/Series Regular) in unpaid mode.
 5. **AI selection** — Claude Sonnet picks one role per project from what remains; generates a submission note if the casting post asks for specific info.
+
+### Modeling / TFP work
+
+The actor takes modeling gigs — print, photo, stills — including unpaid **TFP (Time-For-Print)**, so these bypass every pay and role-type gate:
+
+| Gate | Modeling behavior |
+| --- | --- |
+| Paid-mode unpaid pay guard (`role_matches`) | Exempt — a free/TFP shoot in the paid feed still goes through |
+| Unpaid-mode role-type whitelist (`is_lead_or_supporting`) | Exempt — shoots carry no Lead/Principal label |
+| Unpaid-mode romance gate (AI prompt) | Exempt — judged on physical/type fit only |
+
+Detection lives in `is_modeling_role()` in `src/filters.py` and fires on the project type (matched as a token, so `"Commercial Print"` and Backstage's joined `"Modeling, Commercial"` both count), the `role_type` field, a TFP marker in the rate field, or keywords in the role name/description (`TFP`, `TFCD`, `time for print`, `trade for print`, `<vertical> model`, `photo shoot`, `lookbook shoot`, and similar). Bypasses are logged as `Unpaid bypass (modeling/TFP)` so runs can be audited.
+
+One thing the code can't enforce: the **CN and Backstage `"unpaid"` saved searches are configured on those websites**. They must include the Modeling / Print categories and must *not* filter by role type, or modeling listings are dropped site-side before the scraper ever sees them.
 6. **Submit** — attaches media per config, applies cover letter when required (Backstage self-tape).
 7. **Record** — writes to `data/applied.db` with `platform` and `mode` columns.
 
