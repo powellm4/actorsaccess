@@ -1595,6 +1595,55 @@ def test_age_overlap_override_still_fires_on_genuine_multi_year_window():
     assert overridden is True
 
 
+# --- casting-suggestion: bare-SKIP fallback truncates the recovered reason at a
+# hard 300-char slice with no ellipsis, leaving a dangling mid-sentence fragment
+# (Sept 24 2026 UNPAID digest, CN "Sitcom - First Date": reason cut off mid-
+# sentence at "Neither role is the male") — same class of bug as #144's
+# override-quote truncation, different call site ---
+
+
+def test_truncate_with_ellipsis_leaves_short_text_untouched():
+    from src.role_selector import _truncate_with_ellipsis
+    assert _truncate_with_ellipsis("short text", 300) == "short text"
+
+
+def test_truncate_with_ellipsis_breaks_at_word_boundary():
+    from src.role_selector import _truncate_with_ellipsis
+    text = "a" * 50 + " " + "b" * 50 + " " + "c" * 50
+    # text[:80] lands mid-way through the "b" word (50 a's + space + 29 b's);
+    # the fix must back up to the space rather than cut "b" mid-word.
+    assert _truncate_with_ellipsis(text, 80) == ("a" * 50) + "…"
+
+
+def test_parse_structured_response_bare_skip_long_reason_gets_ellipsis_not_cut_off():
+    """Reproduces the 'Sitcom - First Date' digest bug: a long recovered SKIP
+    reason must end with an ellipsis at a word boundary, not a dangling
+    mid-sentence fragment at the raw 300-char cutoff."""
+    from src.role_selector import _parse_structured_response
+    long_reason = (
+        "Both roles are disqualified by UNPAID ROMANCE-ONLY MODE. The project is "
+        "titled First Date, suggesting romance, but the available roles Bryan "
+        "(older brother) and Tony (younger brother) are sibling characters whose "
+        "storylines are not described as central romantic leads. Neither role is "
+        "the male romantic lead the mode requires, so both are skipped regardless "
+        "of individual fit or prominence within the project."
+    )
+    # A blank line right after "SKIP" makes the trailing-line recovery empty,
+    # forcing the parser into the other_lines[:300] fallback that has the bug.
+    text = f"SKIP\n\n{long_reason}"
+    roles = [
+        {"role_name": "Tony", "description": "Younger brother."},
+        {"role_name": "Bryan", "description": "Older brother."},
+    ]
+    _, rejections = _parse_structured_response(text, roles, "Sitcom - First Date")
+    reason = rejections["Tony"]
+    assert len(reason) <= 301
+    assert reason.endswith("…")
+    # The naive text[:300] slice (the bug) cuts mid-word inside "male" with no
+    # ellipsis; the fix must back up to the preceding word boundary instead.
+    assert not reason.rstrip("…").endswith(("is the mal", "is the ma", "is the m"))
+
+
 # --- casting-suggestion #109: per-project 3-role submission cap needs a code backstop ---
 
 
