@@ -1595,6 +1595,76 @@ def test_age_overlap_override_still_fires_on_genuine_multi_year_window():
     assert overridden is True
 
 
+# --- casting-suggestion: a SELECTED/FIT reason that self-corrects a boundary-only
+# age touch into "there IS overlap" must be caught too, not just the SKIP side
+# (Sept 25 2026 Paid digest, Nectar "Director of Performance Marketing": AI reasoning
+# read "...has no overlap with actor's 17-30 range — wait, 30 is the boundary and
+# actor plays up to 30, so there IS overlap at exactly 30" and still applied) ---
+
+
+def test_boundary_only_age_overlap_detected_in_selected_reason():
+    from src.role_selector import _select_reason_has_boundary_only_age_overlap
+    role = {"role_name": "Director of Performance Marketing", "age_range": "30-39"}
+    reason = (
+        "Age range 30-39 has no overlap with actor's playable range of 17-30 — "
+        "wait, 30 is the boundary and actor plays up to 30, so there IS overlap "
+        "at exactly 30; role otherwise fits."
+    )
+    assert _select_reason_has_boundary_only_age_overlap(role, reason) is True
+
+
+def test_boundary_only_age_overlap_not_flagged_on_genuine_window():
+    """A real overlap window in the SELECTED reason must not be flagged just
+    because it happens to mention 'no overlap' elsewhere (e.g. quoting/refuting
+    an earlier claim) while the role's own range genuinely overlaps."""
+    from src.role_selector import _select_reason_has_boundary_only_age_overlap
+    role = {"role_name": "Sam", "age_range": "28-38"}
+    reason = "Age range 28-38, no overlap with actor's 17-30 playable range — actually overlaps at 28-30."
+    assert _select_reason_has_boundary_only_age_overlap(role, reason) is False
+
+
+def test_boundary_only_age_overlap_not_flagged_without_no_overlap_language():
+    from src.role_selector import _select_reason_has_boundary_only_age_overlap
+    role = {"role_name": "Director of Performance Marketing", "age_range": "30-39"}
+    reason = "Age range 30-39 overlaps actor's 17-30 range at the boundary; role otherwise fits."
+    assert _select_reason_has_boundary_only_age_overlap(role, reason) is False
+
+
+def test_select_best_roles_demotes_boundary_only_age_overlap_multi_role():
+    """End-to-end regression for the Nectar case: a SELECTED reason with a
+    boundary-only age self-correction must be demoted to rejected, not applied."""
+    roles = [
+        {"role_name": "Director of Performance Marketing", "age_range": "30-39", "description": "Paid-media specialist."},
+        {"role_name": "Director of Social", "age_range": "26-29", "description": "Social-native brand lead."},
+    ]
+    mock_module, _ = _make_mock_anthropic(
+        "SELECTED: 1 - Age range 30-39 has no overlap with actor's playable range of "
+        "17-30 — wait, 30 is the boundary and actor plays up to 30, so there IS "
+        "overlap at exactly 30; role otherwise fits\n"
+        "SELECTED: 2 - Age range 26-29 overlaps actor's 17-30 range; strong type match"
+    )
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles(roles, "Nectar Commercial")
+    selected_names = {r["role_name"] for r, _ in selected}
+    assert selected_names == {"Director of Social"}
+    assert "Director of Performance Marketing" in rejections
+
+
+def test_check_single_role_fit_demotes_boundary_only_age_overlap():
+    role = {"role_name": "Director of Performance Marketing", "age_range": "30-39", "description": "Paid-media specialist."}
+    mock_module, _ = _make_mock_anthropic(
+        "FIT - Age range 30-39 has no overlap with actor's playable range of 17-30 — "
+        "wait, 30 is the boundary and actor plays up to 30, so there IS overlap at "
+        "exactly 30"
+    )
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "Nectar Commercial")
+    assert selected == []
+    assert "Director of Performance Marketing" in rejections
+
+
 # --- casting-suggestion #109: per-project 3-role submission cap needs a code backstop ---
 
 
