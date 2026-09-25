@@ -1314,6 +1314,22 @@ def _last_inline_verdict(reason: str) -> str | None:
     return verdict
 
 
+def _truncate_with_ellipsis(text: str, limit: int) -> str:
+    """Cut `text` to at most `limit` characters, breaking at the last word
+    boundary within the limit rather than mid-word, and marking the cut with
+    an ellipsis. A bare `text[:limit]` slice (used elsewhere for this same
+    "reason shown to a human" purpose — see casting-suggestion #144 for the
+    override-quote call sites) chops mid-word with no indication the
+    sentence was cut short, leaving a dangling fragment in the digest."""
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    space = cut.rfind(" ")
+    if space > 0:
+        cut = cut[:space]
+    return cut.rstrip() + "…"
+
+
 def _parse_structured_response(
     text: str, roles: list[dict], project_name: str,
 ) -> tuple[list[tuple[dict, str]], dict[str, str]]:
@@ -1352,7 +1368,7 @@ def _parse_structured_response(
                         if ln.strip() and ln.strip().upper() != "SKIP"
                     ]
                     skip_reason = (
-                        " ".join(other_lines)[:300] if other_lines
+                        _truncate_with_ellipsis(" ".join(other_lines), 300) if other_lines
                         else "AI returned bare SKIP verdict with no explanation"
                     )
                 logger.warning(
