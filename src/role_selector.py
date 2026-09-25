@@ -795,6 +795,34 @@ def _maybe_override_age_overlap_skip(role: dict, ai_reason: str) -> tuple[bool, 
     return True, new_reason
 
 
+def _select_reason_has_boundary_only_age_overlap(role: dict, reason: str) -> bool:
+    """True when a SELECTED/FIT reason's own words trip the same "no overlap"
+    language the SKIP side uses (``_AGE_NO_OVERLAP_RE``), and the role's
+    structured age range only touches the actor's 17-30 playable range at a
+    single-point boundary — not the genuine >=1-year window required by
+    ``_maybe_override_age_overlap_skip`` (see casting-suggestion #105).
+
+    The AI sometimes second-guesses its own "no overlap" read mid-reasoning
+    and applies anyway on a self-correction that treats the boundary touch as
+    a real overlap (e.g. "...has no overlap with actor's 17-30 range — wait,
+    30 is the boundary and actor plays up to 30, so there IS overlap at
+    exactly 30" for a role's stated 30-39 range). Nothing catches that today:
+    the override functions above only ever convert a REJECTED verdict into a
+    SELECTED one, never the reverse, so a SELECTED/FIT reason that reaches
+    the same wrong boundary conclusion sails through unchecked. This mirrors
+    the override's own arithmetic to catch it in the selected reasoning
+    itself, rather than trusting the AI's self-correction.
+    """
+    if not reason or not _AGE_NO_OVERLAP_RE.search(reason):
+        return False
+    role_range = _extract_role_age_range(role)
+    if role_range is None:
+        return False
+    lo, hi = role_range
+    overlap_years = min(hi, _ACTOR_MAX_AGE) - max(lo, _ACTOR_MIN_AGE)
+    return overlap_years < 1
+
+
 # Casting posts sometimes mark a skill as explicitly non-negotiable rather than a
 # soft preference (e.g. "NECESSARY TO HAVE SWIMMING EXPERIENCE"). The AI prompt's
 # generic "skills the actor doesn't have" rule was consistently failing to reject
@@ -1081,6 +1109,16 @@ REJECTED: 4 - Background/extra role, actor does not do background work"""
                     "bare gender-labeled role name with no inclusive-casting language; "
                     "overriding SELECTED to reject"
                 )
+            elif _select_reason_has_boundary_only_age_overlap(role_obj, reason):
+                rejections[role_name] = (
+                    f"{reason} — flagged: role's age range only touches the actor's "
+                    f"{_ACTOR_MIN_AGE}-{_ACTOR_MAX_AGE} playable range at a single-point "
+                    "boundary, not a genuine overlap (see casting-suggestion #105)"
+                )
+                logger.info(
+                    f"[AGE BOUNDARY SELECT] {project_name} — {role_name or '?'}: "
+                    "SELECTED reason cites a boundary-only age overlap; overriding SELECTED to reject"
+                )
             else:
                 still_selected.append((role_obj, reason))
         selected = still_selected
@@ -1270,6 +1308,18 @@ CRITICAL: Your response must start IMMEDIATELY with FIT or SKIP. Do NOT write an
                         f"Role name '{role['role_name']}' is a bare gender label conflicting "
                         "with the actor's gender; no explicit any-gender casting language in "
                         "the listing"
+                    )
+                }
+            if _select_reason_has_boundary_only_age_overlap(role, reason):
+                logger.info(
+                    f"[AGE BOUNDARY SELECT] {project_name} — {role.get('role_name', '?')}: "
+                    "FIT reason cites a boundary-only age overlap; overriding FIT to reject"
+                )
+                return [], {
+                    role["role_name"]: (
+                        f"{reason} — flagged: role's age range only touches the actor's "
+                        f"{_ACTOR_MIN_AGE}-{_ACTOR_MAX_AGE} playable range at a single-point "
+                        "boundary, not a genuine overlap (see casting-suggestion #105)"
                     )
                 }
             return [(role, reason)], {}
