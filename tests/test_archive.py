@@ -74,7 +74,7 @@ def test_render_includes_search_input_and_script():
     html = render_archive_html([], generated_at="now")
     assert 'id="search"' in html
     assert "addEventListener" in html
-    assert "classList" in html
+    assert 'id="more"' in html
 
 
 def test_render_search_disabled_by_default_with_warning_banner():
@@ -166,3 +166,35 @@ def test_render_role_description_is_searchable():
     assert "JORDAN" in html
     assert "Petaluma, CA" in html
     assert "Best match" in html
+
+
+def _many_records(n):
+    return [
+        {"record_type": "applied", "date_iso": f"2026-04-27 10:{i // 60:02d}:{i % 60:02d}",
+         "platform": "aa", "project_name": f"Project {i}", "role_name": f"Role {i}",
+         "role_description": "", "reason": "", "submission_note": "", "mode": "paid",
+         "project_url": ""}
+        for i in range(n)
+    ]
+
+
+def test_only_first_page_is_live_dom():
+    """Past the first page, rows go into an inert <template> so a 15k-record
+    archive doesn't lay out every row on load."""
+    from src.archive import _PAGE_SIZE
+
+    html = render_archive_html(_many_records(_PAGE_SIZE + 5), generated_at="now")
+    tbody, rest = html.split('<template id="more-rows">', 1)
+    assert tbody.count('<tr class="record">') == _PAGE_SIZE
+    assert rest.split("</template>", 1)[0].count('<tr class="record">') == 5
+
+
+def test_paginated_archive_still_parses_for_db_recovery():
+    """scripts/rebuild_db_from_archive.py must see every record exactly once."""
+    from scripts.rebuild_db_from_archive import parse_archive
+    from src.archive import _PAGE_SIZE
+
+    n = _PAGE_SIZE * 2 + 7
+    parsed = parse_archive(render_archive_html(_many_records(n), generated_at="now"))
+    assert len(parsed) == n
+    assert {r["role_name"] for r in parsed} == {f"Role {i}" for i in range(n)}

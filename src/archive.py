@@ -28,6 +28,9 @@ _TYPE_BADGE_COLORS = {
     "flagged": "#7c4dff",
     "rejected": "#e65100",
 }
+# Rows drawn at once, both on load and per "Show more" tap.
+_PAGE_SIZE = 100
+
 _TYPE_LABELS = {
     "applied": "APPLIED",
     "draft": "DRAFT",
@@ -45,7 +48,13 @@ def render_archive_html(records: list[dict], generated_at: str) -> str:
     type_counts = Counter(r.get("record_type", "?") for r in records)
     platform_counts = Counter(r.get("platform", "?") for r in records)
 
-    rows_html = "\n".join(_render_row(r) for r in records)
+    # Only the first page of rows is live DOM. The rest sit in an inert
+    # <template> (parsed, never laid out) that the search script draws from
+    # on demand. With ~15k records, laying out every row made the page crawl
+    # on phones. Each row still appears exactly once in the file, in the same
+    # markup, so scripts/rebuild_db_from_archive.py keeps working.
+    rows_html = "\n".join(_render_row(r) for r in records[:_PAGE_SIZE])
+    more_rows_html = "\n".join(_render_row(r) for r in records[_PAGE_SIZE:])
     if not records:
         rows_html = (
             '<tr><td colspan="5" class="empty">'
@@ -75,6 +84,8 @@ def render_archive_html(records: list[dict], generated_at: str) -> str:
         total=len(records),
         summary=summary_html,
         rows=rows_html,
+        more_rows=more_rows_html,
+        page_size=_PAGE_SIZE,
     )
 
 
@@ -179,11 +190,12 @@ _PAGE_TEMPLATE = """<!DOCTYPE html>
   summary {{ cursor: pointer; font-size: 12px; color: #888; }}
   .desc {{ white-space: pre-wrap; font-size: 13px; color: #444; padding: 6px 0; }}
   .empty {{ text-align: center; padding: 32px; color: #888; font-style: italic; }}
-  tr.hidden {{ display: none; }}
   #js-warning {{ background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px;
                 padding: 12px; margin-top: 8px; color: #664d03; font-size: 13px;
                 line-height: 1.4; }}
   #js-warning strong {{ color: #533f03; }}
+  #more {{ display: none; margin: 16px auto; padding: 10px 20px; font-size: 15px;
+          border: 1px solid #bbb; border-radius: 6px; background: #fff; cursor: pointer; }}
   #search:disabled {{ background: #f0f0f0; color: #999; cursor: not-allowed; }}
   @media (max-width: 700px) {{
     table, thead, tbody, tr, td {{ display: block; }}
@@ -223,6 +235,10 @@ _PAGE_TEMPLATE = """<!DOCTYPE html>
 {rows}
   </tbody>
 </table>
+<template id="more-rows">
+{more_rows}
+</template>
+<button id="more" type="button"></button>
 <script>
 (function() {{
   // If this script runs, JS is alive — enable search and hide the warning.
@@ -232,27 +248,59 @@ _PAGE_TEMPLATE = """<!DOCTYPE html>
   input.disabled = false;
   input.placeholder = 'Search role, project, casting director, description...';
 
-  var rows = document.querySelectorAll('tr.record');
-  // Pre-index lowercase text once so per-keystroke filtering stays snappy
-  // even with several thousand records.
+  var PAGE = {page_size};
+  var tbody = document.getElementById('rows');
+  var tpl = document.getElementById('more-rows');
+  var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr.record'));
+  if (tpl && tpl.content) {{
+    rows = rows.concat(Array.prototype.slice.call(tpl.content.querySelectorAll('tr.record')));
+  }}
+  // Pre-index lowercase text once so per-keystroke filtering is a plain
+  // string scan, not a DOM walk.
   var index = new Array(rows.length);
   for (var i = 0; i < rows.length; i++) index[i] = rows[i].textContent.toLowerCase();
 
   var count = document.getElementById('count');
+  var more = document.getElementById('more');
+  var matches = rows;
+  var drawn = 0;
+
+  function drawMore() {{
+    var end = Math.min(drawn + PAGE, matches.length);
+    var frag = document.createDocumentFragment();
+    for (var i = drawn; i < end; i++) frag.appendChild(matches[i]);
+    tbody.appendChild(frag);
+    drawn = end;
+    var left = matches.length - drawn;
+    more.style.display = left > 0 ? 'block' : 'none';
+    more.textContent = 'Show ' + Math.min(PAGE, left) + ' more (' + left + ' left)';
+    var q = input.value.trim();
+    count.textContent = (q ? matches.length + ' of ' + rows.length + ' matching' : rows.length + ' records')
+      + (drawn < matches.length ? ' \u00b7 showing ' + drawn : '');
+  }}
+
   function update() {{
     var q = input.value.trim().toLowerCase();
-    var shown = 0;
-    for (var i = 0; i < rows.length; i++) {{
-      if (!q || index[i].indexOf(q) !== -1) {{
-        rows[i].classList.remove('hidden');
-        shown++;
-      }} else {{
-        rows[i].classList.add('hidden');
+    if (q) {{
+      matches = [];
+      for (var i = 0; i < rows.length; i++) {{
+        if (index[i].indexOf(q) !== -1) matches.push(rows[i]);
       }}
+    }} else {{
+      matches = rows;
     }}
-    count.textContent = q ? (shown + ' of ' + rows.length + ' matching') : '';
+    tbody.textContent = '';
+    drawn = 0;
+    drawMore();
   }}
-  input.addEventListener('input', update);
+
+  var timer = null;
+  input.addEventListener('input', function() {{
+    clearTimeout(timer);
+    timer = setTimeout(update, 150);
+  }});
+  more.addEventListener('click', drawMore);
+  if (rows.length) update();
 }})();
 </script>
 </body>

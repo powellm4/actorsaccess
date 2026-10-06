@@ -219,3 +219,16 @@ def test_request_returns_cloudflare_marker_for_403_challenge(client):
         result = client._request(f"{BASE_URL}/casting/foo/")
 
     assert result == {"_error": True, "code": 403, "cloudflare": True}
+
+
+def test_fetch_saved_searches_backs_off_through_three_attempts(client):
+    """Two Cloudflare 403s then success: three attempts, each retry preceded
+    by a longer back-off delay."""
+    responses = [CLOUDFLARE_403, CLOUDFLARE_403, [{"id": 9, "name": "acting"}]]
+    with patch.object(client, "_request", side_effect=responses) as req, \
+         patch("src.backstage.client._random_delay") as delay:
+        result = client.fetch_saved_searches()
+
+    assert req.call_count == 3
+    assert result == [{"id": 9, "name": "acting"}]
+    assert [c.args for c in delay.call_args_list] == [(20, 40), (45, 75)]
