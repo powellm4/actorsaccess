@@ -5,6 +5,7 @@ Uses direct HTTP API calls (no browser automation).
 """
 
 import argparse
+import json
 import logging
 import os
 import re
@@ -356,23 +357,35 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
 
         # Find the saved search to use its filters
         saved_search = None
+        cache_key = f"backstage_saved_search:{saved_search_name.lower()}"
         saved_searches = client.fetch_saved_searches()
         if saved_searches is None:
             # The request itself failed (e.g. a Cloudflare 403 challenge or a
             # network error) — this is NOT proof that the saved search is
-            # missing. Fail with an accurate, transient-sounding message rather
-            # than telling the user to (re)create a search that likely exists.
-            # Use TransientBlockError so main() can treat this as a soft skip
-            # (clean exit) instead of a red workflow failure — the block clears
-            # on its own and the next scheduled run typically succeeds.
-            raise TransientBlockError(
-                "Could not fetch saved searches from Backstage — the request was "
-                "blocked or failed (likely a transient Cloudflare challenge). "
-                "Will retry on the next scheduled run."
+            # missing. Search with the copy saved by the last successful run
+            # rather than skipping Backstage until the next scheduled run.
+            cached = db.get_cached(cache_key)
+            if not cached:
+                # Use TransientBlockError so main() can treat this as a soft
+                # skip (clean exit) instead of a red workflow failure.
+                raise TransientBlockError(
+                    "Could not fetch saved searches from Backstage — the request was "
+                    "blocked or failed (likely a transient Cloudflare challenge). "
+                    "Will retry on the next scheduled run."
+                )
+            saved_search = json.loads(cached)
+            using_cached_search = True
+            logger.warning(
+                f"Saved searches blocked; using cached copy of '{saved_search.get('name')}' "
+                f"(id={saved_search.get('id')})"
             )
+            saved_searches = []
+        else:
+            using_cached_search = False
         for ss in saved_searches:
             if ss.get("name", "").lower() == saved_search_name.lower():
                 saved_search = ss
+                db.set_cached(cache_key, json.dumps(ss))
                 logger.info(f"Using saved search '{ss['name']}' (id={ss['id']})")
                 break
         if not saved_search:
@@ -397,6 +410,12 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
 
             logger.info(f"Fetching page {page_num}...")
             data = client.fetch_listings(page=page_num, size=20, saved_search=saved_search)
+            if page_num == 1 and using_cached_search and data.get("cloudflare"):
+                # Still blocked: don't log a "successful" run that saw nothing.
+                raise TransientBlockError(
+                    "Backstage listings blocked by Cloudflare even with the cached "
+                    "saved search. Will retry on the next scheduled run."
+                )
             productions = data.get("items", [])
             backstage_applied = set(data.get("roles_applied_for", []))
 

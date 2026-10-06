@@ -39,6 +39,10 @@ class TransientBlockError(RuntimeError):
     """
 
 
+# Wait (min, max seconds) before each saved-search retry: 3 attempts total.
+_SAVED_SEARCH_BACKOFF = [(20, 40), (45, 75)]
+
+
 def _random_delay(min_sec: float = 1.0, max_sec: float = 3.0):
     delay = random.uniform(min_sec, max_sec)
     logger.debug(f"Waiting {delay:.1f}s")
@@ -136,18 +140,19 @@ class BackstageClient:
         proof that a particular saved search doesn't exist.
         """
         url = f"{BASE_URL}/casting/async/saved-search/"
-        # Cloudflare occasionally throws a transient 403 JS challenge. Retry
-        # once after a longer delay so a brief blip doesn't get mistaken for a
-        # missing saved search.
-        for attempt in (1, 2):
-            if attempt == 2:
-                _random_delay(5, 10)
+        # Cloudflare throws a transient 403 JS challenge on ~10% of runs, and
+        # a retry a few seconds later usually hits the same challenge. Back
+        # off for longer between attempts so the challenge has time to clear.
+        for attempt in range(1, len(_SAVED_SEARCH_BACKOFF) + 2):
+            if attempt > 1:
+                _random_delay(*_SAVED_SEARCH_BACKOFF[attempt - 2])
             data = self._request(url)
             if isinstance(data, list):
                 return data
             if isinstance(data, dict) and data.get("cloudflare"):
                 logger.warning(
-                    f"Cloudflare 403 on saved searches (attempt {attempt}/2)"
+                    f"Cloudflare 403 on saved searches "
+                    f"(attempt {attempt}/{len(_SAVED_SEARCH_BACKOFF) + 1})"
                 )
                 continue
             break

@@ -142,6 +142,11 @@ class Database:
                 detail TEXT DEFAULT '',
                 processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS kv_cache (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
         """)
         # Add columns if upgrading from older schema
         try:
@@ -737,6 +742,20 @@ class Database:
             if _normalize_project_name(row[0])[:20] == normalized_target[:20]:
                 return {"project_name": row[0], "platform": row[1], "applied_at": row[2]}
         return None
+
+    # --- Small key/value cache (e.g. last-known Backstage saved search) ---
+
+    def get_cached(self, key: str) -> str | None:
+        row = self.conn.execute("SELECT value FROM kv_cache WHERE key = ?", (key,)).fetchone()
+        return row[0] if row else None
+
+    def set_cached(self, key: str, value: str):
+        self.conn.execute(
+            "INSERT INTO kv_cache (key, value, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            (key, value, self._utcnow()),
+        )
+        self.conn.commit()
 
     def close(self):
         self.conn.close()
