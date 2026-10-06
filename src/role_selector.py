@@ -149,12 +149,12 @@ def _travel_pay_block(mode: str) -> str:
     return _UNPAID_TRAVEL_BLOCK if mode == "unpaid" else _PAID_TRAVEL_PAY_BLOCK
 
 
-# Unpaid ACTING work is deliberately narrowed to ONE kind of role: the actor as
-# a male romantic lead in a straight romance. This is a hard, overriding gate
-# injected into the selection prompts for unpaid mode only. Genre/orientation/
-# billing are rarely structured fields, so the model (which reads the whole
-# breakdown) is the right place to judge this; when it can't confirm all three
-# conditions it skips.
+# Unpaid ACTING work is deliberately narrowed to two kinds of role: the actor
+# as a male romantic lead in a straight romance, or as a lead/principal in a
+# comedy. This is a hard, overriding gate injected into the selection prompts
+# for unpaid mode only. Genre/orientation/billing are rarely structured fields,
+# so the model (which reads the whole breakdown) is the right place to judge
+# this; when it can't confirm a path it skips.
 #
 # Modeling work is carved out of the gate entirely. The actor actively wants
 # print/TFP shoots, and a photo shoot has no genre, no billing and no love
@@ -162,7 +162,7 @@ def _travel_pay_block(mode: str) -> str:
 # listing the unpaid run surfaced, silently undoing the modeling exemption
 # that filters.is_modeling_role() grants upstream.
 _UNPAID_ROMANCE_BLOCK = """
-UNPAID MODE GATE — this overrides everything below.
+UNPAID MODE GATE (ROMANCE OR COMEDY) — this overrides everything below.
 
 FIRST, check for modeling work. If the listing is a modeling / print / photo /
 stills gig — TFP (Time-For-Print / Time For Print / trade-for-print), print
@@ -174,8 +174,10 @@ TFP modeling is exactly what the actor wants; "no pay", "TFP" or "trade for
 print" is NEVER a reason to skip a modeling gig, and a modeling gig never needs
 a romance, a love interest or a LEAD/PRINCIPAL label.
 
-OTHERWISE (acting roles), only SELECT/FIT a role if ALL THREE of these are
-clearly true from the breakdown:
+OTHERWISE (acting roles), only SELECT/FIT a role that clearly passes PATH A
+(ROMANCE) or PATH B (COMEDY) from the breakdown. Either path is enough.
+
+PATH A — ROMANCE. ALL THREE must be true:
   1. ROMANCE: the project is a romance, or the actor's storyline is a central
      romantic relationship (rom-com, romantic drama, love story, a lead with a
      love interest). A project with only incidental romance does NOT count.
@@ -185,14 +187,24 @@ clearly true from the breakdown:
   3. STRAIGHT: it is a heterosexual (male-female) romance — the actor's love
      interest is a woman. SKIP gay/queer male romances and any M/M pairing where
      the actor's romantic partner is a man.
-SKIP every acting role that is not a straight romance with the actor as the male
-lead/principal — including all non-romance projects. If you cannot clearly
-confirm all three conditions from the breakdown, SKIP.
+
+PATH B — COMEDY. BOTH must be true:
+  1. COMEDY: the project is a comedy — sitcom, sketch, comedic short or
+     feature, rom-com, dark comedy, horror-comedy, comedic web series. A drama
+     with an occasional funny moment does NOT count.
+  2. LEAD/PRINCIPAL: the actor would be a LEAD or PRINCIPAL in it. SKIP
+     supporting, day-player, featured, background, or minor roles.
+  A comedy role whose storyline is a gay/queer male romance (the actor's
+  romantic partner is a man) is still SKIP.
+
+SKIP every acting role that passes neither path — including dramas, thrillers
+and other non-romance, non-comedy projects. If you cannot clearly confirm a
+path from the breakdown, SKIP.
 """
 
 
 def _unpaid_romance_block(mode: str) -> str:
-    """Return the unpaid romance-only gate for unpaid mode, else empty string."""
+    """Return the unpaid romance-or-comedy gate for unpaid mode, else empty string."""
     return _UNPAID_ROMANCE_BLOCK if mode == "unpaid" else ""
 
 

@@ -1774,6 +1774,15 @@ def test_unpaid_gate_carves_out_modeling_work():
     assert unpaid.index("modeling") < unpaid.index("1. ROMANCE")
 
 
+def test_unpaid_gate_accepts_comedy_as_well_as_romance():
+    """Unpaid acting roles may pass as a straight romance OR a comedy lead."""
+    from src.role_selector import _unpaid_romance_block
+    unpaid = _unpaid_romance_block("unpaid")
+    assert "PATH A" in unpaid and "PATH B" in unpaid
+    assert "1. COMEDY" in unpaid
+    assert "Either path is enough" in unpaid
+
+
 def test_unpaid_prompt_includes_romance_gate_paid_does_not():
     """End-to-end plumbing: the unpaid selection prompt carries the gate; paid doesn't.
     Captures the prompt passed to the model via a patched shadowed_completion."""
