@@ -21,6 +21,7 @@ from src.override_email import send_override_results_email
 from src.calendar_check import check_availability, parse_shoot_dates, parse_all_dates
 from src.filters import _is_background, _is_court_tv, _is_family_casting, _is_ugc, _is_unpaid, _COURT_TV_PATTERN, extract_role_type_marker, is_lead_or_supporting, is_modeling_role, project_has_female_cast
 from src.role_selector import (
+    REVIEW_REJECTION_PREFIX,
     TRANSIENT_REJECTION_PREFIX,
     analyze_submission_requirements,
     answer_prescreen_questions,
@@ -636,6 +637,18 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                         role_url = role.get("url", "")
                         if role_url and not role_url.startswith("http"):
                             role_url = f"https://www.backstage.com{role_url}"
+                        if reason.startswith(REVIEW_REJECTION_PREFIX):
+                            db.record_flagged_role(
+                                project_name=project_name,
+                                project_url=role_url or project_url,
+                                role_name=role["role_name"],
+                                role_description=role.get("description", ""),
+                                flag_reason=reason[len(REVIEW_REJECTION_PREFIX):],
+                                run_id=run_id,
+                                platform="backstage",
+                                mode=mode,
+                            )
+                            continue
                         db.record_rejection(
                             project_name=project_name,
                             project_url=role_url or project_url,
