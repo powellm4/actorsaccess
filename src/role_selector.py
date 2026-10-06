@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 # Prefix on a rejection reason that means "AI hit a transient error" — callers
 # must NOT persist these to rejected_roles so the next run retries the role.
 TRANSIENT_REJECTION_PREFIX = "[transient] "
+# A rejection carrying this prefix is not a pass: the platform runners record
+# it as a flagged role (Needs Your Attention) so a human makes the call.
+REVIEW_REJECTION_PREFIX = "[review] "
 
 
 def _is_transient_error(exc: Exception) -> bool:
@@ -793,6 +796,21 @@ def _maybe_override_age_overlap_skip(role: dict, ai_reason: str) -> tuple[bool, 
     # overridden. A genuine window like 28-30 (2 years) still overrides. See
     # casting-suggestion #105 (Weller Bourbon) vs. #70 (the 28-38 case).
     overlap_years = min(hi, _ACTOR_MAX_AGE) - max(lo, _ACTOR_MIN_AGE)
+    if overlap_years == 0:
+        # The ranges DO meet at one age (e.g. 30-40 vs. 17-30), so "no overlap"
+        # is factually wrong. Whether the actor can credibly play the top of his
+        # range is a judgment call, so send it to a human instead of passing.
+        edge = max(lo, _ACTOR_MIN_AGE)
+        new_reason = (
+            f"{REVIEW_REJECTION_PREFIX}Age range {lo}-{hi} meets the actor's "
+            f"{_ACTOR_MIN_AGE}-{_ACTOR_MAX_AGE} range at {edge}; AI passed on age, "
+            f"review whether to apply (AI said: {ai_reason[:120]})"
+        )
+        logger.info(
+            f"[AGE EDGE REVIEW] {role.get('role_name', '?')}: range {lo}-{hi} touches "
+            f"actor's range at {edge}; flagging for human review"
+        )
+        return False, new_reason
     if overlap_years < 1:
         return False, ai_reason
     new_reason = (
@@ -1069,6 +1087,8 @@ REJECTED: 4 - Background/extra role, actor does not do background work"""
             if overridden:
                 selected.append((role_obj, new_reason))
                 del rejections[role_name]
+            elif new_reason.startswith(REVIEW_REJECTION_PREFIX):
+                rejections[role_name] = new_reason
 
         # Demote any SELECTED role that has an explicit, non-negotiable skill
         # requirement ("NECESSARY TO HAVE X") the actor's profile doesn't list —
@@ -1260,6 +1280,8 @@ CRITICAL: Your response must start IMMEDIATELY with FIT or SKIP. Do NOT write an
                 overridden, new_reason = _maybe_override_age_overlap_skip(role, reason)
             if overridden:
                 return [(role, new_reason)], {}
+            if new_reason.startswith(REVIEW_REJECTION_PREFIX):
+                reason = new_reason
             return [], {role["role_name"]: reason}
 
         if verdict == "FIT":

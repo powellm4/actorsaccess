@@ -16,6 +16,7 @@ from src.browser import ActorsAccessBrowser
 from src.override_email import send_override_results_email
 from src.filters import role_matches, project_matches, is_sag_only, is_lead_or_supporting, is_modeling_role, project_has_female_cast
 from src.role_selector import (
+    REVIEW_REJECTION_PREFIX,
     TRANSIENT_REJECTION_PREFIX,
     analyze_submission_requirements,
     check_partial_availability,
@@ -553,6 +554,18 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                                 logger.info(
                                     f"[TRANSIENT] Re-queuing for next run: "
                                     f"{project['project_name']} — {role['role_name']} ({reason})"
+                                )
+                                continue
+                            if reason.startswith(REVIEW_REJECTION_PREFIX):
+                                db.record_flagged_role(
+                                    project_name=project["project_name"],
+                                    project_url=project_url,
+                                    role_name=role["role_name"],
+                                    role_description=role.get("description", ""),
+                                    flag_reason=reason[len(REVIEW_REJECTION_PREFIX):],
+                                    run_id=run_id,
+                                    platform="aa",
+                                    mode=mode,
                                 )
                                 continue
                             db.record_rejection(

@@ -1570,11 +1570,12 @@ def test_override_local_hire_still_fires_for_plain_local_hire_with_clearing_pay(
 # --- casting-suggestion #105: single-point age-boundary touch is not a real overlap ---
 
 
-def test_age_overlap_override_not_fired_on_single_point_boundary():
-    """#105 (Weller Bourbon): role '30-45' shares only age 30 with the actor's
-    17-30 range. That single-point touch must NOT override the AI's own
-    'cannot credibly play 30+ as a minimum' credibility judgment."""
-    from src.role_selector import _maybe_override_age_overlap_skip
+def test_age_overlap_single_point_boundary_goes_to_human_review():
+    """#105 (Weller Bourbon), Major Pharma 30-40, ESPN/Draft Kings 30-50: a role
+    range that meets the actor's 17-30 range at exactly 30 is not auto-applied
+    (credibility is a judgment call), but it is not a silent pass either: the
+    AI's "no overlap" claim is wrong, so it goes to human review."""
+    from src.role_selector import REVIEW_REJECTION_PREFIX, _maybe_override_age_overlap_skip
     role = {"role_name": "Pappy", "age_range": "30-45"}
     ai_reason = (
         "Age range is 30-45 with no overlap with actor's 17-30 range; actor "
@@ -1582,7 +1583,29 @@ def test_age_overlap_override_not_fired_on_single_point_boundary():
     )
     overridden, new_reason = _maybe_override_age_overlap_skip(role, ai_reason)
     assert overridden is False
-    assert new_reason == ai_reason
+    assert new_reason.startswith(REVIEW_REJECTION_PREFIX)
+    assert "meets the actor's 17-30 range at 30" in new_reason
+
+
+def test_age_range_genuinely_outside_stays_rejected():
+    from src.role_selector import _maybe_override_age_overlap_skip
+    role = {"role_name": "Dad", "age_range": "35-50"}
+    ai_reason = "Age range 35-50 has no overlap with actor's 17-30 range."
+    assert _maybe_override_age_overlap_skip(role, ai_reason) == (False, ai_reason)
+
+
+def test_boundary_age_rejection_is_flagged_not_rejected_in_select_best_roles():
+    """End to end through the single-role path: the review reason survives."""
+    from src.role_selector import REVIEW_REJECTION_PREFIX
+    role = {"role_name": "Bettor", "age_range": "30-50", "description": "Athletic, relaxed"}
+    mock_module, _ = _make_mock_anthropic(
+        "SKIP - Age range 30-50 has no overlap with actor's playable range of 17-30"
+    )
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "ESPN/Draft Kings")
+    assert selected == []
+    assert rejections["Bettor"].startswith(REVIEW_REJECTION_PREFIX)
 
 
 def test_age_overlap_override_still_fires_on_genuine_multi_year_window():
