@@ -3,7 +3,7 @@ credentials:
   password: ""
 
 max_pages: 3
-max_submissions: 10
+max_submissions: 20
 saved_search: "acting"
 
 submission:

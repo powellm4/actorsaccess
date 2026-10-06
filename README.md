@@ -144,7 +144,7 @@ The actor takes modeling gigs — print, photo, stills — including unpaid **TF
 | --- | --- |
 | Paid-mode unpaid pay guard (`role_matches`) | Exempt — a free/TFP shoot in the paid feed still goes through |
 | Unpaid-mode role-type whitelist (`is_lead_or_supporting`) | Exempt — shoots carry no Lead/Principal label |
-| Unpaid-mode romance gate (AI prompt) | Exempt — judged on physical/type fit only |
+| Unpaid-mode romance-or-comedy gate (AI prompt) | Exempt — judged on physical/type fit only |
 
 Detection lives in `is_modeling_role()` in `src/filters.py` and fires on the project type (matched as a token, so `"Commercial Print"` and Backstage's joined `"Modeling, Commercial"` both count), the `role_type` field, a TFP marker in the rate field, or keywords in the role name/description (`TFP`, `TFCD`, `time for print`, `trade for print`, `<vertical> model`, `photo shoot`, `lookbook shoot`, and similar). Bypasses are logged as `Unpaid bypass (modeling/TFP)` so runs can be audited.
 
