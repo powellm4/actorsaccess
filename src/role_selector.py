@@ -152,46 +152,31 @@ def _travel_pay_block(mode: str) -> str:
     return _UNPAID_TRAVEL_BLOCK if mode == "unpaid" else _PAID_TRAVEL_PAY_BLOCK
 
 
-# Unpaid ACTING work is deliberately narrowed to two kinds of role: the actor
-# as a male romantic lead in a straight romance, or as a lead/principal in a
-# comedy. This is a hard, overriding gate injected into the selection prompts
-# for unpaid mode only. Genre/orientation/billing are rarely structured fields,
-# so the model (which reads the whole breakdown) is the right place to judge
-# this; when it can't confirm a path it skips.
+# Unpaid ACTING work is deliberately narrowed to one kind of role: the actor
+# as a lead/principal in a comedy. This is a hard, overriding gate injected
+# into the selection prompts for unpaid mode only. Genre and billing are
+# rarely structured fields, so the model (which reads the whole breakdown) is
+# the right place to judge this; when it can't confirm the role passes it skips.
 #
 # Modeling work is carved out of the gate entirely. The actor actively wants
-# print/TFP shoots, and a photo shoot has no genre, no billing and no love
-# interest to confirm — without the carve-out the gate skipped every modeling
-# listing the unpaid run surfaced, silently undoing the modeling exemption
-# that filters.is_modeling_role() grants upstream.
-_UNPAID_ROMANCE_BLOCK = """
-UNPAID MODE GATE (ROMANCE OR COMEDY) — this overrides everything below.
+# print/TFP shoots, and a photo shoot has no genre and no billing to confirm;
+# without the carve-out the gate skipped every modeling listing the unpaid run
+# surfaced, silently undoing the modeling exemption that
+# filters.is_modeling_role() grants upstream.
+_UNPAID_COMEDY_BLOCK = """
+UNPAID MODE GATE (COMEDY ONLY) — this overrides everything below.
 
 FIRST, check for modeling work. If the listing is a modeling / print / photo /
 stills gig — TFP (Time-For-Print / Time For Print / trade-for-print), print
 modeling, commercial print, swimwear/beach/poolside, fitness, lifestyle,
 fashion/editorial, portfolio, catalog, lookbook, e-commerce, brand campaign,
-photo shoot or stills work — then this romance gate DOES NOT APPLY. Judge it on
+photo shoot or stills work — then this comedy gate DOES NOT APPLY. Judge it on
 physical/type fit alone and SELECT/FIT it if the actor fits the look. Unpaid and
 TFP modeling is exactly what the actor wants; "no pay", "TFP" or "trade for
 print" is NEVER a reason to skip a modeling gig, and a modeling gig never needs
-a romance, a love interest or a LEAD/PRINCIPAL label.
+a genre or a LEAD/PRINCIPAL label.
 
-OTHERWISE (acting roles), only SELECT/FIT a role that clearly passes PATH A
-(ROMANCE) or PATH B (COMEDY) from the breakdown. Either path is enough.
-
-PATH A — ROMANCE. ALL THREE must be true:
-  1. ROMANCE: the project is a romance, or the actor's storyline is a central
-     romantic relationship (rom-com, romantic drama, love story, a lead with a
-     love interest). A project with only incidental romance does NOT count.
-  2. MALE LEAD/PRINCIPAL: the actor would be a male romantic LEAD or PRINCIPAL —
-     the (or a) main romantic male role. SKIP supporting, day-player, featured,
-     background, or minor romantic roles.
-  3. STRAIGHT: it is a heterosexual (male-female) romance — the actor's love
-     interest is a woman. SKIP gay/queer male romances and any M/M pairing where
-     the actor's romantic partner is a man.
-
-PATH B — COMEDY. BOTH must be true:
+OTHERWISE (acting roles), only SELECT/FIT a role when BOTH are true:
   1. COMEDY: the project is a comedy — sitcom, sketch, comedic short or
      feature, rom-com, dark comedy, horror-comedy, comedic web series. A drama
      with an occasional funny moment does NOT count.
@@ -200,15 +185,16 @@ PATH B — COMEDY. BOTH must be true:
   A comedy role whose storyline is a gay/queer male romance (the actor's
   romantic partner is a man) is still SKIP.
 
-SKIP every acting role that passes neither path — including dramas, thrillers
-and other non-romance, non-comedy projects. If you cannot clearly confirm a
-path from the breakdown, SKIP.
+SKIP every acting role that is not a comedy — including romances, romantic
+dramas, dramas, thrillers and every other non-comedy project. If you cannot
+clearly confirm the project is a comedy and the role is a lead/principal from
+the breakdown, SKIP.
 """
 
 
-def _unpaid_romance_block(mode: str) -> str:
-    """Return the unpaid romance-or-comedy gate for unpaid mode, else empty string."""
-    return _UNPAID_ROMANCE_BLOCK if mode == "unpaid" else ""
+def _unpaid_comedy_block(mode: str) -> str:
+    """Return the unpaid comedy-only gate for unpaid mode, else empty string."""
+    return _UNPAID_COMEDY_BLOCK if mode == "unpaid" else ""
 
 
 def _extract_total_pay(text: str) -> float | None:
@@ -1015,7 +1001,7 @@ AVAILABLE ROLES:
 {chr(10).join(role_options)}
 
 {scope_line}
-{_unpaid_romance_block(mode)}
+{_unpaid_comedy_block(mode)}
 IMPORTANT: If ANY role description says "submit for only one role", "one submission per actor", or similar, you MUST select only ONE role (the best fit) no matter what.
 
 HARD DISQUALIFIERS — reject any role that requires:
@@ -1188,7 +1174,7 @@ PROJECT: {project_name}
 ROLE: {role['role_name']}
 DESCRIPTION: {desc}
 
-{unpaid_line}{_unpaid_romance_block(mode)}HARD DISQUALIFIERS — SKIP if the role requires ANY of these:
+{unpaid_line}{_unpaid_comedy_block(mode)}HARD DISQUALIFIERS — SKIP if the role requires ANY of these:
 - Height outside 5'10"–6'1" (e.g., "must be 6'3"+", "under 5'6"")
 - Large/heavyset/stocky/overweight build (actor is athletic, 185 lbs)
 - Specific ethnicity that excludes both White AND Latino/Hispanic (e.g., "Black only", "Asian only" — reject. But "Hispanic", "Latino", "White" — accept)

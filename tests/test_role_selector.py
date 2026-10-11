@@ -1773,40 +1773,38 @@ def test_must_know_how_to_ride_a_bicycle_is_a_hard_skill():
     assert _unmet_hard_skill_requirement("Must know how to get to set on time.") is None
 
 
-# --- unpaid romance-only gate (male lead/principal, straight romance) ---
+# --- unpaid comedy-only gate (lead/principal in a comedy) ---
 
 
-def test_unpaid_romance_block_present_for_unpaid_only():
-    """The romance-only gate must be injected in unpaid mode and absent in paid."""
-    from src.role_selector import _unpaid_romance_block
-    unpaid = _unpaid_romance_block("unpaid")
-    assert _unpaid_romance_block("paid") == ""
-    # key conditions are all present in the unpaid gate
-    for token in ("ROMANCE", "LEAD or PRINCIPAL", "STRAIGHT", "M/M", "SKIP"):
-        assert token in unpaid, f"expected {token!r} in unpaid romance gate"
+def test_unpaid_comedy_block_present_for_unpaid_only():
+    """The comedy-only gate must be injected in unpaid mode and absent in paid."""
+    from src.role_selector import _unpaid_comedy_block
+    unpaid = _unpaid_comedy_block("unpaid")
+    assert _unpaid_comedy_block("paid") == ""
+    for token in ("COMEDY", "LEAD or PRINCIPAL", "SKIP"):
+        assert token in unpaid, f"expected {token!r} in unpaid comedy gate"
 
 
 def test_unpaid_gate_carves_out_modeling_work():
-    """Modeling/TFP gigs must be exempt from the romance gate, not skipped by it."""
-    from src.role_selector import _unpaid_romance_block
-    unpaid = _unpaid_romance_block("unpaid")
+    """Modeling/TFP gigs must be exempt from the comedy gate, not skipped by it."""
+    from src.role_selector import _unpaid_comedy_block
+    unpaid = _unpaid_comedy_block("unpaid")
     for token in ("TFP", "Time-For-Print", "DOES NOT APPLY", "physical/type fit"):
         assert token in unpaid, f"expected {token!r} in unpaid modeling carve-out"
-    # The carve-out has to come before the romance conditions, or the model
-    # reads "only select if ALL THREE" first and skips the shoot.
-    assert unpaid.index("modeling") < unpaid.index("1. ROMANCE")
+    # The carve-out has to come before the comedy conditions, or the model
+    # reads "only select when BOTH are true" first and skips the shoot.
+    assert unpaid.index("modeling") < unpaid.index("1. COMEDY")
 
 
-def test_unpaid_gate_accepts_comedy_as_well_as_romance():
-    """Unpaid acting roles may pass as a straight romance OR a comedy lead."""
-    from src.role_selector import _unpaid_romance_block
-    unpaid = _unpaid_romance_block("unpaid")
-    assert "PATH A" in unpaid and "PATH B" in unpaid
-    assert "1. COMEDY" in unpaid
-    assert "Either path is enough" in unpaid
+def test_unpaid_gate_no_longer_accepts_romance_path():
+    """Unpaid acting roles must be comedies; a romance alone no longer passes."""
+    from src.role_selector import _unpaid_comedy_block
+    unpaid = _unpaid_comedy_block("unpaid")
+    assert "PATH A" not in unpaid and "1. ROMANCE" not in unpaid
+    assert "SKIP every acting role that is not a comedy" in unpaid
 
 
-def test_unpaid_prompt_includes_romance_gate_paid_does_not():
+def test_unpaid_prompt_includes_comedy_gate_paid_does_not():
     """End-to-end plumbing: the unpaid selection prompt carries the gate; paid doesn't.
     Captures the prompt passed to the model via a patched shadowed_completion."""
     import src.role_selector as rs
@@ -1814,7 +1812,7 @@ def test_unpaid_prompt_includes_romance_gate_paid_does_not():
 
     def fake_completion(prompt, **kwargs):
         captured["prompt"] = prompt
-        return "SKIP - not a romance lead"
+        return "SKIP - not a comedy lead"
 
     role = {"role_name": "Jake", "role_type": "Lead", "description": "Romantic lead. LEAD."}
     with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
