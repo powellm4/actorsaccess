@@ -360,7 +360,7 @@ class BackstageClient:
         note: str = "",
         media_ids: list[int] | None = None,
         answers: list[dict] | None = None,
-        prepare_only: bool = False,
+        cover_letter_required: bool = False,
     ) -> dict | None:
         """Submit an application for a role.
 
@@ -375,11 +375,10 @@ class BackstageClient:
         become an orphan — the submission goes through without the
         prescreen answers recorded, and a loud warning is logged.
 
-        prepare_only: when True, run steps 1–3 and stop before step 4. Returns
-        {"_prepared": True, "app_id": <int>} on success so the caller can
-        surface the draft to the user (e.g. for cover-letter-required roles
-        the user finalizes manually). The "note" argument is ignored in
-        prepare-only — there's no final submission to attach it to.
+        cover_letter_required: the role lists "Cover Letter" in its
+        submission_requires. See finalize_draft for how the note is sent.
+        A rejected step 4 returns {"_rejected": True, "reason": ..., "app_id": ...}
+        so the caller can surface the draft that still exists on Backstage.
         """
         # Step 1: Create draft
         _random_delay(1, 3)
@@ -409,24 +408,41 @@ class BackstageClient:
         if answers:
             self._submit_prescreen_answers(app_id, answers)
 
-        if prepare_only:
-            logger.info(f"[PREPARE-ONLY] Draft {app_id} ready; skipping final submit")
-            return {"_prepared": True, "app_id": app_id}
+        # Step 4: Submit
+        return self.finalize_draft(app_id, note=note, cover_letter_required=cover_letter_required)
 
-        # Step 4: Submit via PUT (change status from Draft "I" to Submitted "C")
+    def finalize_draft(
+        self, app_id: int, note: str = "", cover_letter_required: bool = False,
+    ) -> dict | None:
+        """Flip an existing draft application to Submitted (status "I" → "C").
+
+        The note goes in the `note` field, which is the free-text box casting
+        sees with the submission and has carried the self-tape line on every
+        Backstage submission so far. For cover-letter-required roles the same
+        text is also sent as `cover_letter`: Backstage's requirement check
+        refuses the PUT with "Not all role requirements met: Cover Letter"
+        when its letter field is empty, and this covers either field name
+        (an unknown key is ignored by the API, so the hedge is free).
+
+        Returns the application dict on success, None on a transport failure,
+        or {"_rejected": True, "reason": ..., "app_id": app_id} when Backstage
+        refuses the submit — the draft still exists in that case.
+        """
         _random_delay(2, 4)
-        submit_data = {"applicant_status": "C"}
+        submit_data: dict = {"applicant_status": "C"}
         if note:
             submit_data["note"] = note
+            if cover_letter_required:
+                submit_data["cover_letter"] = note
 
         submit_url = f"{APPLICATION_URL}{app_id}/"
         result = self._request(submit_url, data=submit_data, method="PUT")
         if isinstance(result, dict) and result.get("_error"):
             detail = result.get("detail", {})
-            errors = detail.get("non_field_errors", [])
+            errors = detail.get("non_field_errors", []) if isinstance(detail, dict) else []
             reason = "; ".join(errors) if errors else str(detail)
             logger.error(f"Submission rejected for app {app_id}: {reason}")
-            return {"_rejected": True, "reason": reason}
+            return {"_rejected": True, "reason": reason, "app_id": app_id}
         if isinstance(result, dict) and not result.get("_error"):
             logger.info(f"Application {app_id} submitted successfully")
             return result

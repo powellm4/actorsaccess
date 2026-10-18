@@ -677,6 +677,50 @@ class Database:
         )
         self.conn.commit()
 
+    def update_flag_reason(self, role_name: str, project_name: str, platform: str, flag_reason: str):
+        """Rewrite the reason on an existing flagged row, keeping everything else."""
+        self.conn.execute(
+            "UPDATE flagged_roles SET flag_reason = ? WHERE role_name = ? AND project_name = ? AND platform = ?",
+            (flag_reason, role_name, project_name, platform),
+        )
+        self.conn.commit()
+
+    def get_pending_backstage_drafts(self, mode: str, days: int = 14) -> list[dict]:
+        """Backstage drafts the old prepare-only flow left for the user to finish
+        (cover-letter-required roles). The Backstage runner now submits these
+        itself with the standard cover letter. Rows whose auto-submit was
+        already refused by Backstage carry "auto-submit rejected" in the reason
+        and are not retried; older drafts are left alone."""
+        cursor = self.conn.execute(
+            """SELECT project_name, project_url, role_name, flag_reason, draft_app_id, mode
+               FROM flagged_roles
+               WHERE platform = 'backstage' AND mode = ? AND draft_app_id IS NOT NULL
+                 AND flag_reason LIKE '%draft ready in Backstage'
+                 AND flag_reason NOT LIKE '%auto-submit rejected%'
+                 AND flagged_at > datetime('now', ?)
+               ORDER BY flagged_at""",
+            (mode, f"-{int(days)} days"),
+        )
+        columns = [desc[0] for desc in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    def mark_draft_submitted(
+        self, role_name: str, project_name: str, platform: str, submission_note: str,
+    ) -> bool:
+        """Promote a status='draft' application to 'submitted' with the note
+        that was actually sent. applied_at is refreshed so the submission shows
+        up in the next digest's Applied section. Returns False if no draft row
+        matched (already submitted, or never recorded)."""
+        cursor = self.conn.execute(
+            """UPDATE applied_roles
+               SET status = 'submitted', submission_note = ?, applied_at = ?
+               WHERE role_name = ? AND project_name = ? AND platform = ?
+                 AND COALESCE(status, 'submitted') = 'draft'""",
+            (submission_note, self._utcnow(), role_name, project_name, platform),
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
+
     def get_known_project_url(
         self, role_name: str, project_name: str, platform: str,
     ) -> str | None:

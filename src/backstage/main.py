@@ -22,11 +22,11 @@ from src.calendar_check import check_availability, parse_shoot_dates, parse_all_
 from src.filters import _is_background, _is_court_tv, _is_family_casting, _is_ugc, _is_unpaid, _COURT_TV_PATTERN, extract_role_type_marker, is_lead_or_supporting, is_modeling_role, project_has_female_cast
 from src.role_selector import (
     REVIEW_REJECTION_PREFIX,
+    SELFTAPE_NOTE,
     TRANSIENT_REJECTION_PREFIX,
     analyze_submission_requirements,
     answer_prescreen_questions,
     check_travel_pay,
-    generate_cover_letter,
     select_best_roles,
     _scam_red_flags,
 )
@@ -37,12 +37,32 @@ logger = logging.getLogger("backstage")
 # Production types to skip (actor doesn't do theater/musical)
 _SKIP_PROD_TYPES = {"theater", "theatre", "musical"}
 
-# Hard-coded cover letter note attached to every Backstage submission where
-# a self-tape / video prescreen is detected. Casting reads this in the
-# submission note and knows to ask for a tape if they're interested.
-SELFTAPE_COVER_LETTER = (
-    "Happy to send a self-tape on short notice — just let me know."
+# Note attached to every Backstage submission where a self-tape / video
+# prescreen is detected. Casting reads this in the submission note and knows
+# to ask for a tape if they're interested.
+SELFTAPE_COVER_LETTER = SELFTAPE_NOTE
+
+# Cover letter auto-submitted on roles whose submission_requires lists
+# "Cover Letter". Deliberately short and factual: no selling, nothing the
+# profile doesn't already say. Override per config with submission.cover_letter
+# ("{role}" is replaced with the role name).
+DEFAULT_COVER_LETTER = (
+    "I'd love to be considered for {role}. I'm based in Los Angeles — 6'0\", athletic build, "
+    "non-union — and my headshot, resume, and reel are attached. "
+    "Happy to send a self-tape on short notice — just let me know. Thanks!"
 )
+# Role names longer than this (or with a colon) are listing titles rather
+# than character names, e.g. "Tomorrow, Oct 8: Street-Style Portfolio Shoot".
+_MAX_ROLE_NAME_IN_LETTER = 40
+
+
+def build_cover_letter(role: dict, cfg: dict) -> str:
+    """The short cover letter sent on cover-letter-required roles."""
+    template = (cfg.get("submission") or {}).get("cover_letter") or DEFAULT_COVER_LETTER
+    name = (role.get("role_name") or "").strip()
+    if not name or len(name) > _MAX_ROLE_NAME_IN_LETTER or ":" in name:
+        name = "this role"
+    return template.replace("{role}", name)
 
 
 def setup_logging(log_config: dict):
@@ -330,6 +350,45 @@ def process_backstage_overrides(
         )
 
 
+def finalize_pending_drafts(
+    cfg: dict, db: Database, client: BackstageClient, mode: str, dry_run: bool,
+) -> int:
+    """Submit the drafts the old prepare-only flow left on Backstage for
+    cover-letter-required roles, using the standard cover letter. Runs once
+    per run right after login. A draft Backstage refuses is re-flagged with
+    the reason and not retried. Returns the number submitted."""
+    pending = db.get_pending_backstage_drafts(mode)
+    if not pending:
+        return 0
+    if dry_run:
+        logger.info(f"[DRAFTS] Dry run — would finalize {len(pending)} pending draft(s)")
+        return 0
+    logger.info(f"[DRAFTS] Finalizing {len(pending)} pending cover-letter draft(s) for mode={mode}")
+    submitted = 0
+    for row in pending:
+        app_id = row["draft_app_id"]
+        label = f"{row['project_name']} — {row['role_name']} (draft {app_id})"
+        note = build_cover_letter({"role_name": row["role_name"]}, cfg)
+        result = client.finalize_draft(app_id, note=note, cover_letter_required=True)
+        if isinstance(result, dict) and result.get("_rejected"):
+            reason = result.get("reason", "rejected")
+            logger.warning(f"[DRAFTS] Backstage refused draft submit for {label}: {reason}")
+            requirement = row["flag_reason"].split(" — ")[0]
+            db.update_flag_reason(
+                row["role_name"], row["project_name"], "backstage",
+                f"{requirement} — auto-submit rejected by Backstage ({reason}); draft ready in Backstage",
+            )
+            continue
+        if not result:
+            logger.warning(f"[DRAFTS] Draft submit failed for {label}; will retry next run")
+            continue
+        logger.info(f"[DRAFTS] Submitted {label}")
+        db.mark_draft_submitted(row["role_name"], row["project_name"], "backstage", note)
+        db.delete_flagged(row["role_name"], row["project_name"], "backstage")
+        submitted += 1
+    return submitted
+
+
 def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid"):
     run_id = db.start_run(platform="backstage", mode=mode)
     set_run_context(platform="backstage", mode=mode, run_id=run_id)
@@ -351,6 +410,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
         # before the normal scrape. Backstage's submit goes through a direct
         # role_id, so this doesn't need the listings to surface the role first.
         process_backstage_overrides(cfg, db, client, run_id, mode, dry_run)
+        roles_applied += finalize_pending_drafts(cfg, db, client, mode, dry_run)
 
         max_pages = cfg.get("max_pages", 5)
         max_subs = cfg.get("max_submissions")
@@ -800,16 +860,14 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
 
                     # Backstage submission_requires codes: "0"=Headshot, "1"=Video Reel,
                     # "4"=Resume, "5"=Cover Letter. Headshot/reel/resume auto-attach
-                    # from media_ids. Cover letter ("5") routes into prepare_only: we
-                    # create the draft, attach media, answer prescreen, and stop before
-                    # the final PUT. The user lands in Backstage, pastes/edits the AI
-                    # cover letter from the digest, and submits manually.
+                    # from media_ids. Cover letter ("5") is satisfied with the short
+                    # standard letter (build_cover_letter) sent as the submission note.
                     submission_requires = best.get("submission_requires", []) or []
-                    prepare_only = "5" in submission_requires
-                    if prepare_only:
+                    cover_letter_required = "5" in submission_requires
+                    if cover_letter_required:
                         logger.info(
                             f"[REQUIRES] {best['role_name']}: cover letter required "
-                            f"({best.get('submission_requires_display','')}) — preparing draft only"
+                            f"({best.get('submission_requires_display','')}) — submitting with the standard cover letter"
                         )
 
                     # Check for prescreen/self-tape requirements
@@ -931,40 +989,37 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                         continue
 
                     # Build the submission note. Priority when composing:
-                    #   1. Cover letter (if self-tape detected)
-                    #   2. AI-generated casting-note (if analysis said SUBMIT_WITH_NOTE)
+                    #   1. Standard cover letter (if the role requires one; it
+                    #      already offers a self-tape) — else the self-tape line
+                    #      when a self-tape / video prescreen was detected
+                    #   2. AI-generated casting-note (if analysis said SUBMIT_WITH_NOTE),
+                    #      unless it repeats what is already in the note
                     # Prescreen Q&A is NOT stuffed into the note anymore — it
                     # goes through the real prescreen endpoint via the answers
                     # kwarg on submit_for_role.
                     note_parts: list[str] = []
-                    if selftape_detected:
+                    if cover_letter_required:
+                        note_parts.append(build_cover_letter(best, cfg))
+                    elif selftape_detected:
                         logger.info(f"[SELFTAPE] Attaching cover letter note for {best['role_name']}")
                         note_parts.append(SELFTAPE_COVER_LETTER)
-                    if analysis["action"] == "SUBMIT_WITH_NOTE" and analysis.get("note"):
-                        note_parts.append(analysis["note"])
+                    ai_note = analysis.get("note") if analysis["action"] == "SUBMIT_WITH_NOTE" else None
+                    if ai_note and not any(ai_note in part for part in note_parts):
+                        note_parts.append(ai_note)
                     note = "\n\n".join(note_parts)
 
-                    # For prepare_only roles, generate a suggested cover letter the
-                    # user can paste into Backstage. Only on the non-dry-run path to
-                    # avoid a live AI call during dry runs.
-                    suggested_cover_letter = ""
-                    if prepare_only and not dry_run:
-                        suggested_cover_letter = generate_cover_letter(best, project_name)
-
                     if dry_run:
-                        if prepare_only:
-                            tag = "DRAFT-ONLY (cover letter)"
-                        else:
-                            tag = "SUBMIT (AI pick)" if len(candidates) > 1 else "SUBMIT"
+                        tag = "SUBMIT (AI pick)" if len(candidates) > 1 else "SUBMIT"
+                        if cover_letter_required:
+                            tag += " + cover letter"
                         _print_role_decision(tag, project_name, best)
                         if len(candidates) > 1:
                             print(f"  AI reason: {ai_reason}")
-                        if analysis["action"] == "SUBMIT_WITH_NOTE":
-                            print(f"  Note: {analysis['note']}")
+                        if note:
+                            print(f"  Note: {note}")
                         if prescreen_answers:
                             print(f"  Prescreen answers: {prescreen_answers}")
-                        if not prepare_only:
-                            roles_applied += 1
+                        roles_applied += 1
                         continue
 
                     submission_cfg = cfg.get("submission", {})
@@ -977,38 +1032,38 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                     # attach media → POST prescreen answers (if any) → PUT
                     # to submit. Prescreen answers go to the real endpoint
                     # now; see client._submit_prescreen_answers.
-                    submit_note = "" if prepare_only else note
                     logger.info(
                         f"[SUBMIT] Attempting: {project_name} — {best['role_name']} "
                         f"(id={unique_id}), media={media_ids}, "
-                        f"note_len={len(submit_note)}, prescreen_answers={len(prescreen_answers) if prescreen_answers else 0}, "
-                        f"prepare_only={prepare_only}"
+                        f"note_len={len(note)}, prescreen_answers={len(prescreen_answers) if prescreen_answers else 0}, "
+                        f"cover_letter_required={cover_letter_required}"
                     )
                     result = client.submit_for_role(
                         best["role_id"],
-                        note=submit_note,
+                        note=note,
                         media_ids=media_ids,
                         answers=prescreen_answers,
-                        prepare_only=prepare_only,
+                        cover_letter_required=cover_letter_required,
                     )
 
                     role_url = best.get("url", "")
                     if role_url and not role_url.startswith("http"):
                         role_url = f"https://www.backstage.com{role_url}"
 
-                    if prepare_only:
-                        display_suffix = best.get("submission_requires_display", "")
-                        if isinstance(result, dict) and result.get("_prepared"):
-                            app_id = result["app_id"]
+                    if isinstance(result, dict) and result.get("_rejected"):
+                        reason = result.get("reason", "Unknown rejection")
+                        logger.warning(f"[SUBMIT] REJECTED by Backstage: {best['role_name']} on {project_name} — {reason}")
+                        draft_app_id = result.get("app_id")
+                        if cover_letter_required and draft_app_id:
+                            # The draft (media + prescreen answers) exists on Backstage;
+                            # only the final submit was refused. Surface it the way the
+                            # old prepare-only flow did so it can be finished by hand,
+                            # and record it as a draft so the next run doesn't redo it.
+                            display_suffix = best.get("submission_requires_display", "")
                             flag_reason = (
                                 f"Cover letter required ({display_suffix}) "
-                                f"— draft ready in Backstage"
+                                f"— auto-submit rejected by Backstage ({reason}); draft ready in Backstage"
                             )
-                            logger.info(
-                                f"[PREPARE-ONLY] Draft {app_id} ready for {best['role_name']} on {project_name}"
-                            )
-                            # Record applied first so is_applied dedupes future runs
-                            # even if the flagged insert later fails.
                             db.record_application(
                                 unique_id, project_name, best["role_name"],
                                 role_description=best.get("description", ""),
@@ -1016,7 +1071,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                                 candidates_considered=len(candidates),
                                 platform="backstage",
                                 project_url=role_url,
-                                submission_note=suggested_cover_letter,
+                                submission_note=note,
                                 mode=mode,
                                 status="draft",
                             )
@@ -1029,53 +1084,20 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                                 run_id=run_id,
                                 platform="backstage",
                                 mode=mode,
-                                suggested_note=suggested_cover_letter,
-                                draft_app_id=app_id,
+                                suggested_note=note,
+                                draft_app_id=draft_app_id,
                             )
                         else:
-                            if isinstance(result, dict) and result.get("_rejected"):
-                                reason = result.get("reason", "draft rejected")
-                                logger.warning(
-                                    f"[PREPARE-ONLY] REJECTED by Backstage for {best['role_name']}: {reason}"
-                                )
-                                flag_reason = (
-                                    f"Cover letter required ({display_suffix}) "
-                                    f"— draft rejected by Backstage ({reason}), submit manually"
-                                )
-                            else:
-                                logger.warning(
-                                    f"[PREPARE-ONLY] Draft preparation failed for {best['role_name']}"
-                                )
-                                flag_reason = (
-                                    f"Cover letter required ({display_suffix}) "
-                                    f"— draft preparation failed, submit manually"
-                                )
                             db.record_flagged_role(
                                 project_name=project_name,
                                 project_url=project_url,
                                 role_name=best["role_name"],
                                 role_description=best.get("description", ""),
-                                flag_reason=flag_reason,
+                                flag_reason=f"Backstage rejected: {reason}",
                                 run_id=run_id,
                                 platform="backstage",
                                 mode=mode,
-                                suggested_note=suggested_cover_letter,
                             )
-                        continue
-
-                    if isinstance(result, dict) and result.get("_rejected"):
-                        reason = result.get("reason", "Unknown rejection")
-                        logger.warning(f"[SUBMIT] REJECTED by Backstage: {best['role_name']} on {project_name} — {reason}")
-                        db.record_flagged_role(
-                            project_name=project_name,
-                            project_url=project_url,
-                            role_name=best["role_name"],
-                            role_description=best.get("description", ""),
-                            flag_reason=f"Backstage rejected: {reason}",
-                            run_id=run_id,
-                            platform="backstage",
-                            mode=mode,
-                        )
                     elif result:
                         logger.info(f"[SUBMIT] SUCCESS: {best['role_name']} on {project_name}")
                         db.record_application(

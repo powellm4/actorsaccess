@@ -149,7 +149,7 @@ The actor takes modeling gigs — print, photo, stills — including unpaid **TF
 Detection lives in `is_modeling_role()` in `src/filters.py` and fires on the project type (matched as a token, so `"Commercial Print"` and Backstage's joined `"Modeling, Commercial"` both count), the `role_type` field, a TFP marker in the rate field, or keywords in the role name/description (`TFP`, `TFCD`, `time for print`, `trade for print`, `<vertical> model`, `photo shoot`, `lookbook shoot`, and similar). Bypasses are logged as `Unpaid bypass (modeling/TFP)` so runs can be audited.
 
 One thing the code can't enforce: the **CN and Backstage `"unpaid"` saved searches are configured on those websites**. They must include the Modeling / Print categories and must *not* filter by role type, or modeling listings are dropped site-side before the scraper ever sees them.
-6. **Submit** — attaches media per config, applies cover letter when required (Backstage self-tape).
+6. **Submit** — attaches media per config. Backstage roles that require a cover letter get the short built-in letter (`DEFAULT_COVER_LETTER` in `src/backstage/main.py`, overridable with `submission.cover_letter`); if Backstage still refuses the submit, the draft is left in place and surfaced under *Needs Your Attention*. Self-tape / video-audition and phone/email requests are not blockers: the bot submits anyway (with a "happy to send a self-tape" note where a tape was asked for).
 7. **Record** — writes to `data/applied.db` with `platform` and `mode` columns.
 
 Actor profile used by AI selection lives in `ACTOR_PROFILE` in `src/role_selector.py` — edit there to change it.

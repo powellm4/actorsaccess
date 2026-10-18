@@ -716,3 +716,59 @@ def test_count_consecutive_failed_runs(db):
     # a platform with a trailing success has a zero streak
     r6 = db.start_run(platform="aa"); db.complete_run(r6, 1, 1, 0)
     assert db.count_consecutive_failed_runs("aa") == (0, None)
+
+
+# --- Backstage drafts awaiting a cover letter ---
+
+
+def test_get_pending_backstage_drafts_filters_by_mode_platform_and_reason(db):
+    db.record_flagged_role("P1", "u", "R1", "d",
+                           "Cover letter required (Cover Letter) — draft ready in Backstage",
+                           run_id=1, platform="backstage", mode="paid", draft_app_id=1)
+    db.record_flagged_role("P2", "u", "R2", "d",
+                           "Cover letter required (Cover Letter) — draft ready in Backstage",
+                           run_id=1, platform="backstage", mode="unpaid", draft_app_id=2)
+    db.record_flagged_role("P3", "u", "R3", "d",
+                           "Cover letter required (Cover Letter) — auto-submit rejected by Backstage (x); draft ready in Backstage",
+                           run_id=1, platform="backstage", mode="paid", draft_app_id=3)
+    db.record_flagged_role("P4", "u", "R4", "d", "Calendar conflict",
+                           run_id=1, platform="backstage", mode="paid")
+    db.record_flagged_role("P5", "u", "R5", "d",
+                           "Cover letter required (Cover Letter) — draft ready in Backstage",
+                           run_id=1, platform="cn", mode="paid", draft_app_id=5)
+    rows = db.get_pending_backstage_drafts("paid")
+    assert [(r["project_name"], r["role_name"], r["draft_app_id"]) for r in rows] == [("P1", "R1", 1)]
+
+
+def test_get_pending_backstage_drafts_ignores_old_drafts(db):
+    db.record_flagged_role("Old", "u", "R", "d",
+                           "Cover letter required (Cover Letter) — draft ready in Backstage",
+                           run_id=1, platform="backstage", mode="paid", draft_app_id=1)
+    db.conn.execute("UPDATE flagged_roles SET flagged_at = datetime('now', '-20 days')")
+    db.conn.commit()
+    assert db.get_pending_backstage_drafts("paid") == []
+    assert len(db.get_pending_backstage_drafts("paid", days=30)) == 1
+
+
+def test_mark_draft_submitted_flips_status_and_refreshes_timestamp(db):
+    db.record_application("bs_1", "P", "R", platform="backstage", status="draft",
+                          submission_note="suggested")
+    db.conn.execute("UPDATE applied_roles SET applied_at = '2026-01-01 00:00:00'")
+    db.conn.commit()
+    assert db.mark_draft_submitted("R", "P", "backstage", "final letter") is True
+    status, note, applied_at = db.conn.execute(
+        "SELECT status, submission_note, applied_at FROM applied_roles WHERE role_id='bs_1'"
+    ).fetchone()
+    assert status == "submitted"
+    assert note == "final letter"
+    assert applied_at > "2026-01-01 00:00:00"
+    # Already-submitted rows are left alone.
+    assert db.mark_draft_submitted("R", "P", "backstage", "again") is False
+
+
+def test_update_flag_reason(db):
+    db.record_flagged_role("P", "u", "R", "d", "old", run_id=1, platform="backstage", draft_app_id=3)
+    db.update_flag_reason("R", "P", "backstage", "new reason")
+    row = db.get_daily_flagged()[0]
+    assert row["flag_reason"] == "new reason"
+    assert row["draft_app_id"] == 3
