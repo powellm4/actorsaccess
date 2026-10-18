@@ -1886,9 +1886,6 @@ def test_needs_input_not_overridden_when_other_materials_are_required():
         "Casting requires footage/clips showing skilled running ability. Running is a "
         "named physical skill being screened for, and it is not listed in the actor profile."
     ) is None
-    assert _maybe_override_needs_input(
-        "Casting requires providing clothing sizes for wardrobe (shirt, pants, etc.)."
-    ) is None
 
 
 def test_needs_input_unrelated_reason_not_overridden():
@@ -1958,3 +1955,46 @@ def test_age_range_starting_at_30_selected_end_to_end():
         with patch.dict(sys.modules, {"anthropic": mock_module}):
             selected, rejections = select_best_roles([role], "ESPN/Draft Kings")
     assert [s[0]["role_name"] for s in selected] == ["Bettor"], rejections
+
+
+# --- size requests: answered from the size card, never a NEEDS_INPUT ---
+
+
+def test_size_card_is_in_actor_profile():
+    from src.role_selector import SIZE_CARD, size_card_note
+    assert SIZE_CARD["Pants"].startswith("32x32")
+    assert "Size card:" in ACTOR_PROFILE and "32x32" in ACTOR_PROFILE
+    note = size_card_note()
+    assert "32x32" in note and "9-10" in note
+    assert len(note.split()) <= 30
+    assert _validate_note(note, {"role_name": "Model"}, "P")
+
+
+def test_needs_input_size_request_becomes_submit_with_size_note():
+    from src.role_selector import _maybe_override_needs_input, size_card_note
+    for reason in (
+        "Casting requires providing clothing sizes for wardrobe (shirt, pants, etc.), which are not listed in the actor profile.",
+        'Casting mentions "coordination on sizing is needed" — specific wardrobe/sizing measurements are not available in the actor profile.',
+        "Casting requests wardrobe measurements (chest, neck, sleeve); not in profile.",
+    ):
+        assert _maybe_override_needs_input(reason) == {
+            "action": "SUBMIT_WITH_NOTE", "note": size_card_note(), "needs_input_reason": None,
+        }, reason
+
+
+def test_needs_input_size_plus_selftape_note_has_both():
+    from src.role_selector import SELFTAPE_NOTE, _maybe_override_needs_input, size_card_note
+    result = _maybe_override_needs_input(
+        "Casting requests clothing sizes and a short self-tape video."
+    )
+    assert result["note"] == f"{size_card_note()} {SELFTAPE_NOTE}"
+
+
+def test_needs_input_own_wardrobe_still_flagged():
+    from src.role_selector import _maybe_override_needs_input
+    assert _maybe_override_needs_input(
+        "Casting requires models to provide their own wardrobe (athletic wear with minimal logos and clean tennis shoes)."
+    ) is None
+    assert _maybe_override_needs_input(
+        "Casting requires talent to bring 2–3 specific wardrobe options fitting the look."
+    ) is None

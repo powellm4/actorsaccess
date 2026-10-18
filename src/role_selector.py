@@ -59,6 +59,24 @@ def _is_transient_error(exc: Exception) -> bool:
 _ACTOR_MIN_AGE = 17
 _ACTOR_MAX_AGE = 32
 
+# Size card, used to answer wardrobe / sizing requests in submission notes
+# instead of flagging them. On Actors Access the full size card is also
+# attached through the profile (submission.include_size_card).
+SIZE_CARD = {
+    "Height": "6'0\"",
+    "Weight": "185 lbs",
+    "Shirt": "M/L",
+    "Pants": "32x32 (waist 32, inseam 32)",
+    "Shoe": "9-10",
+}
+
+
+def size_card_note() -> str:
+    """One-line submission note with the size card (under 30 words)."""
+    sizes = ", ".join(f"{k} {v.split(' (')[0]}" for k, v in SIZE_CARD.items())
+    return f"Sizes: {sizes}."
+
+
 ACTOR_PROFILE = f"""
 - Appears 25 but people often think he's younger; plays {_ACTOR_MIN_AGE}-{_ACTOR_MAX_AGE} convincingly (yes, including 17-22 college-aged roles)
 - Male, White / Latino, 6'0", 185 lbs, athletic build, brown hair (thick, slightly curly, short-medium length), clean-shaven (no beard)
@@ -73,6 +91,7 @@ ACTOR_PROFILE = f"""
 - American accent in English (can play accents but not authentic/native non-American English accents). Spanish is the exception: he speaks it fluently and can play roles requiring Spanish dialogue or a native Spanish speaker.
 - Comfortable with physical comedy, action sequences, and 12+ hour shoot days
 - Shoe size: 9-10
+- Size card: {"; ".join(f"{k} {v}" for k, v in SIZE_CARD.items())}
 - Non-union
 - Based in Los Angeles with reliable transportation; willing to travel to other cities for shoots
 - Has a valid driver's license
@@ -1761,39 +1780,54 @@ _SELFTAPE_REQUEST_RE = re.compile(
 _CONTACT_REQUEST_RE = re.compile(
     r"\b(?:phone|cell|e-?mail|contact info(?:rmation)?)\b", re.IGNORECASE,
 )
+# NEEDS_INPUT reasons that are really "casting wants clothing sizes" — answered
+# from SIZE_CARD.
+_SIZE_REQUEST_RE = re.compile(
+    r"\b(?:sizes?|sizing|size cards?|measurements?|shirt|pants|waist|inseam|jacket"
+    r"|chest|neck|sleeve|shoe size)\b",
+    re.IGNORECASE,
+)
 # Anything a human genuinely has to supply or decide on. If one of these shows
-# up next to a self-tape / contact ask, the role stays flagged.
+# up next to a self-tape / contact / size ask, the role stays flagged.
+# ("own wardrobe" / "wardrobe options" = bring your own clothes, not sizes.)
 _HUMAN_INPUT_BLOCKER_RE = re.compile(
-    r"\b(?:wardrobe|sizes?|sizing|measurements?|footage|clips?|reel|skills?|ability"
+    r"\b(?:own wardrobe|wardrobe options|footage|clips?|reel|skills?|ability"
     r"|experience|previous work|website|portfolio|union|sag[- ]?aftra|references?"
     r"|headshots?|photos?|images?|pictures?|script|attached document|rate details"
     r"|bring|own(?:s|ed|ership)?|couple|partner|famil(?:y|ies)|friends?|name of"
-    r"|height|weight|resume|headstand|cycling|bike|singing|links? to)\b",
+    r"|resume|headstand|cycling|bike|singing|links? to)\b",
     re.IGNORECASE,
 )
 
 
 def _maybe_override_needs_input(reason: str) -> dict | None:
-    """Code backstop for two NEEDS_INPUT patterns the prompt already says to
-    submit through, but which the AI keeps flagging anyway (Oct 2026: 23
-    "video submission" and 14 "phone/email" flags in 30 days).
+    """Code backstop for NEEDS_INPUT patterns the prompt already says to submit
+    through, but which the AI keeps flagging anyway (Oct 2026: 23 "video
+    submission", 14 "phone/email" and several "sizes" flags in 30 days).
 
     Returns a replacement analysis result, or None to leave the flag alone:
-      - self-tape / video audition requested → SUBMIT_WITH_NOTE (SELFTAPE_NOTE)
-      - only phone / email requested          → SUBMIT (no note)
+      - clothing sizes requested             → note with the size card
+      - self-tape / video audition requested → note with SELFTAPE_NOTE
+      - only phone / email requested         → SUBMIT (no note)
     Never fires when the reason also names something a human must supply
-    (sizes, photos, named-skill footage, links to previous work, ...).
+    (own wardrobe, photos, named-skill footage, links to previous work, ...).
     """
     if not reason:
         return None
+    wants_sizes = bool(_SIZE_REQUEST_RE.search(reason))
     wants_video = bool(_SELFTAPE_REQUEST_RE.search(reason))
     wants_contact = bool(_CONTACT_REQUEST_RE.search(reason))
-    if not (wants_video or wants_contact):
+    if not (wants_sizes or wants_video or wants_contact):
         return None
     if _HUMAN_INPUT_BLOCKER_RE.search(reason):
         return None
+    note_parts = []
+    if wants_sizes:
+        note_parts.append(size_card_note())
     if wants_video:
-        return {"action": "SUBMIT_WITH_NOTE", "note": SELFTAPE_NOTE, "needs_input_reason": None}
+        note_parts.append(SELFTAPE_NOTE)
+    if note_parts:
+        return {"action": "SUBMIT_WITH_NOTE", "note": " ".join(note_parts), "needs_input_reason": None}
     return {"action": "SUBMIT", "note": None, "needs_input_reason": None}
 
 
@@ -1853,7 +1887,7 @@ Analyze BOTH the role description AND any project-level instructions to determin
    ACTION: SUBMIT_WITH_NOTE
    NOTE: <1 sentence, max 30 words, in first person. ONLY state the facts they asked for. No selling, no qualifications, no acting skills, no why-you're-right-for-the-role.>
 
-3. If the description asks for information you CANNOT answer (e.g., a personal website link, union status/SAG-AFTRA number, specific wardrobe sizes, COVID test results, references), respond:
+3. If the description asks for information you CANNOT answer (e.g., a personal website link, union status/SAG-AFTRA number, COVID test results, references), respond:
    ACTION: NEEDS_INPUT
    REASON: <brief description of what info is needed>
 
@@ -1872,6 +1906,7 @@ IMPORTANT RULES:
 - NEVER volunteer information that was not explicitly asked for — no location, no transportation, no contact info, no availability unless the post explicitly asks you to NOTE it in the submission
 - If the post asks for availability/dates and CONFIRMED AVAILABILITY is provided above, include the specific dates in the note
 - If they ask for an email address or phone number: the actor profile does NOT list either. Do NOT invent one, and do NOT claim one is "on file" or "available upon request" — both are fabrications. Casting can reach the actor through the platform profile, so a contact-info request is NEVER a reason to respond NEEDS_INPUT. Respond with ACTION: SUBMIT (no note) unless Instagram was also requested, in which case include only @marshallpowell.
+- SIZE / WARDROBE MEASUREMENT REQUESTS: answer from the "Size card" line in the actor profile (height, weight, shirt, pants, shoe). If they ask for a measurement that is not on the card (e.g., neck, sleeve, jacket), give the sizes that ARE on the card and submit anyway — a size request is NEVER a reason to respond NEEDS_INPUT. (Bringing your OWN wardrobe is different — that is not a size request.)
 - SELF-TAPE / VIDEO AUDITION REQUESTS: if the casting asks for a self-tape, video audition, intro video, slate video, or any recorded video to be submitted (and it is NOT footage of a NAMED PHYSICAL skill — see the physical-skill rule below), respond with ACTION: SUBMIT_WITH_NOTE and NOTE: Happy to send a self-tape on short notice — just let me know. The actor submits first and tapes on request, so a self-tape request is NEVER a reason to respond NEEDS_INPUT.
 - PHYSICAL-SKILL FOOTAGE REQUESTS: if the casting asks for footage, clips, or a reel specifically demonstrating a NAMED PHYSICAL skill (e.g., "submit dance clips", "include skating footage", "gymnastic reel", "martial arts clips", "stunt reel", "show us your [sport] skills") — this is a role REQUIREMENT check, NOT a generic demo reel request. Apply the following logic: (a) if the named skill IS in the actor profile → respond SUBMIT_WITH_NOTE with a brief note about that experience (this is the narrow exception to the no-experience rule); (b) if the named skill is NOT in the actor profile → respond NEEDS_INPUT so the human can decide whether to apply without it. Examples: "please submit salsa clips" + actor has 5+ years salsa → SUBMIT_WITH_NOTE ("5+ years of salsa dancing."). "please submit ice skating footage" + actor has no skating experience → NEEDS_INPUT ("Ice skating footage requested; actor has no skating experience listed.").
 - GENERIC DEMO REEL / NON-PHYSICAL-EXPERIENCE REEL REQUESTS: if they ask for a general demo reel, showreel, reel link, online clips, video samples, "show us your work", OR a reel/clip demonstrating a NAMED NON-PHYSICAL skill or experience (e.g., "hosting reel", "MC reel", "interview reel", "comedy reel") → respond with ACTION: SUBMIT regardless of whether the actor has that reel or that experience. The actor has a demo reel and it is attached automatically where the platform supports it, so a reel request is never a blocker, and unlike the physical-skill case above, do NOT respond NEEDS_INPUT for it. Do NOT add a note volunteering that the reel or experience is missing (see the "specific types of experience" and "never volunteer negative info" rules above) — just submit with no note on that point.
