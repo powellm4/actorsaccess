@@ -19,6 +19,9 @@ TRANSIENT_REJECTION_PREFIX = "[transient] "
 # A rejection carrying this prefix is not a pass: the platform runners record
 # it as a flagged role (Needs Your Attention) so a human makes the call.
 REVIEW_REJECTION_PREFIX = "[review] "
+# Submission note used whenever a breakdown asks for a self-tape / video
+# audition. The actor submits anyway; casting asks for the tape if interested.
+SELFTAPE_NOTE = "Happy to send a self-tape on short notice — just let me know."
 
 
 def _is_transient_error(exc: Exception) -> bool:
@@ -49,8 +52,15 @@ def _is_transient_error(exc: Exception) -> bool:
     )
     return any(sig in msg for sig in billing_signals)
 
-ACTOR_PROFILE = """
-- Appears 25 but people often think he's younger; plays 17-30 convincingly (yes, including 17-22 college-aged roles)
+# The actor's stated playable age range, used in every AI prompt and in the
+# age-overlap arithmetic below. Raised from 30 to 32 in Oct 2026: roles posted
+# as 30-40 / 30-50 were piling up in Needs Your Attention because they only
+# touched the old ceiling, and the actor wants those submitted.
+_ACTOR_MIN_AGE = 17
+_ACTOR_MAX_AGE = 32
+
+ACTOR_PROFILE = f"""
+- Appears 25 but people often think he's younger; plays {_ACTOR_MIN_AGE}-{_ACTOR_MAX_AGE} convincingly (yes, including 17-22 college-aged roles)
 - Male, White / Latino, 6'0", 185 lbs, athletic build, brown hair (thick, slightly curly, short-medium length), clean-shaven (no beard)
 - Instagram: @marshallpowell
 - Type: Leading man, comedic/charming; also strong as villain/antagonist/mean characters; also excels at grounded/calm/straight man/voice-of-reason roles
@@ -686,9 +696,6 @@ def _maybe_override_local_hire_skip(
     return False, ai_reason
 
 
-# The actor's stated playable age range (ACTOR_PROFILE: "plays 17-30 convincingly").
-_ACTOR_MIN_AGE = 17
-_ACTOR_MAX_AGE = 30
 
 # Matches "25 to 35", "25-35", "25–35" optionally followed by "years old" — used to
 # pull a numeric age range out of a role's structured age_range field or free-text
@@ -754,7 +761,7 @@ def _extract_role_age_range(role: dict) -> tuple[int, int] | None:
 
 def _maybe_override_age_overlap_skip(role: dict, ai_reason: str) -> tuple[bool, str]:
     """Override an AI SKIP that claims 'no age overlap' when a numeric age range can
-    be parsed from the role and it actually DOES overlap the actor's 17-30 playable
+    be parsed from the role and it actually DOES overlap the actor's playable
     range — an interval-intersection arithmetic check as a backstop against the AI
     miscalculating overlap (e.g. treating 28-38 vs. 17-30 as zero overlap when 28-30
     is a valid 2-year window). See casting-suggestion #70.
@@ -776,14 +783,14 @@ def _maybe_override_age_overlap_skip(role: dict, ai_reason: str) -> tuple[bool, 
         return False, ai_reason
     lo, hi = role_range
     # Require a real (>= 1-year) overlap window, not a single-point boundary
-    # touch. A role of "30-45" vs. the actor's "17-30" shares only the integer
+    # touch. A role of "32-45" vs. the actor's "17-32" shares only the integer
     # 30 — the AI's own "cannot credibly play 30+ as a minimum" judgment is a
     # credibility call, not an arithmetic miscalculation, and must not be
     # overridden. A genuine window like 28-30 (2 years) still overrides. See
     # casting-suggestion #105 (Weller Bourbon) vs. #70 (the 28-38 case).
     overlap_years = min(hi, _ACTOR_MAX_AGE) - max(lo, _ACTOR_MIN_AGE)
     if overlap_years == 0:
-        # The ranges DO meet at one age (e.g. 30-40 vs. 17-30), so "no overlap"
+        # The ranges DO meet at one age (e.g. 32-45 vs. 17-32), so "no overlap"
         # is factually wrong. Whether the actor can credibly play the top of his
         # range is a judgment call, so send it to a human instead of passing.
         edge = max(lo, _ACTOR_MIN_AGE)
@@ -1009,7 +1016,7 @@ HARD DISQUALIFIERS — reject any role that requires:
 - Large/heavyset/stocky/overweight build (actor is athletic, 185 lbs)
 - Specific ethnicity that excludes both White AND Latino/Hispanic (e.g., "Black only", "Asian only" — reject. But "Hispanic", "Latino", "White" — accept)
 - Requires NATURAL [specific hair color] when explicitly stated (e.g., "must be a natural redhead", "natural blonde only"). General hair color descriptions ("blond hair", "brunette character", "light brown hair") are styling choices achievable through dyeing — these are NOT disqualifiers for regular acting roles. The actor has BROWN hair. Character descriptions like "dyed hair" or "punk vibes" are never disqualifiers.
-- Age range with NO overlap with 17-30 (e.g., "31-40" is a rejection, but "25-35" is NOT because it overlaps with the actor's range)
+- Age range with NO overlap with {_ACTOR_MIN_AGE}-{_ACTOR_MAX_AGE} (e.g., "{_ACTOR_MAX_AGE + 1}-40" is a rejection, but "25-35" and "30-40" are NOT because they overlap with the actor's range)
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
 - Requires an authentic/native non-American English accent (e.g., "must have authentic British accent", "native French speaker"). EXCEPTION: Spanish is fine — the actor is fluent in Spanish, so roles requiring Spanish dialogue, a Spanish-speaking character, a native/fluent Spanish speaker, or bilingual English/Spanish are ACCEPTABLE, not disqualifiers. Regional dialects of AMERICAN English (Southern, Appalachian, Boston, New York, Midwestern, etc.) are NOT non-American accents — the actor speaks American English and these are never a disqualifier.
 - Do NOT treat an OPTIONAL trait as a hard requirement. When a breakdown marks a trait with soft language — "a plus", "bonus", "preferred but not required", "ideally", "nice to have" — it is NOT a condition of casting and must NEVER be the sole basis for a SKIP/REJECT (e.g. "Scots-Irish descent and regional Appalachian accent are all pluses" does not disqualify anyone who lacks them).
@@ -1017,7 +1024,7 @@ HARD DISQUALIFIERS — reject any role that requires:
 - Gender that EXCLUDES cisgender male. The actor is a cisgender male (and is comfortable playing LGBTQ+ characters of any orientation or gender identity, including gay/bi/queer male characters). Read gender requirements as INCLUSIVE lists, not exclusive — if the role lists "male" anywhere in the accepted genders, the actor QUALIFIES. ACCEPT (do NOT reject) any of these phrasings: "Male", "Male or Trans Male", "Male / Trans Male", "Male and Trans Male", "Cis Male or Trans Male", "Male, Female, or Non-Binary", "Any gender", "All genders", "Open to all genders", "Gender non-conforming", "Male (cis or trans)", "Male identifying". ONLY reject when the role explicitly excludes cis male — e.g., "Female only", "Trans only" / "Trans male only" / "Transgender male only" (without "or male"), "Non-binary only", "AFAB only", "Trans women only". When in doubt, ACCEPT — being male alone is enough to qualify whenever "male" appears in the listed options.
 - NOT a real acting or modeling role — consumer studies, product testing, paid research studies, focus groups, medical studies, or any role where participants are selected based on personal conditions (skin conditions, health issues, etc.) rather than acting/modeling ability. IMPORTANT: Modeling gigs ARE legitimate and the actor actively wants them — do NOT reject. This includes (non-exhaustive): TFP / Time-For-Print, print modeling, swimwear/beach/poolside shoots, fitness modeling, lifestyle content shoots, fashion/editorial, portfolio shoots, brand campaigns, catalog, lookbook, photo shoots, stills work, and photo/video commercial work. Modeling gigs do not need to be "acting roles" with named characters — judge them on physical/type fit only. Only reject actual research studies, focus groups, and medical studies. This exclusion also covers testimonial/"real person" casting where talent must have (or authentically aspire to have) a specific real-life project, story, or experience the production will document — even when framed as "not yet started," "planning to," "yet to start," or "would love to" rather than an already-completed status. If the selection criterion is the person's real life rather than their acting ability, it is a testimonial role regardless of the tense or phase of the project (e.g., "real users who want to use [Product] but have yet to start," "share your story about how you plan to...").
 - Background/extra work — roles where the actor is atmosphere/background with no individual identity. Key signals: PLURAL role names (e.g., "BODYGUARDS", "THUGS", "WEDDING GUESTS 1 AND 2", "STAFF", "BANQUET GUESTS", "FEMALE GUESTS 1 AND 2", "PARTYGOERS", "CROWD", "MASKED AUDIENCE MEMBERS") are always background. Singular generic titles like "WAITER", "CLERK", "NURSE" are borderline — reject these only if the description confirms they are pure atmosphere with no character arc or meaningful action. Named characters (e.g., "SAMUEL", "DR. LARSON", "DETECTIVE MORRIS") should generally be accepted even if the role is small. EXCEPTION: In commercials, roles labeled "featured", "featured talent", "principal", or "hero" where the talent is prominently on-camera ARE legitimate commercial bookings even without dialogue — do NOT reject these. Only reject commercial roles that are clearly crowd/atmosphere with no camera focus. This also covers live-event/experiential brand activations — e.g. FanDuel/DraftKings stadium activations, mascot appearances, brand ambassador booths at live events, costumed fan experiences — these are background/crowd-engagement work, not acting or modeling, regardless of pay. Apply this rule identically across every city the same campaign appears in — do not judge one city's listing as "regional/local" and another as a "live event" for what is the same role.
-- "Must look" or "play younger" age requirements UNDER 17 — the actor appears 25 and can play 17-30. He CAN play down to 17 but CANNOT convincingly look younger than that (under 17, i.e., 13-16). "Plays age 17" or "plays age 18" is fine. Only SKIP if the role explicitly needs someone who looks like a child or young teenager (under 17).
+- "Must look" or "play younger" age requirements UNDER 17 — the actor appears 25 and can play {_ACTOR_MIN_AGE}-{_ACTOR_MAX_AGE}. He CAN play down to {_ACTOR_MIN_AGE} but CANNOT convincingly look younger than that (under 17, i.e., 13-16). "Plays age 17" or "plays age 18" is fine. Only SKIP if the role explicitly needs someone who looks like a child or young teenager (under 17).
 - Requires the actor to OWN something specific that is not a standard wardrobe/prop item — e.g., "must have a dog", "must own a motorcycle", "bring your own surfboard", "real couples only". If the casting post requires the actor to personally possess something (pet, vehicle, relationship, property) as a condition of the role, SKIP it. Standard wardrobe items (suit, business casual, etc.) are NOT disqualifiers.
 
 NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair color, build) are EXACT requirements — any mismatch is a hard disqualifier.
@@ -1179,7 +1186,7 @@ DESCRIPTION: {desc}
 - Large/heavyset/stocky/overweight build (actor is athletic, 185 lbs)
 - Specific ethnicity that excludes both White AND Latino/Hispanic (e.g., "Black only", "Asian only" — reject. But "Hispanic", "Latino", "White" — accept)
 - Requires NATURAL [specific hair color] when explicitly stated (e.g., "must be a natural redhead", "natural blonde only"). General hair color descriptions ("blond hair", "brunette character", "light brown hair") are styling choices achievable through dyeing — these are NOT disqualifiers for regular acting roles. The actor has BROWN hair. Character descriptions like "dyed hair" or "punk vibes" are never disqualifiers.
-- Age range with NO overlap with 17-30 (e.g., "31-40" is a rejection, but "25-35" is NOT because it overlaps with the actor's range)
+- Age range with NO overlap with {_ACTOR_MIN_AGE}-{_ACTOR_MAX_AGE} (e.g., "{_ACTOR_MAX_AGE + 1}-40" is a rejection, but "25-35" and "30-40" are NOT because they overlap with the actor's range)
 - Skills the actor doesn't have (singing, musical instrument, specific martial art)
 - Requires an authentic/native non-American English accent (e.g., "must have authentic British accent", "native French speaker"). EXCEPTION: Spanish is fine — the actor is fluent in Spanish, so roles requiring Spanish dialogue, a Spanish-speaking character, a native/fluent Spanish speaker, or bilingual English/Spanish are ACCEPTABLE, not disqualifiers. Regional dialects of AMERICAN English (Southern, Appalachian, Boston, New York, Midwestern, etc.) are NOT non-American accents — the actor speaks American English and these are never a disqualifier.
 - Do NOT treat an OPTIONAL trait as a hard requirement. When a breakdown marks a trait with soft language — "a plus", "bonus", "preferred but not required", "ideally", "nice to have" — it is NOT a condition of casting and must NEVER be the sole basis for a SKIP/REJECT (e.g. "Scots-Irish descent and regional Appalachian accent are all pluses" does not disqualify anyone who lacks them).
@@ -1187,7 +1194,7 @@ DESCRIPTION: {desc}
 - Gender that EXCLUDES cisgender male. The actor is a cisgender male (and is comfortable playing LGBTQ+ characters of any orientation or gender identity, including gay/bi/queer male characters). Read gender requirements as INCLUSIVE lists, not exclusive — if the role lists "male" anywhere in the accepted genders, the actor QUALIFIES. ACCEPT (do NOT skip) any of these phrasings: "Male", "Male or Trans Male", "Male / Trans Male", "Male and Trans Male", "Cis Male or Trans Male", "Male, Female, or Non-Binary", "Any gender", "All genders", "Open to all genders", "Gender non-conforming", "Male (cis or trans)", "Male identifying". ONLY skip when the role explicitly excludes cis male — e.g., "Female only", "Trans only" / "Trans male only" / "Transgender male only" (without "or male"), "Non-binary only", "AFAB only", "Trans women only". When in doubt, ACCEPT — being male alone is enough to qualify whenever "male" appears in the listed options.
 - NOT a real acting or modeling role — consumer studies, product testing, paid research studies, focus groups, medical studies, or any role where participants are selected based on personal conditions (skin conditions, health issues, etc.) rather than acting/modeling ability. IMPORTANT: Modeling gigs ARE legitimate and the actor actively wants them — do NOT reject. This includes (non-exhaustive): TFP / Time-For-Print, print modeling, swimwear/beach/poolside shoots, fitness modeling, lifestyle content shoots, fashion/editorial, portfolio shoots, brand campaigns, catalog, lookbook, photo shoots, stills work, and photo/video commercial work. Modeling gigs do not need to be "acting roles" with named characters — judge them on physical/type fit only. Only reject actual research studies, focus groups, and medical studies. This exclusion also covers testimonial/"real person" casting where talent must have (or authentically aspire to have) a specific real-life project, story, or experience the production will document — even when framed as "not yet started," "planning to," "yet to start," or "would love to" rather than an already-completed status. If the selection criterion is the person's real life rather than their acting ability, it is a testimonial role regardless of the tense or phase of the project (e.g., "real users who want to use [Product] but have yet to start," "share your story about how you plan to...").
 - Background/extra work — roles where the actor is atmosphere/background with no individual identity. Key signals: PLURAL role names (e.g., "BODYGUARDS", "THUGS", "WEDDING GUESTS 1 AND 2", "STAFF", "BANQUET GUESTS", "FEMALE GUESTS 1 AND 2", "PARTYGOERS", "CROWD", "MASKED AUDIENCE MEMBERS") are always background. Singular generic titles like "WAITER", "CLERK", "NURSE" are borderline — reject these only if the description confirms they are pure atmosphere with no character arc or meaningful action. Named characters (e.g., "SAMUEL", "DR. LARSON", "DETECTIVE MORRIS") should generally be accepted even if the role is small. EXCEPTION: In commercials, roles labeled "featured", "featured talent", "principal", or "hero" where the talent is prominently on-camera ARE legitimate commercial bookings even without dialogue — do NOT reject these. Only reject commercial roles that are clearly crowd/atmosphere with no camera focus. This also covers live-event/experiential brand activations — e.g. FanDuel/DraftKings stadium activations, mascot appearances, brand ambassador booths at live events, costumed fan experiences — these are background/crowd-engagement work, not acting or modeling, regardless of pay. Apply this rule identically across every city the same campaign appears in — do not judge one city's listing as "regional/local" and another as a "live event" for what is the same role.
-- "Must look" or "play younger" age requirements UNDER 17 — the actor appears 25 and can play 17-30. He CAN play down to 17 but CANNOT convincingly look younger than that (under 17, i.e., 13-16). "Plays age 17" or "plays age 18" is fine. Only SKIP if the role explicitly needs someone who looks like a child or young teenager (under 17).
+- "Must look" or "play younger" age requirements UNDER 17 — the actor appears 25 and can play {_ACTOR_MIN_AGE}-{_ACTOR_MAX_AGE}. He CAN play down to {_ACTOR_MIN_AGE} but CANNOT convincingly look younger than that (under 17, i.e., 13-16). "Plays age 17" or "plays age 18" is fine. Only SKIP if the role explicitly needs someone who looks like a child or young teenager (under 17).
 - Requires the actor to OWN something specific that is not a standard wardrobe/prop item — e.g., "must have a dog", "must own a motorcycle", "bring your own surfboard", "real couples only". If the casting post requires the actor to personally possess something (pet, vehicle, relationship, property) as a condition of the role, SKIP it. Standard wardrobe items (suit, business casual, etc.) are NOT disqualifiers.
 
 NOTE: For doubles, stand-ins, or photo doubles, physical specs (height, hair color, build) are EXACT requirements — any mismatch is a hard disqualifier.
@@ -1737,6 +1744,59 @@ def _size_card_explicitly_requested(desc: str, project_notes: str) -> bool:
     return any(p in combined for p in _SIZE_CARD_PHRASES)
 
 
+# NEEDS_INPUT reasons that are really "casting wants a recorded video" — the
+# actor submits anyway with SELFTAPE_NOTE, exactly as the Backstage runner has
+# always done for video prescreens.
+_SELFTAPE_REQUEST_RE = re.compile(
+    r"self[\s-]*tap(?:e|ed|es|ing)"
+    r"|video[\s-]*(?:submission|audition|intro(?:duction)?|files?|clips? of (?:yourself|themselves))"
+    r"|intro(?:duction)?[\s-]*video|self[\s-]*video|\bslate\b|taped audition"
+    r"|submit(?:ting)? a video|record(?:ed|ing)? (?:a |and submit )?video"
+    r"|video (?:must|to) be (?:submitted|recorded|uploaded)",
+    re.IGNORECASE,
+)
+# NEEDS_INPUT reasons that are really "casting wants a phone number / email".
+# Neither is in the profile by design (see casting-suggestion on fabricated
+# contact info) and casting can reach the actor through the platform profile.
+_CONTACT_REQUEST_RE = re.compile(
+    r"\b(?:phone|cell|e-?mail|contact info(?:rmation)?)\b", re.IGNORECASE,
+)
+# Anything a human genuinely has to supply or decide on. If one of these shows
+# up next to a self-tape / contact ask, the role stays flagged.
+_HUMAN_INPUT_BLOCKER_RE = re.compile(
+    r"\b(?:wardrobe|sizes?|sizing|measurements?|footage|clips?|reel|skills?|ability"
+    r"|experience|previous work|website|portfolio|union|sag[- ]?aftra|references?"
+    r"|headshots?|photos?|images?|pictures?|script|attached document|rate details"
+    r"|bring|own(?:s|ed|ership)?|couple|partner|famil(?:y|ies)|friends?|name of"
+    r"|height|weight|resume|headstand|cycling|bike|singing|links? to)\b",
+    re.IGNORECASE,
+)
+
+
+def _maybe_override_needs_input(reason: str) -> dict | None:
+    """Code backstop for two NEEDS_INPUT patterns the prompt already says to
+    submit through, but which the AI keeps flagging anyway (Oct 2026: 23
+    "video submission" and 14 "phone/email" flags in 30 days).
+
+    Returns a replacement analysis result, or None to leave the flag alone:
+      - self-tape / video audition requested → SUBMIT_WITH_NOTE (SELFTAPE_NOTE)
+      - only phone / email requested          → SUBMIT (no note)
+    Never fires when the reason also names something a human must supply
+    (sizes, photos, named-skill footage, links to previous work, ...).
+    """
+    if not reason:
+        return None
+    wants_video = bool(_SELFTAPE_REQUEST_RE.search(reason))
+    wants_contact = bool(_CONTACT_REQUEST_RE.search(reason))
+    if not (wants_video or wants_contact):
+        return None
+    if _HUMAN_INPUT_BLOCKER_RE.search(reason):
+        return None
+    if wants_video:
+        return {"action": "SUBMIT_WITH_NOTE", "note": SELFTAPE_NOTE, "needs_input_reason": None}
+    return {"action": "SUBMIT", "note": None, "needs_input_reason": None}
+
+
 def analyze_submission_requirements(role: dict, project_name: str, project_notes: str = "", confirmed_dates: str | None = None, mode: str = "paid", has_media: bool = False) -> dict:
     """Analyze role description and project-level notes for submission requirements.
 
@@ -1793,7 +1853,7 @@ Analyze BOTH the role description AND any project-level instructions to determin
    ACTION: SUBMIT_WITH_NOTE
    NOTE: <1 sentence, max 30 words, in first person. ONLY state the facts they asked for. No selling, no qualifications, no acting skills, no why-you're-right-for-the-role.>
 
-3. If the description asks for information you CANNOT answer (e.g., a personal website link, union status/SAG-AFTRA number, specific wardrobe sizes, COVID test results, references, self-tape samples), respond:
+3. If the description asks for information you CANNOT answer (e.g., a personal website link, union status/SAG-AFTRA number, specific wardrobe sizes, COVID test results, references), respond:
    ACTION: NEEDS_INPUT
    REASON: <brief description of what info is needed>
 
@@ -1811,7 +1871,8 @@ IMPORTANT RULES:
 - If a casting asks for Instagram, include @marshallpowell
 - NEVER volunteer information that was not explicitly asked for — no location, no transportation, no contact info, no availability unless the post explicitly asks you to NOTE it in the submission
 - If the post asks for availability/dates and CONFIRMED AVAILABILITY is provided above, include the specific dates in the note
-- If they ask for an email address or phone number: the actor profile does NOT list either. Do NOT invent one, and do NOT claim one is "on file" or "available upon request" — both are fabrications. Respond with ACTION: SUBMIT (no note) unless Instagram was also requested, in which case include only @marshallpowell.
+- If they ask for an email address or phone number: the actor profile does NOT list either. Do NOT invent one, and do NOT claim one is "on file" or "available upon request" — both are fabrications. Casting can reach the actor through the platform profile, so a contact-info request is NEVER a reason to respond NEEDS_INPUT. Respond with ACTION: SUBMIT (no note) unless Instagram was also requested, in which case include only @marshallpowell.
+- SELF-TAPE / VIDEO AUDITION REQUESTS: if the casting asks for a self-tape, video audition, intro video, slate video, or any recorded video to be submitted (and it is NOT footage of a NAMED PHYSICAL skill — see the physical-skill rule below), respond with ACTION: SUBMIT_WITH_NOTE and NOTE: Happy to send a self-tape on short notice — just let me know. The actor submits first and tapes on request, so a self-tape request is NEVER a reason to respond NEEDS_INPUT.
 - PHYSICAL-SKILL FOOTAGE REQUESTS: if the casting asks for footage, clips, or a reel specifically demonstrating a NAMED PHYSICAL skill (e.g., "submit dance clips", "include skating footage", "gymnastic reel", "martial arts clips", "stunt reel", "show us your [sport] skills") — this is a role REQUIREMENT check, NOT a generic demo reel request. Apply the following logic: (a) if the named skill IS in the actor profile → respond SUBMIT_WITH_NOTE with a brief note about that experience (this is the narrow exception to the no-experience rule); (b) if the named skill is NOT in the actor profile → respond NEEDS_INPUT so the human can decide whether to apply without it. Examples: "please submit salsa clips" + actor has 5+ years salsa → SUBMIT_WITH_NOTE ("5+ years of salsa dancing."). "please submit ice skating footage" + actor has no skating experience → NEEDS_INPUT ("Ice skating footage requested; actor has no skating experience listed.").
 - GENERIC DEMO REEL / NON-PHYSICAL-EXPERIENCE REEL REQUESTS: if they ask for a general demo reel, showreel, reel link, online clips, video samples, "show us your work", OR a reel/clip demonstrating a NAMED NON-PHYSICAL skill or experience (e.g., "hosting reel", "MC reel", "interview reel", "comedy reel") → respond with ACTION: SUBMIT regardless of whether the actor has that reel or that experience. The actor has a demo reel and it is attached automatically where the platform supports it, so a reel request is never a blocker, and unlike the physical-skill case above, do NOT respond NEEDS_INPUT for it. Do NOT add a note volunteering that the reel or experience is missing (see the "specific types of experience" and "never volunteer negative info" rules above) — just submit with no note on that point.
 - If multiple requirements exist and you can answer SOME but not all, use NEEDS_INPUT — UNLESS the unanswerable item is a generic demo reel / non-physical-experience reel / demo clips / reel link / video samples (apply anyway, no note on that item). This exception does NOT apply to named-PHYSICAL-skill footage requests.
@@ -1853,6 +1914,16 @@ Respond with ONLY the action line (and NOTE/REASON line if applicable). No other
                 f"converting NEEDS_INPUT to SUBMIT (reason was local-hire framing)"
             )
             result = {"action": "SUBMIT", "note": None, "needs_input_reason": None}
+
+    # Self-tape / contact-info asks are not blockers — submit anyway.
+    if result["action"] == "NEEDS_INPUT" and result.get("needs_input_reason"):
+        replacement = _maybe_override_needs_input(result["needs_input_reason"])
+        if replacement:
+            logger.info(
+                f"[NEEDS_INPUT OVERRIDE] {project_name} — {role.get('role_name', '?')}: "
+                f"{result['needs_input_reason'][:100]!r} → {replacement['action']}"
+            )
+            result = replacement
 
     # If the project explicitly requests the actor's city/state in submission
     # notes and we have no note yet, inject the location. This prevents the
@@ -1903,86 +1974,6 @@ Respond with ONLY the action line (and NOTE/REASON line if applicable). No other
             result["info_note"] = "Demo clips requested — reel not attached on this platform; applied anyway."
 
     return result
-
-
-def generate_cover_letter(role: dict, project_name: str) -> str:
-    """Generate a short cover letter for a Backstage role that requires one.
-
-    Returns plain text (no greeting, no signature) suitable for the user to
-    paste into Backstage's cover letter field. 2-4 sentences, first person,
-    grounded tone. Must respect the never-fabricate rule: no invented
-    credits, no invented experience, no training-resume talk, no
-    affirming conditional-if attributes not in the profile.
-
-    Returns empty string on error or if the output fails the note validator.
-    """
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        logger.warning("ANTHROPIC_API_KEY not set — cannot generate cover letter")
-        return ""
-
-    import anthropic
-
-    client = anthropic.Anthropic(api_key=api_key, max_retries=8)
-
-    desc = role.get("description", "")
-    role_name = role.get("role_name", "")
-
-    prompt = f"""You are writing a short cover letter for the actor described below, for a specific casting role. The user will paste this text into Backstage's cover letter field, then review/edit before submitting.
-
-ACTOR PROFILE:
-{ACTOR_PROFILE}
-
-PROJECT: {project_name}
-ROLE: {role_name}
-DESCRIPTION: {desc[:1500]}
-
-Write a 2-4 sentence cover letter in first person, warm but grounded tone. Focus on why the actor is a natural fit based ONLY on attributes explicitly listed in the profile above (type, look, age range, language skills, physical attributes, modeling comfort if relevant). Reference one or two concrete details from the role/project so it doesn't read as boilerplate.
-
-HARD RULES — violations make the letter worse than no letter at all:
-- NO greeting ("Hi", "Dear", "Hello casting"). NO sign-off ("Thanks", "Best", "— Matt"). Plain text only, ready to paste into a form field.
-- NEVER fabricate acting credits, past roles, past projects, specific brand/product usage, personal stories, or lived experience not in the profile.
-- NEVER mention improv/UCB/Groundlings/salsa/guitar/dance training or any skill-resume content — the actor's profile already covers this.
-- NEVER claim or deny conditional-if attributes that aren't in the profile (veteran, parent, nurse, pilot, speaker of another language, licensed for X, grew up in Y). Stay silent on anything not explicitly listed.
-- Spanish fluency IS in the profile — if the role asks for Spanish, mention fluency. Do not mention Spanish if the role doesn't ask for it.
-- Modeling comfort IS in the profile — if this is a modeling/print/stills/TFP/lifestyle/fitness gig, you may mention being comfortable with that work.
-- Do NOT claim availability for specific dates unless the dates are confirmed; you may say "available for the shoot window" in general terms.
-- Do NOT use placeholder brackets [like this] or {{like this}} or "insert X here" language.
-- Output ONLY the cover letter text. No preamble, no explanation, no quote marks around the text.
-
-Write the cover letter now."""
-
-    try:
-        text = shadowed_completion(
-            prompt,
-            call_site="cover_letter",
-            max_tokens=300,
-            claude_client=client,
-            extract_verdict=VERDICT_EXTRACTORS["cover_letter"],
-            project_name=project_name,
-            role_name=role_name,
-        ).strip()
-    except Exception as e:
-        logger.warning(f"Cover letter generation failed for {role_name} on {project_name}: {e}")
-        return ""
-
-    # Strip any stray quote wrappers the model sometimes adds
-    if len(text) >= 2 and text[0] in {'"', "'"} and text[-1] == text[0]:
-        text = text[1:-1].strip()
-
-    if not text:
-        logger.warning(f"Cover letter generation returned empty text for {role_name} on {project_name}")
-        return ""
-
-    # Reuse _validate_note to block placeholders, skill-mentions, "experience"
-    # claims, etc. If the letter fails validation, return empty so the caller
-    # falls back to "no suggested letter" rather than surfacing fabrication.
-    if not _validate_note(text, role, project_name):
-        logger.warning(f"Cover letter failed validation for {role_name} on {project_name}")
-        return ""
-
-    logger.info(f"Generated cover letter for {role_name} on {project_name} ({len(text)} chars)")
-    return text
 
 
 def _validate_note(note: str, role: dict, project_name: str) -> bool:

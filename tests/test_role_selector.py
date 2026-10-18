@@ -704,11 +704,11 @@ def test_override_age_overlap_when_ai_miscalculates_no_overlap_single_role():
 
 def test_no_override_age_overlap_when_range_genuinely_disqualifies():
     """A SKIP claiming 'no age overlap' for a range that truly doesn't overlap
-    (31-40 vs. 17-30) must stand."""
+    (33-40 vs. 17-32) must stand."""
     mock_module, _ = _make_mock_anthropic(
-        "SKIP - Age range 31-40 has no overlap with actor's 17-30 playable range."
+        "SKIP - Age range 33-40 has no overlap with actor's 17-32 playable range."
     )
-    role = {"role_name": "Older Role", "description": "Character is 31 to 40 years old."}
+    role = {"role_name": "Older Role", "description": "Character is 33 to 40 years old."}
     with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
         with patch.dict(sys.modules, {"anthropic": mock_module}):
             selected, rejections = select_best_roles([role], "Test Project")
@@ -1576,15 +1576,15 @@ def test_age_overlap_single_point_boundary_goes_to_human_review():
     (credibility is a judgment call), but it is not a silent pass either: the
     AI's "no overlap" claim is wrong, so it goes to human review."""
     from src.role_selector import REVIEW_REJECTION_PREFIX, _maybe_override_age_overlap_skip
-    role = {"role_name": "Pappy", "age_range": "30-45"}
+    role = {"role_name": "Pappy", "age_range": "32-45"}
     ai_reason = (
-        "Age range is 30-45 with no overlap with actor's 17-30 range; actor "
-        "cannot credibly play 30+ as a minimum."
+        "Age range is 32-45 with no overlap with actor's 17-32 range; actor "
+        "cannot credibly play 32+ as a minimum."
     )
     overridden, new_reason = _maybe_override_age_overlap_skip(role, ai_reason)
     assert overridden is False
     assert new_reason.startswith(REVIEW_REJECTION_PREFIX)
-    assert "meets the actor's 17-30 range at 30" in new_reason
+    assert "meets the actor's 17-32 range at 32" in new_reason
 
 
 def test_age_range_genuinely_outside_stays_rejected():
@@ -1597,15 +1597,15 @@ def test_age_range_genuinely_outside_stays_rejected():
 def test_boundary_age_rejection_is_flagged_not_rejected_in_select_best_roles():
     """End to end through the single-role path: the review reason survives."""
     from src.role_selector import REVIEW_REJECTION_PREFIX
-    role = {"role_name": "Bettor", "age_range": "30-50", "description": "Athletic, relaxed"}
+    role = {"role_name": "Pappy", "age_range": "32-50", "description": "Athletic, relaxed"}
     mock_module, _ = _make_mock_anthropic(
-        "SKIP - Age range 30-50 has no overlap with actor's playable range of 17-30"
+        "SKIP - Age range 32-50 has no overlap with actor's playable range of 17-32"
     )
     with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
         with patch.dict(sys.modules, {"anthropic": mock_module}):
-            selected, rejections = select_best_roles([role], "ESPN/Draft Kings")
+            selected, rejections = select_best_roles([role], "Weller Bourbon")
     assert selected == []
-    assert rejections["Bettor"].startswith(REVIEW_REJECTION_PREFIX)
+    assert rejections["Pappy"].startswith(REVIEW_REJECTION_PREFIX)
 
 
 def test_age_overlap_override_still_fires_on_genuine_multi_year_window():
@@ -1822,3 +1822,139 @@ def test_unpaid_prompt_includes_comedy_gate_paid_does_not():
             captured.clear()
             rs.select_best_roles([role], "Love Story", mode="paid")
             assert "UNPAID MODE GATE" not in captured["prompt"]
+
+
+# --- NEEDS_INPUT code backstop: self-tape / video requests and contact-info asks ---
+# Oct 2026 digests: 23 "video submission required" and 14 "phone/email requested"
+# flags in 30 days, all of which the prompt already says to submit anyway. The
+# AI keeps answering NEEDS_INPUT, so a deterministic override is applied to the
+# reason text the same way the local-hire override is.
+
+
+def test_needs_input_selftape_request_becomes_submit_with_selftape_note():
+    from src.role_selector import SELFTAPE_NOTE, _maybe_override_needs_input
+    reason = (
+        "Project-level instructions require a video (self-taped audition) to be "
+        "submitted; it is unclear if this is handled automatically by the platform "
+        "or must be manually attached/linked."
+    )
+    assert _maybe_override_needs_input(reason) == {
+        "action": "SUBMIT_WITH_NOTE", "note": SELFTAPE_NOTE, "needs_input_reason": None,
+    }
+
+
+def test_needs_input_video_intro_request_becomes_submit_with_selftape_note():
+    from src.role_selector import SELFTAPE_NOTE, _maybe_override_needs_input
+    reason = (
+        "Casting requests a video introducing yourself and telling about a recent "
+        "misadventure — this is personalized video content the actor must record."
+    )
+    result = _maybe_override_needs_input(reason)
+    assert result is not None and result["note"] == SELFTAPE_NOTE
+
+
+def test_needs_input_contact_info_only_becomes_plain_submit():
+    from src.role_selector import _maybe_override_needs_input
+    reason = (
+        "Casting explicitly requests contact information (cell phone and email); "
+        "actor profile does not include a phone number or email address."
+    )
+    assert _maybe_override_needs_input(reason) == {
+        "action": "SUBMIT", "note": None, "needs_input_reason": None,
+    }
+
+
+def test_needs_input_selftape_plus_contact_uses_selftape_note():
+    from src.role_selector import SELFTAPE_NOTE, _maybe_override_needs_input
+    reason = (
+        "Casting explicitly requests a short casual self-tape video of the actor "
+        "speaking to camera, plus email, phone number, and social media handles."
+    )
+    result = _maybe_override_needs_input(reason)
+    assert result is not None and result["note"] == SELFTAPE_NOTE
+
+
+def test_needs_input_not_overridden_when_other_materials_are_required():
+    """A phone/email or self-tape ask bundled with something a human must really
+    supply (sizes, photos, named physical-skill footage) stays flagged."""
+    from src.role_selector import _maybe_override_needs_input
+    assert _maybe_override_needs_input(
+        "Casting explicitly requests email address and phone number; neither is in "
+        "the actor profile. Also requests a recent physique photo and a short self-video."
+    ) is None
+    assert _maybe_override_needs_input(
+        "Casting requires footage/clips showing skilled running ability. Running is a "
+        "named physical skill being screened for, and it is not listed in the actor profile."
+    ) is None
+    assert _maybe_override_needs_input(
+        "Casting requires providing clothing sizes for wardrobe (shirt, pants, etc.)."
+    ) is None
+
+
+def test_needs_input_unrelated_reason_not_overridden():
+    from src.role_selector import _maybe_override_needs_input
+    assert _maybe_override_needs_input(
+        "Pay is unlisted/ambiguous — cannot confirm it meets the travel-pay threshold."
+    ) is None
+    assert _maybe_override_needs_input("") is None
+
+
+def test_analyze_needs_input_selftape_overridden_end_to_end():
+    """analyze_submission_requirements applies the backstop to the AI's answer."""
+    from src.role_selector import SELFTAPE_NOTE
+    mock_module, _ = _make_mock_anthropic(
+        "ACTION: NEEDS_INPUT\nREASON: Project-level instructions require a self-taped "
+        "video submission; actor must provide/confirm they have a self-tape to submit."
+    )
+    role = {"role_name": "Businessman Walking In", "description": "Featured non-speaking role."}
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            result = analyze_submission_requirements(role, "Golden Era Productions #22")
+    assert result["action"] == "SUBMIT_WITH_NOTE"
+    assert result["note"] == SELFTAPE_NOTE
+    assert _validate_note(SELFTAPE_NOTE, role, "Golden Era Productions #22")
+
+
+def test_analyze_needs_input_contact_info_overridden_end_to_end():
+    mock_module, _ = _make_mock_anthropic(
+        "ACTION: NEEDS_INPUT\nREASON: Casting explicitly requests phone number and "
+        "email in the booking note; neither is listed in the actor profile."
+    )
+    role = {"role_name": "Server OCP", "description": "Friendly server."}
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            result = analyze_submission_requirements(role, "Robot Delivery Commercial")
+    assert result["action"] == "SUBMIT"
+    assert result["needs_input_reason"] is None
+
+
+# --- playable range raised to 17-32: ranges starting at 30 now auto-apply ---
+
+
+def test_actor_playable_range_is_17_to_32():
+    from src.role_selector import _ACTOR_MAX_AGE, _ACTOR_MIN_AGE
+    assert (_ACTOR_MIN_AGE, _ACTOR_MAX_AGE) == (17, 32)
+    assert "plays 17-32" in ACTOR_PROFILE
+
+
+def test_age_range_starting_at_30_now_overrides_to_apply():
+    """Oct 2026 digests: 25 roles like 30-40 / 30-50 sat in Needs Your Attention
+    because the range only touched the old 17-30 ceiling. With the ceiling at 32
+    they overlap by two years and the AI's 'no overlap' claim is corrected."""
+    from src.role_selector import _maybe_override_age_overlap_skip
+    role = {"role_name": "THE NEW FATHER (30s)", "age_range": "30-40"}
+    ai_reason = "Age range 30–40 has no overlap with actor's playable range of 17–30; hard disqualifier"
+    overridden, new_reason = _maybe_override_age_overlap_skip(role, ai_reason)
+    assert overridden is True
+    assert "overlaps actor's 17-32" in new_reason
+
+
+def test_age_range_starting_at_30_selected_end_to_end():
+    role = {"role_name": "Bettor", "age_range": "30-50", "description": "Athletic, relaxed"}
+    mock_module, _ = _make_mock_anthropic(
+        "SKIP - Age range 30-50 has no overlap with actor's playable range of 17-30"
+    )
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles([role], "ESPN/Draft Kings")
+    assert [s[0]["role_name"] for s in selected] == ["Bettor"], rejections

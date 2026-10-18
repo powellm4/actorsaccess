@@ -26,7 +26,10 @@ submission:
     - 49385977  # IMG_5975
     - 49379289  # IMG_5964
   resume_id: 49686667  # marshall_powell_acting_resume.pdf
-  # Cover letter text is hardcoded in src/backstage/main.py SELFTAPE_COVER_LETTER.
+  # Roles that require a cover letter get the short built-in letter from
+  # src/backstage/main.py (DEFAULT_COVER_LETTER). Set this to replace it;
+  # "{role}" is swapped for the role name.
+  cover_letter: ""
 
 browser:
   headless: false
