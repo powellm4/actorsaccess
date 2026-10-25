@@ -264,6 +264,35 @@ def test_multi_role_selected_self_correction_to_skip_wins_on_final_verdict():
     assert "Jake" in selected_names
 
 
+def test_multi_role_selected_reason_ending_in_prose_reject_demotes():
+    """Regression for a gap in #86's fix: the inline contradiction guard only
+    recognized FIT/SKIP/DISQUALIFIER tokens followed by a dash/colon, so a
+    self-correction phrased as prose with "REJECT" (not "REJECTED:") slipped
+    through uncaught. Reproduces Nebraska Culinary Exploration — OMAHA DUO,
+    Sept 14 2026 9:48pm Paid digest: the role was applied even though its own
+    reasoning ended "...That is under $1,000. REJECT on travel pay." while two
+    sibling roles in the same project, with the same pay, were correctly
+    passed for the identical reason."""
+    response = (
+        "SELECTED: 1 - Age and type match for athletic leading man\n"
+        "SELECTED: 3 - full day rate clears the fly-to threshold of $1,000? "
+        "— wait, this requires air travel: $750 total. That is under $1,000. "
+        "REJECT on travel pay.\n"
+        "REJECTED: 2 - Requires heavyset build, actor is athletic"
+    )
+    mock_module, _ = _make_mock_anthropic(response)
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch.dict(sys.modules, {"anthropic": mock_module}):
+            selected, rejections = select_best_roles(SAMPLE_ROLES, "Test Project")
+    selected_names = {r["role_name"] for r, _ in selected}
+    assert "Tommy" not in selected_names, (
+        f"final prose 'REJECT on travel pay' conclusion must demote the role "
+        f"out of selected; selected={selected_names}"
+    )
+    assert "Tommy" in rejections
+    assert "Jake" in selected_names
+
+
 def test_single_role_no_api_key_returns_directly():
     """Single candidate without API key should return without check."""
     roles = [SAMPLE_ROLES[0]]
