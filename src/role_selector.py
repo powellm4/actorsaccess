@@ -159,12 +159,12 @@ _FLY_TO_US_STATES = {
 
 _PAID_TRAVEL_PAY_BLOCK = """TRAVEL PAY MINIMUMS — the actor is based in Los Angeles but is willing to work as "local hire" ANYWHERE as long as the pay meets the threshold. "Must be local hire to [city]", "local to [city]", or "must be based in [city]" are NOT disqualifiers — the actor will travel at his own expense if the total pay is high enough. Apply these rules:
 - LA area (Los Angeles, Burbank, Pasadena, Long Beach, Orange County, etc.): any pay is fine — NEVER reject an LA role for low pay, even $50
-- Short drive (San Diego, Palm Springs, Santa Barbara, Bakersfield): SKIP if total pay is under $250
-- Medium drive (San Francisco, Bay Area, Las Vegas, Phoenix, Tucson, Arizona generally, Sacramento, NV/AZ): SKIP if total pay is under $500
+- Short drive (San Diego, Palm Springs, Santa Barbara, Bakersfield): SKIP if total pay is under $100
+- Medium drive (San Francisco, Bay Area, Las Vegas, Phoenix, Tucson, Arizona generally, Sacramento, NV/AZ): SKIP if total pay is under $200
 - Fly-to locations (New York, Atlanta, Chicago, Vancouver, or anywhere requiring air travel): SKIP if total pay is under $1000
 - If the shoot location is not mentioned or unclear, do NOT reject based on pay
 - If the listing says flights or hotel/lodging are provided/covered (e.g. "Flight, hotel ... provided", "airfare and accommodations covered"), the actor's travel cost is covered — do NOT reject for pay regardless of location; treat as FIT/SELECT.
-- "Total pay" means the full amount for the job, not per day. If the listing says "$200/day" for a 3-day shoot, total pay is $600 — that passes the short-drive $250 threshold but not the medium-drive $500 threshold. For hourly rates, assume an 8-hour day (e.g., "$150/hour" = $1,200/day). If the total pay clearly exceeds the threshold, do NOT reject
+- "Total pay" means the full amount for the job, not per day. If the listing says "$50/day" for a 3-day shoot, total pay is $150 — that passes the short-drive $100 threshold but not the medium-drive $200 threshold. For hourly rates, assume an 8-hour day (e.g., "$150/hour" = $1,200/day). If the total pay clearly exceeds the threshold, do NOT reject
 
 WHEN PAY CLEARS THE THRESHOLD, FIT/SELECT — these are NOT valid reasons to reject, no matter how the casting post is worded:
 - "Local hire only" / "must be local to [city]" / "talent local to [city] only" / "Casting talent local to [CITY] ONLY" — the actor flies in and pays his own way; this is exactly the case the threshold rule was written for.
@@ -498,7 +498,7 @@ def check_travel_pay(
         )
         return True, None, True
 
-    thresholds = {"short": 250, "medium": 500, "fly": 1000}
+    thresholds = {"short": 100, "medium": 200, "fly": 1000}
     threshold = thresholds[tier]
 
     if pay < threshold:
