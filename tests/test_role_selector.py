@@ -1998,3 +1998,22 @@ def test_needs_input_own_wardrobe_still_flagged():
     assert _maybe_override_needs_input(
         "Casting requires talent to bring 2–3 specific wardrobe options fitting the look."
     ) is None
+
+
+@pytest.mark.parametrize("location", [
+    "Salt Lake City, UT", "Monterey, CA", "Flagstaff, AZ", "Medford, OR", "Lake Tahoe",
+])
+def test_within_10_hour_drive_uses_medium_threshold(location):
+    """Anywhere within ~10 hours' drive of LA is medium drive ($200), not fly-to."""
+    ok, _, _ = check_travel_pay("SHORT FILM", "$300 flat.", f"Location: {location}")
+    assert ok
+    ok, reason, _ = check_travel_pay("SHORT FILM", "$150 flat.", f"Location: {location}")
+    assert not ok
+    assert "medium drive" in reason
+
+
+@pytest.mark.parametrize("location", ["Portland, OR", "Medford, MA", "Boise, Idaho"])
+def test_beyond_10_hour_drive_stays_fly_to(location):
+    ok, reason, _ = check_travel_pay("SHORT FILM", "$300 flat.", f"Location: {location}")
+    assert not ok
+    assert "fly-to" in reason

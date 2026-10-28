@@ -117,10 +117,26 @@ _LA_AREA_KEYWORDS = [
     "socal", "so cal", "southern california",
 ]
 _SHORT_DRIVE_KEYWORDS = ["san diego", "palm springs", "santa barbara", "bakersfield"]
+# Medium drive = anywhere within roughly a 10-hour drive of LA.
 _MEDIUM_DRIVE_KEYWORDS = [
-    "las vegas", "vegas", "san francisco", "oakland", "san jose", "bay area",
-    "phoenix", "tucson", "arizona", "scottsdale", "tempe", "mesa, az", "reno",
-    "sacramento", "fresno", "stockton", "modesto",
+    # California outside LA / short-drive areas
+    "san francisco", "oakland", "san jose", "bay area", "berkeley",
+    "palo alto", "mountain view", "santa clara", "napa", "sonoma", "santa rosa",
+    "sacramento", "fresno", "stockton", "modesto", "chico, ca", "redding",
+    "lake tahoe", "tahoe", "yosemite", "mammoth lakes", "death valley",
+    "monterey", "carmel, ca", "carmel-by-the-sea", "santa cruz", "salinas, ca", "san luis obispo",
+    "paso robles", "central coast", "northern california", "norcal",
+    "central california",
+    # Nevada
+    "las vegas", "vegas", "henderson, nv", "reno", "carson city", "nevada",
+    # Arizona
+    "phoenix", "tucson", "arizona", "scottsdale", "tempe", "mesa, az",
+    "flagstaff", "sedona", "prescott, az", "yuma", "lake havasu",
+    # Utah
+    "utah", "salt lake", "st. george", "st george, ut", "park city", "provo",
+    "moab",
+    # Southern Oregon
+    "medford, or", "ashland, or",
 ]
 _FLY_TO_KEYWORDS = [
     "new york", "nyc", "brooklyn", "manhattan", "queens", "bronx",
@@ -129,14 +145,14 @@ _FLY_TO_KEYWORDS = [
     "philadelphia", "detroit", "denver", "nashville", "new orleans",
     "wilmington, nc", "wilmington nc", "pittsburgh", "minneapolis",
     "washington, dc", "d.c.", "st. louis", "charlotte", "orlando",
-    "savannah", "albuquerque", "salt lake", "honolulu", "hawaii",
+    "savannah", "albuquerque", "honolulu", "hawaii",
     "dfw", "santa fe",
     "italy", "china", "london", "paris", "australia", "canada",
     "mexico", "spain", "germany", "japan", "korea", "india",
     "bari, italy", "beijing",
 ]
 
-# US states that are fly-to from LA (excludes CA, NV, AZ which are handled above).
+# US states that are fly-to from LA (excludes CA, NV, AZ, UT which are handled above).
 # Full names matched as substrings; codes matched only in clear state-reference context
 # (e.g., "Greenville, SC") to avoid false positives like "SC" appearing inside random text.
 _FLY_TO_US_STATES = {
@@ -150,7 +166,7 @@ _FLY_TO_US_STATES = {
     "new mexico": "NM", "new york": "NY", "north carolina": "NC",
     "north dakota": "ND", "ohio": "OH", "oklahoma": "OK", "oregon": "OR",
     "pennsylvania": "PA", "rhode island": "RI", "south carolina": "SC",
-    "south dakota": "SD", "tennessee": "TN", "texas": "TX", "utah": "UT",
+    "south dakota": "SD", "tennessee": "TN", "texas": "TX",
     "vermont": "VT", "virginia": "VA", "washington": "WA",
     "west virginia": "WV", "wisconsin": "WI", "wyoming": "WY",
     "district of columbia": "DC",
@@ -160,7 +176,7 @@ _FLY_TO_US_STATES = {
 _PAID_TRAVEL_PAY_BLOCK = """TRAVEL PAY MINIMUMS — the actor is based in Los Angeles but is willing to work as "local hire" ANYWHERE as long as the pay meets the threshold. "Must be local hire to [city]", "local to [city]", or "must be based in [city]" are NOT disqualifiers — the actor will travel at his own expense if the total pay is high enough. Apply these rules:
 - LA area (Los Angeles, Burbank, Pasadena, Long Beach, Orange County, etc.): any pay is fine — NEVER reject an LA role for low pay, even $50
 - Short drive (San Diego, Palm Springs, Santa Barbara, Bakersfield): SKIP if total pay is under $100
-- Medium drive (San Francisco, Bay Area, Las Vegas, Phoenix, Tucson, Arizona generally, Sacramento, NV/AZ): SKIP if total pay is under $200
+- Medium drive (anywhere within about a 10-hour drive of LA: the rest of California incl. San Francisco, Bay Area, Sacramento, Central Coast, Tahoe; Nevada incl. Las Vegas and Reno; Arizona; Utah incl. Salt Lake City; southern Oregon): SKIP if total pay is under $200
 - Fly-to locations (New York, Atlanta, Chicago, Vancouver, or anywhere requiring air travel): SKIP if total pay is under $1000
 - If the shoot location is not mentioned or unclear, do NOT reject based on pay
 - If the listing says flights or hotel/lodging are provided/covered (e.g. "Flight, hotel ... provided", "airfare and accommodations covered"), the actor's travel cost is covered — do NOT reject for pay regardless of location; treat as FIT/SELECT.
