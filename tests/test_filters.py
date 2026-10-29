@@ -320,3 +320,31 @@ def test_wardrobe_terms_need_a_shoot_noun(desc, expected):
     # "comfortable in swimwear" is ordinary acting-breakdown wardrobe language
     # and must not open the unpaid role-type bypass.
     assert is_modeling_role({"role_name": "Talent", "description": desc}) is expected
+
+
+def test_background_role_allowed_when_pay_at_least_500():
+    from src.filters import role_matches
+    role = {
+        "fit_for_me": True,
+        "role_name": "BURGER KING EMPLOYEES",
+        "description": "Background talent for national commercial.",
+        "pay": "Up to $2,200",
+    }
+    assert role_matches(role) == (True, "")
+
+
+def test_background_role_rejected_when_pay_under_500():
+    from src.filters import role_matches
+    role = {
+        "fit_for_me": True,
+        "role_name": "DINER",
+        "description": "Background talent.",
+        "pay": "$150",
+    }
+    assert role_matches(role) == (False, "background role")
+
+
+def test_background_role_rejected_when_no_pay():
+    from src.filters import role_matches
+    role = {"fit_for_me": True, "role_name": "EXTRAS", "description": ""}
+    assert role_matches(role) == (False, "background role")
