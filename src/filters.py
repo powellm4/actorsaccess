@@ -167,6 +167,22 @@ def _is_background(role: dict) -> bool:
     return bool(_BG_ROLE_PATTERN.search(name) or _BG_ROLE_PATTERN.search(desc))
 
 
+# The actor skips background work unless it pays at least this much in total
+# (e.g. a $2,200 Burger King commercial "employees" background booking).
+BACKGROUND_MIN_PAY = 500
+
+
+def background_pay_ok(role: dict) -> bool:
+    """True if a background role pays enough (total) to be worth submitting."""
+    from src.role_selector import _extract_total_pay
+
+    pay_text = " ".join(
+        str(role.get(k) or "") for k in ("pay", "rate_of_pay", "rate", "description")
+    )
+    total = _extract_total_pay(pay_text)
+    return total is not None and total >= BACKGROUND_MIN_PAY
+
+
 def _is_voiceover(role: dict) -> bool:
     """Check if a role is a voice over/voice acting role."""
     name = role.get("role_name", "")
@@ -402,7 +418,7 @@ def role_matches(role: dict, mode: str = "paid") -> tuple[bool, str]:
     if not role.get("fit_for_me"):
         return False, "not fit for me"
 
-    if _is_background(role):
+    if _is_background(role) and not background_pay_ok(role):
         return False, "background role"
 
     if _is_voiceover(role):

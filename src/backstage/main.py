@@ -19,7 +19,7 @@ from src.backstage.client import BackstageClient, TransientBlockError
 from src.database import Database
 from src.override_email import send_override_results_email
 from src.calendar_check import check_availability, parse_shoot_dates, parse_all_dates
-from src.filters import _is_background, _is_court_tv, _is_family_casting, _is_ugc, _is_unpaid, _COURT_TV_PATTERN, extract_role_type_marker, is_lead_or_supporting, is_modeling_role, project_has_female_cast
+from src.filters import _is_background, background_pay_ok, _is_court_tv, _is_family_casting, _is_ugc, _is_unpaid, _COURT_TV_PATTERN, extract_role_type_marker, is_lead_or_supporting, is_modeling_role, project_has_female_cast
 from src.role_selector import (
     REVIEW_REJECTION_PREFIX,
     SELFTAPE_NOTE,
@@ -594,7 +594,7 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                         )
                         continue
 
-                    if _is_backstage_background(role):
+                    if _is_backstage_background(role) and not background_pay_ok(role):
                         roles_filtered += 1
                         if dry_run:
                             _print_role_decision("SKIP", project_name, role, "background role")
