@@ -160,3 +160,49 @@ def test_finalize_pending_drafts_dry_run_touches_nothing(tmp_path):
     assert main_mod.finalize_pending_drafts({}, db, client, mode="paid", dry_run=True) == 0
     client.finalize_draft.assert_not_called()
     assert len(db.get_pending_backstage_drafts("paid")) == 1
+
+
+@pytest.mark.parametrize("detail,expected", [
+    ({"production_company": "Zhongster, LLC", "primary_contact": "Someone Else"}, "Zhongster"),
+    ({"production_company": "New Co", "primary_contact": "Blake Jackson, Creative Producer"}, "Blake Jackson"),
+    ({"production_company": "ZHONGSTER LLC"}, "Zhongster"),
+    ({"production_company": "Other Films", "primary_contact": "Blake Kaiser"}, None),
+    ({"production_company": None, "primary_contact": None}, None),
+    ({}, None),
+])
+def test_blocked_poster_matches_company_or_contact(detail, expected):
+    assert main_mod._blocked_poster(detail, ["Zhongster", "Blake Jackson"]) == expected
+
+
+def test_blocked_poster_empty_list_blocks_nothing():
+    assert main_mod._blocked_poster({"production_company": "Zhongster, LLC"}, []) is None
+
+
+def test_blocked_poster_role_is_rejected_not_submitted(tmp_path):
+    db = Database(str(tmp_path / "t.db"))
+    production = {
+        "id": 1, "title": "Evil Kids", "url": "/casting/evil-kids-1/",
+        "roles": [{"id": 2, "name": "Boyfriend", "description": "Handsome.",
+                   "url": "/casting/evil-kids-1/boyfriend-2/"}],
+    }
+    client = _client([SAVED], {"items": [production]})
+    client.fetch_role_detail.return_value = {
+        "production_company": "Zhongster, LLC",
+        "primary_contact": "Blake Jackson, Creative Producer",
+        "roles": [{"id": 2, "description": "Handsome."}],
+    }
+    cfg = {"credentials": {"email": "e", "password": "p"}, "max_pages": 1,
+           "saved_search": "acting", "blocked_posters": ["Zhongster"]}
+
+    def pick_first(candidates, project_name, mode):
+        return [(candidates[0], "good fit")], {}
+
+    with patch.object(main_mod, "BackstageClient", return_value=client), \
+         patch.object(main_mod, "process_backstage_overrides"), \
+         patch.object(main_mod, "select_best_roles", side_effect=pick_first), \
+         patch.object(main_mod, "check_travel_pay", return_value=(True, "", False)):
+        main_mod.run_once(cfg, db, mode="paid")
+
+    client.fetch_role_detail.assert_called_once()
+    client.submit_for_role.assert_not_called()
+    assert db.is_rejected("Boyfriend", "Evil Kids", "backstage")

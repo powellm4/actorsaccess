@@ -6,6 +6,12 @@ max_pages: 3
 max_submissions: 20
 saved_search: "acting"
 
+# Never submit to listings from these companies/contacts. Case-insensitive
+# partial match against the listing's production company and primary contact.
+blocked_posters:
+  - "Zhongster"
+  - "Blake Jackson"
+
 submission:
   default_note: ""
   video_reel_ids:

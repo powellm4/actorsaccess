@@ -167,6 +167,16 @@ def _is_expired(production: dict) -> bool:
         return False
 
 
+def _blocked_poster(detail: dict, blocked: list[str]) -> str | None:
+    """Return the blocked name a production was posted by, if any.
+
+    Matches the company and contact on the role detail payload — the listing
+    API doesn't include either field.
+    """
+    poster = f"{detail.get('production_company') or ''} {detail.get('primary_contact') or ''}".lower()
+    return next((name for name in blocked if name.lower() in poster), None)
+
+
 def _parse_shoot_info(production: dict) -> str | None:
     """Extract shoot date info from production_info field."""
     info = production.get("production_info", "")
@@ -856,6 +866,24 @@ def run_once(cfg: dict, db: Database, dry_run: bool = False, mode: str = "paid")
                         )
                         if dry_run:
                             _print_role_decision("FLAGGED", project_name, best, flag_reason)
+                        continue
+
+                    blocked_name = _blocked_poster(detail, cfg.get("blocked_posters") or [])
+                    if blocked_name:
+                        block_reason = f"Blocked poster: {blocked_name}"
+                        logger.info(f"Filtered: {project_name} — {best['role_name']} ({block_reason})")
+                        db.record_rejection(
+                            project_name=project_name,
+                            project_url=project_url,
+                            role_name=best["role_name"],
+                            role_description=best.get("description", ""),
+                            rejection_reason=block_reason,
+                            run_id=run_id,
+                            platform="backstage",
+                            mode=mode,
+                        )
+                        if dry_run:
+                            _print_role_decision("SKIP", project_name, best, block_reason)
                         continue
 
                     # Backstage submission_requires codes: "0"=Headshot, "1"=Video Reel,
